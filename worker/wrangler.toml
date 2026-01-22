@@ -1,0 +1,6 @@
+name = "ccwtf-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+BASE_IMAGE_URL = "https://claudecode.wtf/claudecode.jpg"

@@ -1,65 +1,164 @@
-import Image from "next/image";
+import Terminal from "./components/Terminal";
+import BuyButton from "./components/BuyButton";
+import ContractAddress from "./components/ContractAddress";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="min-h-screen w-full flex items-center justify-center py-4 sm:py-8">
+      <div className="max-w-[900px] w-full px-4 sm:px-5">
+        {/* Terminal Header */}
+        <header className="flex items-center gap-3 py-4 border-b border-border mb-6">
+          <div className="flex gap-2">
+            <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+            <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+            <div className="w-3 h-3 rounded-full bg-[#28c840]" />
+          </div>
+          <span className="text-text-secondary text-sm ml-auto">
+            claude-code-coin ~ zsh
+          </span>
+        </header>
+
+        {/* Logo Section */}
+        <section className="text-center py-4 sm:py-8">
+          <img
+            src="/cc.png"
+            alt="$CC mascot"
+            width={80}
+            height={80}
+            className="mx-auto mb-4"
+          />
+          <pre className="text-claude-orange text-[5px] sm:text-[8px] leading-tight inline-block whitespace-pre">
+{` ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗     ██████╗ ██████╗ ██████╗ ███████╗     ██████╗ ██████╗ ██╗███╗   ██╗
+██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝    ██╔════╝██╔═══██╗██╔══██╗██╔════╝    ██╔════╝██╔═══██╗██║████╗  ██║
+██║     ██║     ███████║██║   ██║██║  ██║█████╗      ██║     ██║   ██║██║  ██║█████╗      ██║     ██║   ██║██║██╔██╗ ██║
+██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝      ██║     ██║   ██║██║  ██║██╔══╝      ██║     ██║   ██║██║██║╚██╗██║
+╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗    ╚██████╗╚██████╔╝██████╔╝███████╗    ╚██████╗╚██████╔╝██║██║ ╚████║
+ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝     ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝     ╚═════╝ ╚═════╝ ╚═╝╚═╝  ╚═══╝`}
+          </pre>
+          <p className="text-text-secondary text-sm mt-4">
+            The unofficial community memecoin celebrating Claude Code
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
           <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
+            href="https://x.com/i/communities/2014131779628618154"
             target="_blank"
             rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-border text-text-primary px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm transition-colors hover:bg-bg-tertiary hover:border-claude-orange hover:text-claude-orange mt-4"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+            Join the Community
           </a>
+        </section>
+
+        {/* Terminal */}
+        <section className="my-4 sm:my-6">
+          <Terminal />
+        </section>
+
+        {/* Info Cards */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 my-4 sm:my-6">
+          <div className="bg-bg-secondary border border-border rounded-lg p-4 sm:p-5">
+            <div className="text-claude-orange text-xs uppercase tracking-wider mb-2">
+              Token Supply
+            </div>
+            <div className="text-2xl font-bold text-text-primary">
+              1,000,000,000
+            </div>
+            <div className="text-text-muted text-xs mt-1">One billion $CC</div>
+          </div>
+          <div className="bg-bg-secondary border border-border rounded-lg p-4 sm:p-5">
+            <div className="text-claude-orange text-xs uppercase tracking-wider mb-2">
+              Creator Fees
+            </div>
+            <div className="text-2xl font-bold text-text-primary">100%</div>
+            <div className="text-text-muted text-xs mt-1">All fees to @bcherny</div>
+          </div>
+        </section>
+
+        {/* Contract Address */}
+        <section className="my-4 sm:my-6">
+          <ContractAddress />
+        </section>
+
+        {/* Links */}
+        <section className="flex flex-wrap gap-2 sm:gap-3 justify-center my-6 sm:my-8">
           <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
+            href="/meme"
+            className="inline-flex items-center gap-2 bg-claude-orange text-white px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-claude-orange-dim"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+            Meme Generator
+          </a>
+          <BuyButton />
+          <a
+            href="https://x.com/bcherny"
             target="_blank"
             rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-border text-text-primary px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm transition-colors hover:bg-bg-tertiary hover:border-claude-orange hover:text-claude-orange"
           >
-            Documentation
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+            @bcherny
           </a>
-        </div>
-      </main>
+          <a
+            href="https://github.com/anthropics/claude-code"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-border text-text-primary px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm transition-colors hover:bg-bg-tertiary hover:border-claude-orange hover:text-claude-orange"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+            </svg>
+            Claude Code
+          </a>
+        </section>
+
+        {/* Footer */}
+        <footer className="py-6 border-t border-border text-center">
+          <p className="text-text-muted text-xs leading-relaxed">
+            Built with love by the community for the community
+            <br />
+            100% of fees dedicated to{" "}
+            <a
+              href="https://x.com/bcherny"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-claude-orange hover:underline"
+            >
+              Boris Cherny
+            </a>
+            , creator of Claude Code
+          </p>
+        </footer>
+      </div>
     </div>
   );
 }
