@@ -120,7 +120,23 @@ export default function Home() {
             >
               <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
-            Play Game
+            Space Invaders
+          </a>
+          <a
+            href="/moon"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-cyan-500 text-cyan-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-cyan-500 hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+            </svg>
+            Moon Mission
           </a>
           <BuyButton />
           <a
