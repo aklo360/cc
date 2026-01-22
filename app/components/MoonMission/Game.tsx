@@ -28,14 +28,16 @@ interface Coin {
 
 interface Bullet {
   id: number;
-  position: THREE.Vector3;
-  velocity: THREE.Vector3;
+  startPos: THREE.Vector3;
+  spawnTime: number;
+  speed: number;
 }
 
 interface Bomb {
   id: number;
-  position: THREE.Vector3;
-  velocity: THREE.Vector3;
+  startPos: THREE.Vector3;
+  spawnTime: number;
+  speed: number;
 }
 
 interface Explosion {
@@ -80,17 +82,22 @@ function Rocket({ position, rotation }: { position: [number, number, number]; ro
   );
 }
 
-function BulletMesh({ bullet }: { bullet: Bullet }) {
+function BulletMesh({ bullet, time }: { bullet: Bullet; time: number }) {
+  const elapsed = time - bullet.spawnTime;
+  const z = bullet.startPos.z - elapsed * bullet.speed;
+
   return (
-    <mesh position={bullet.position}>
-      <sphereGeometry args={[0.08, 8, 8]} />
-      <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={1} />
+    <mesh position={[bullet.startPos.x, bullet.startPos.y, z]} rotation={[Math.PI / 2, 0, 0]}>
+      <cylinderGeometry args={[0.03, 0.03, 0.8, 8]} />
+      <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={2} />
     </mesh>
   );
 }
 
-function BombMesh({ bomb }: { bomb: Bomb }) {
+function BombMesh({ bomb, time }: { bomb: Bomb; time: number }) {
   const ref = useRef<THREE.Mesh>(null);
+  const elapsed = time - bomb.spawnTime;
+  const z = bomb.startPos.z - elapsed * bomb.speed;
 
   useFrame((_, delta) => {
     if (ref.current) {
@@ -100,9 +107,9 @@ function BombMesh({ bomb }: { bomb: Bomb }) {
   });
 
   return (
-    <mesh ref={ref} position={bomb.position}>
-      <octahedronGeometry args={[0.2]} />
-      <meshStandardMaterial color="#ff4444" emissive="#ff0000" emissiveIntensity={0.8} />
+    <mesh ref={ref} position={[bomb.startPos.x, bomb.startPos.y, z]}>
+      <octahedronGeometry args={[0.25]} />
+      <meshStandardMaterial color="#ff4444" emissive="#ff0000" emissiveIntensity={1} />
     </mesh>
   );
 }
@@ -200,6 +207,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
   const [bullets, setBullets] = useState<Bullet[]>([]);
   const [bombs, setBombs] = useState<Bomb[]>([]);
   const [explosions, setExplosions] = useState<Explosion[]>([]);
+  const [gameTime, setGameTime] = useState(0);
   const { viewport } = useThree();
 
   const gameDataRef = useRef({
@@ -305,6 +313,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
 
     const g = gameDataRef.current;
     const time = state.clock.getElapsedTime();
+    setGameTime(time);
     const keys = g.keys;
 
     // Movement speed
@@ -345,8 +354,9 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     if (keys['Space'] && time - g.lastBulletTime > 0.1) {
       const newBullet: Bullet = {
         id: g.bulletId++,
-        position: new THREE.Vector3(g.posX, g.posY, g.posZ - 1),
-        velocity: new THREE.Vector3(0, 0, -40),
+        startPos: new THREE.Vector3(g.posX, g.posY, g.posZ),
+        spawnTime: time,
+        speed: 60,
       };
       setBullets(prev => [...prev.slice(-50), newBullet]);
       g.lastBulletTime = time;
@@ -356,8 +366,9 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     if ((keys['ShiftLeft'] || keys['ShiftRight']) && time - g.lastBombTime > 0.5) {
       const newBomb: Bomb = {
         id: g.bombId++,
-        position: new THREE.Vector3(g.posX, g.posY, g.posZ - 1),
-        velocity: new THREE.Vector3(0, 0, -25),
+        startPos: new THREE.Vector3(g.posX, g.posY, g.posZ),
+        spawnTime: time,
+        speed: 35,
       };
       setBombs(prev => [...prev.slice(-10), newBomb]);
       g.lastBombTime = time;
@@ -418,23 +429,17 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       g.lastCoinSpawn = time;
     }
 
-    // Update bullets
-    setBullets(prev => {
-      const updated = prev.map(b => {
-        b.position.add(b.velocity.clone().multiplyScalar(delta));
-        return b;
-      }).filter(b => b.position.z > -60);
-      return updated;
-    });
+    // Remove bullets that are too far
+    setBullets(prev => prev.filter(b => {
+      const z = b.startPos.z - (time - b.spawnTime) * b.speed;
+      return z > -60;
+    }));
 
-    // Update bombs
-    setBombs(prev => {
-      const updated = prev.map(b => {
-        b.position.add(b.velocity.clone().multiplyScalar(delta));
-        return b;
-      }).filter(b => b.position.z > -60);
-      return updated;
-    });
+    // Remove bombs that are too far
+    setBombs(prev => prev.filter(b => {
+      const z = b.startPos.z - (time - b.spawnTime) * b.speed;
+      return z > -60;
+    }));
 
     // Update explosions (fade out)
     setExplosions(prev => {
@@ -447,15 +452,20 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
 
     // Bullet-asteroid collisions
     let newExplosions: Explosion[] = [];
+    const bulletsToRemove = new Set<number>();
+    const bombsToRemove = new Set<number>();
+
     setAsteroids(prev => {
       return prev.map(asteroid => {
         // Check bullet hits
         for (const bullet of bullets) {
-          const dist = asteroid.position.distanceTo(bullet.position);
-          if (dist < asteroid.scale * 0.6) {
+          if (bulletsToRemove.has(bullet.id)) continue;
+          const bulletZ = bullet.startPos.z - (time - bullet.spawnTime) * bullet.speed;
+          const bulletPos = new THREE.Vector3(bullet.startPos.x, bullet.startPos.y, bulletZ);
+          const dist = asteroid.position.distanceTo(bulletPos);
+          if (dist < asteroid.scale * 0.7) {
             asteroid.health--;
-            // Remove bullet
-            setBullets(b => b.filter(bb => bb.id !== bullet.id));
+            bulletsToRemove.add(bullet.id);
             if (asteroid.health <= 0) {
               g.score += 25;
               newExplosions.push({
@@ -471,7 +481,10 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
 
         // Check bomb hits (bigger radius, instant kill)
         for (const bomb of bombs) {
-          const dist = asteroid.position.distanceTo(bomb.position);
+          if (bombsToRemove.has(bomb.id)) continue;
+          const bombZ = bomb.startPos.z - (time - bomb.spawnTime) * bomb.speed;
+          const bombPos = new THREE.Vector3(bomb.startPos.x, bomb.startPos.y, bombZ);
+          const dist = asteroid.position.distanceTo(bombPos);
           if (dist < asteroid.scale * 1.5) {
             g.score += 50;
             newExplosions.push({
@@ -480,8 +493,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
               scale: 0.5,
               opacity: 1,
             });
-            // Remove bomb
-            setBombs(b => b.filter(bb => bb.id !== bomb.id));
+            bombsToRemove.add(bomb.id);
             return { ...asteroid, health: -1 }; // Mark for removal
           }
         }
@@ -489,6 +501,14 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
         return asteroid;
       }).filter(a => a.health > 0);
     });
+
+    // Remove hit bullets and bombs
+    if (bulletsToRemove.size > 0) {
+      setBullets(prev => prev.filter(b => !bulletsToRemove.has(b.id)));
+    }
+    if (bombsToRemove.size > 0) {
+      setBombs(prev => prev.filter(b => !bombsToRemove.has(b.id)));
+    }
 
     if (newExplosions.length > 0) {
       setExplosions(prev => [...prev, ...newExplosions]);
@@ -550,11 +570,11 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       <Rocket position={rocketPos} rotation={rocketRotation} />
 
       {bullets.map(bullet => (
-        <BulletMesh key={bullet.id} bullet={bullet} />
+        <BulletMesh key={bullet.id} bullet={bullet} time={gameTime} />
       ))}
 
       {bombs.map(bomb => (
-        <BombMesh key={bomb.id} bomb={bomb} />
+        <BombMesh key={bomb.id} bomb={bomb} time={gameTime} />
       ))}
 
       {explosions.map(explosion => (
