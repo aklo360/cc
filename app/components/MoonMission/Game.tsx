@@ -116,16 +116,41 @@ function BombMesh({ bomb, time }: { bomb: Bomb; time: number }) {
 
 function ExplosionMesh({ explosion }: { explosion: Explosion }) {
   return (
-    <mesh position={explosion.position} scale={explosion.scale}>
-      <sphereGeometry args={[1, 16, 16]} />
-      <meshStandardMaterial
-        color="#ff8800"
-        emissive="#ff4400"
-        emissiveIntensity={2}
-        transparent
-        opacity={explosion.opacity}
-      />
-    </mesh>
+    <group position={explosion.position}>
+      {/* Core explosion */}
+      <mesh scale={explosion.scale}>
+        <sphereGeometry args={[1, 16, 16]} />
+        <meshStandardMaterial
+          color="#ffff00"
+          emissive="#ff8800"
+          emissiveIntensity={3}
+          transparent
+          opacity={explosion.opacity}
+        />
+      </mesh>
+      {/* Outer glow */}
+      <mesh scale={explosion.scale * 1.5}>
+        <sphereGeometry args={[1, 16, 16]} />
+        <meshStandardMaterial
+          color="#ff4400"
+          emissive="#ff2200"
+          emissiveIntensity={2}
+          transparent
+          opacity={explosion.opacity * 0.5}
+        />
+      </mesh>
+      {/* Shockwave ring */}
+      <mesh scale={explosion.scale * 2} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[1, 0.1, 8, 32]} />
+        <meshStandardMaterial
+          color="#ffaa00"
+          emissive="#ff6600"
+          emissiveIntensity={2}
+          transparent
+          opacity={explosion.opacity * 0.7}
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -140,13 +165,19 @@ function AsteroidMesh({ asteroid, speed }: { asteroid: Asteroid; speed: number }
     }
   });
 
-  // Color based on health
-  const color = asteroid.health > 1 ? '#666' : '#884444';
+  // Color based on health - light grey moon, red tint when damaged
+  const color = asteroid.health > 1 ? '#cccccc' : '#ff8866';
+  const emissive = asteroid.health > 1 ? '#444444' : '#ff4422';
 
   return (
     <mesh ref={ref} position={asteroid.position} scale={asteroid.scale}>
-      <dodecahedronGeometry args={[0.5]} />
-      <meshStandardMaterial color={color} roughness={0.8} />
+      <sphereGeometry args={[0.8, 16, 16]} />
+      <meshStandardMaterial
+        color={color}
+        emissive={emissive}
+        emissiveIntensity={0.3}
+        roughness={0.7}
+      />
     </mesh>
   );
 }
@@ -407,7 +438,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
           -50
         ),
         rotation: new THREE.Euler(Math.random() * Math.PI, Math.random() * Math.PI, 0),
-        scale: 0.5 + Math.random() * 1,
+        scale: 1.0 + Math.random() * 1.5,
         health: 2,
       };
       setAsteroids(prev => [...prev.slice(-30), newAsteroid]);
@@ -445,8 +476,8 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     setExplosions(prev => {
       return prev.map(e => ({
         ...e,
-        scale: e.scale + delta * 3,
-        opacity: e.opacity - delta * 2,
+        scale: e.scale + delta * 5,
+        opacity: e.opacity - delta * 1.2,
       })).filter(e => e.opacity > 0);
     });
 
@@ -471,7 +502,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
               newExplosions.push({
                 id: g.explosionId++,
                 position: asteroid.position.clone(),
-                scale: 0.3,
+                scale: 0.8,
                 opacity: 1,
               });
               return { ...asteroid, health: -1 }; // Mark for removal
@@ -490,7 +521,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
             newExplosions.push({
               id: g.explosionId++,
               position: asteroid.position.clone(),
-              scale: 0.5,
+              scale: 1.2,
               opacity: 1,
             });
             bombsToRemove.add(bomb.id);
