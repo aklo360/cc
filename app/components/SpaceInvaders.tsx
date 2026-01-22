@@ -149,7 +149,7 @@ export default function SpaceInvaders({ width = 480, height = 640 }: SpaceInvade
         if (!a.alive) return;
         a.x += g.alienSpeed * g.alienDir;
         if (a.x <= 0 || a.x + a.w >= width) edgeHit = true;
-        if (a.y + a.h >= g.player.y) {
+        if (a.y + a.h >= g.player.y + 30) {
           g.gameOver = true;
           g.won = false;
         }
@@ -248,8 +248,8 @@ export default function SpaceInvaders({ width = 480, height = 640 }: SpaceInvade
         ctx.fillRect(g.playerBullet.x, g.playerBullet.y, g.playerBullet.w, g.playerBullet.h);
       }
 
-      // Alien bullets (green to match aliens)
-      ctx.fillStyle = '#22c55e';
+      // Alien bullets (red)
+      ctx.fillStyle = '#ff4444';
       g.alienBullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
 
       // HUD
