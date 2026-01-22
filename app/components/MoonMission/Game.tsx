@@ -186,7 +186,7 @@ function AsteroidMesh({ asteroid, speed }: { asteroid: Asteroid; speed: number }
 }
 
 function CoinMesh({ coin, speed }: { coin: Coin; speed: number }) {
-  const ref = useRef<THREE.Mesh>(null);
+  const ref = useRef<THREE.Group>(null);
 
   useFrame((_, delta) => {
     if (ref.current && !coin.collected) {
@@ -198,10 +198,12 @@ function CoinMesh({ coin, speed }: { coin: Coin; speed: number }) {
   if (coin.collected) return null;
 
   return (
-    <mesh ref={ref} position={coin.position}>
-      <cylinderGeometry args={[0.3, 0.3, 0.1, 16]} />
-      <meshStandardMaterial color="#ffd700" emissive="#ffd700" emissiveIntensity={0.5} />
-    </mesh>
+    <group ref={ref} position={coin.position}>
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.5, 0.5, 0.1, 32]} />
+        <meshStandardMaterial color="#ffd700" emissive="#ffd700" emissiveIntensity={0.8} />
+      </mesh>
+    </group>
   );
 }
 
