@@ -117,37 +117,40 @@ function BombMesh({ bomb, time }: { bomb: Bomb; time: number }) {
 function ExplosionMesh({ explosion }: { explosion: Explosion }) {
   return (
     <group position={explosion.position}>
-      {/* Core explosion */}
+      {/* Bright core */}
       <mesh scale={explosion.scale}>
         <sphereGeometry args={[1, 16, 16]} />
-        <meshStandardMaterial
-          color="#ffff00"
-          emissive="#ff8800"
-          emissiveIntensity={3}
+        <meshBasicMaterial
+          color="#ffffff"
           transparent
           opacity={explosion.opacity}
         />
       </mesh>
-      {/* Outer glow */}
-      <mesh scale={explosion.scale * 1.5}>
+      {/* Yellow fire */}
+      <mesh scale={explosion.scale * 1.3}>
         <sphereGeometry args={[1, 16, 16]} />
-        <meshStandardMaterial
-          color="#ff4400"
-          emissive="#ff2200"
-          emissiveIntensity={2}
+        <meshBasicMaterial
+          color="#ffff00"
           transparent
-          opacity={explosion.opacity * 0.5}
+          opacity={explosion.opacity * 0.8}
         />
       </mesh>
-      {/* Shockwave ring */}
-      <mesh scale={explosion.scale * 2} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[1, 0.1, 8, 32]} />
-        <meshStandardMaterial
-          color="#ffaa00"
-          emissive="#ff6600"
-          emissiveIntensity={2}
+      {/* Orange outer */}
+      <mesh scale={explosion.scale * 1.8}>
+        <sphereGeometry args={[1, 16, 16]} />
+        <meshBasicMaterial
+          color="#ff6600"
           transparent
-          opacity={explosion.opacity * 0.7}
+          opacity={explosion.opacity * 0.6}
+        />
+      </mesh>
+      {/* Red outermost */}
+      <mesh scale={explosion.scale * 2.5}>
+        <sphereGeometry args={[1, 16, 16]} />
+        <meshBasicMaterial
+          color="#ff0000"
+          transparent
+          opacity={explosion.opacity * 0.3}
         />
       </mesh>
     </group>
@@ -438,7 +441,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
           -50
         ),
         rotation: new THREE.Euler(Math.random() * Math.PI, Math.random() * Math.PI, 0),
-        scale: 1.0 + Math.random() * 1.5,
+        scale: 2 + Math.random() * 6,
         health: 2,
       };
       setAsteroids(prev => [...prev.slice(-30), newAsteroid]);
@@ -476,73 +479,77 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     setExplosions(prev => {
       return prev.map(e => ({
         ...e,
-        scale: e.scale + delta * 5,
-        opacity: e.opacity - delta * 1.2,
+        scale: e.scale + delta * 8,
+        opacity: e.opacity - delta * 0.8,
       })).filter(e => e.opacity > 0);
     });
 
     // Bullet-asteroid collisions
-    let newExplosions: Explosion[] = [];
     const bulletsToRemove = new Set<number>();
     const bombsToRemove = new Set<number>();
+    const explosionsToAdd: Explosion[] = [];
+    const asteroidsToDestroy = new Set<number>();
 
-    setAsteroids(prev => {
-      return prev.map(asteroid => {
-        // Check bullet hits
-        for (const bullet of bullets) {
-          if (bulletsToRemove.has(bullet.id)) continue;
-          const bulletZ = bullet.startPos.z - (time - bullet.spawnTime) * bullet.speed;
-          const bulletPos = new THREE.Vector3(bullet.startPos.x, bullet.startPos.y, bulletZ);
-          const dist = asteroid.position.distanceTo(bulletPos);
-          if (dist < asteroid.scale * 0.7) {
-            asteroid.health--;
-            bulletsToRemove.add(bullet.id);
-            if (asteroid.health <= 0) {
-              g.score += 25;
-              newExplosions.push({
-                id: g.explosionId++,
-                position: asteroid.position.clone(),
-                scale: 0.8,
-                opacity: 1,
-              });
-              return { ...asteroid, health: -1 }; // Mark for removal
-            }
+    // Check all collisions first
+    for (const asteroid of asteroids) {
+      // Check bullet hits
+      for (const bullet of bullets) {
+        if (bulletsToRemove.has(bullet.id)) continue;
+        const bulletZ = bullet.startPos.z - (time - bullet.spawnTime) * bullet.speed;
+        const bulletPos = new THREE.Vector3(bullet.startPos.x, bullet.startPos.y, bulletZ);
+        const dist = asteroid.position.distanceTo(bulletPos);
+        if (dist < asteroid.scale * 1.2) {
+          bulletsToRemove.add(bullet.id);
+          asteroid.health--;
+          if (asteroid.health <= 0) {
+            g.score += 25;
+            asteroidsToDestroy.add(asteroid.id);
+            explosionsToAdd.push({
+              id: g.explosionId++,
+              position: asteroid.position.clone(),
+              scale: asteroid.scale * 1.5,
+              opacity: 1,
+            });
           }
+          break;
         }
+      }
 
-        // Check bomb hits (bigger radius, instant kill)
+      // Check bomb hits (bigger radius, instant kill)
+      if (!asteroidsToDestroy.has(asteroid.id)) {
         for (const bomb of bombs) {
           if (bombsToRemove.has(bomb.id)) continue;
           const bombZ = bomb.startPos.z - (time - bomb.spawnTime) * bomb.speed;
           const bombPos = new THREE.Vector3(bomb.startPos.x, bomb.startPos.y, bombZ);
           const dist = asteroid.position.distanceTo(bombPos);
-          if (dist < asteroid.scale * 1.5) {
+          if (dist < asteroid.scale * 2) {
             g.score += 50;
-            newExplosions.push({
+            asteroidsToDestroy.add(asteroid.id);
+            bombsToRemove.add(bomb.id);
+            explosionsToAdd.push({
               id: g.explosionId++,
               position: asteroid.position.clone(),
-              scale: 1.2,
+              scale: asteroid.scale * 2,
               opacity: 1,
             });
-            bombsToRemove.add(bomb.id);
-            return { ...asteroid, health: -1 }; // Mark for removal
+            break;
           }
         }
+      }
+    }
 
-        return asteroid;
-      }).filter(a => a.health > 0);
-    });
-
-    // Remove hit bullets and bombs
+    // Apply all state updates
+    if (asteroidsToDestroy.size > 0) {
+      setAsteroids(prev => prev.filter(a => !asteroidsToDestroy.has(a.id)));
+    }
     if (bulletsToRemove.size > 0) {
       setBullets(prev => prev.filter(b => !bulletsToRemove.has(b.id)));
     }
     if (bombsToRemove.size > 0) {
       setBombs(prev => prev.filter(b => !bombsToRemove.has(b.id)));
     }
-
-    if (newExplosions.length > 0) {
-      setExplosions(prev => [...prev, ...newExplosions]);
+    if (explosionsToAdd.length > 0) {
+      setExplosions(prev => [...prev, ...explosionsToAdd]);
     }
 
     // Rocket collision with asteroids (only if not barrel rolling - invincibility frames!)
