@@ -48,9 +48,91 @@ interface Explosion {
   opacity: number;
 }
 
-function Rocket({ position, rotation }: { position: [number, number, number]; rotation: number }) {
+// CC Character - 3D extruded version of the $CC mascot using actual SVG path
+function CCCharacter({ position, rotation }: { position: [number, number, number]; rotation: number }) {
   const groupRef = useRef<THREE.Group>(null);
   const flameRef = useRef<THREE.Mesh>(null);
+
+  // Create the CC character shape from the actual SVG path data
+  const geometry = useMemo(() => {
+    // SVG viewBox: 0 0 908.7 611.6
+    // We'll scale it down and center it
+    const scale = 0.0038; // Bigger body
+    const offsetX = -908.7 / 2; // Center horizontally
+    const offsetY = -611.6 / 2; // Center vertically
+
+    // Helper to transform SVG coords to our coordinate system
+    const tx = (x: number) => (x + offsetX) * scale;
+    const ty = (y: number) => -(y + offsetY) * scale; // Flip Y axis
+
+    // Main body shape - traced from the SVG path
+    const shape = new THREE.Shape();
+
+    // Starting point and main outline (from SVG path data)
+    shape.moveTo(tx(623.2), ty(611.4));
+    shape.lineTo(tx(561.5), ty(611.4));
+    shape.lineTo(tx(561.5), ty(489.5));
+    shape.lineTo(tx(346.3), ty(489.5));
+    shape.lineTo(tx(346.3), ty(611.6));
+    shape.lineTo(tx(285.6), ty(611.6));
+    shape.lineTo(tx(285.6), ty(489.4));
+    shape.lineTo(tx(233.2), ty(489.4));
+    shape.lineTo(tx(233.2), ty(611.5));
+    shape.lineTo(tx(172.5), ty(611.5));
+    shape.lineTo(tx(172.5), ty(489.5));
+    shape.lineTo(tx(111.5), ty(489.5));
+    shape.lineTo(tx(111.5), ty(366.7));
+    shape.lineTo(tx(0), ty(366.7));
+    shape.lineTo(tx(0), ty(245.3));
+    shape.lineTo(tx(112.1), ty(245.3));
+    shape.lineTo(tx(112.1), ty(1.6));
+    shape.lineTo(tx(118.3), ty(0.6));
+    shape.lineTo(tx(789.9), ty(0.6));
+    shape.lineTo(tx(797.1), ty(0.6));
+    shape.lineTo(tx(797.1), ty(245.4));
+    shape.lineTo(tx(908.2), ty(245.4));
+    shape.lineTo(tx(908.2), ty(252.3));
+    shape.lineTo(tx(908.2), ty(360.9));
+    shape.lineTo(tx(907.3), ty(366.8));
+    shape.lineTo(tx(797.1), ty(366.8));
+    shape.lineTo(tx(797.1), ty(489.5));
+    shape.lineTo(tx(735.1), ty(489.5));
+    shape.lineTo(tx(735.1), ty(611.5));
+    shape.lineTo(tx(674.4), ty(611.5));
+    shape.lineTo(tx(674.4), ty(489.4));
+    shape.lineTo(tx(623), ty(489.4));
+    shape.lineTo(tx(623), ty(611.4));
+    shape.closePath();
+
+    // Left eye hole - BIGGER (expanded by ~20px on each side)
+    const leftEye = new THREE.Path();
+    leftEye.moveTo(tx(295), ty(255));
+    leftEye.lineTo(tx(295), ty(100));
+    leftEye.lineTo(tx(220), ty(100));
+    leftEye.lineTo(tx(220), ty(255));
+    leftEye.closePath();
+    shape.holes.push(leftEye);
+
+    // Right eye hole - BIGGER (expanded by ~20px on each side)
+    const rightEye = new THREE.Path();
+    rightEye.moveTo(tx(688), ty(255));
+    rightEye.lineTo(tx(688), ty(100));
+    rightEye.lineTo(tx(613), ty(100));
+    rightEye.lineTo(tx(613), ty(255));
+    rightEye.closePath();
+    shape.holes.push(rightEye);
+
+    // Extrude settings
+    const extrudeSettings = {
+      depth: 0.25,
+      bevelEnabled: true,
+      bevelThickness: 0.04,
+      bevelSize: 0.04,
+      bevelSegments: 2,
+    };
+
+    return new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  }, []);
 
   useFrame(() => {
     if (flameRef.current) {
@@ -59,25 +141,40 @@ function Rocket({ position, rotation }: { position: [number, number, number]; ro
   });
 
   return (
-    <group ref={groupRef} position={position} rotation={[0, 0, Math.PI + rotation]}>
-      {/* Rocket body */}
-      <mesh position={[0, 0, 0]}>
-        <coneGeometry args={[0.3, 1, 8]} />
-        <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={0.5} />
+    <group ref={groupRef} position={position} rotation={[0, rotation, 0]}>
+      {/* CC Character body - metallic with emissive glow */}
+      <mesh geometry={geometry} rotation={[0, Math.PI, 0]} position={[0, 0, 0.15]}>
+        <meshStandardMaterial
+          color="#da7756"
+          emissive="#da7756"
+          emissiveIntensity={0.7}
+          metalness={0.7}
+          roughness={0.2}
+        />
       </mesh>
-      {/* Rocket fins */}
-      <mesh position={[-0.3, 0.3, 0]} rotation={[0, 0, -0.5]}>
-        <boxGeometry args={[0.2, 0.3, 0.05]} />
-        <meshStandardMaterial color="#ff00ff" emissive="#ff00ff" emissiveIntensity={0.3} />
+
+      {/* Engine glow behind character */}
+      <mesh ref={flameRef} position={[0, -0.65, 0.5]}>
+        <sphereGeometry args={[0.22, 16, 16]} />
+        <meshStandardMaterial
+          color="#00ffff"
+          emissive="#00ffff"
+          emissiveIntensity={2}
+          transparent
+          opacity={0.8}
+        />
       </mesh>
-      <mesh position={[0.3, 0.3, 0]} rotation={[0, 0, 0.5]}>
-        <boxGeometry args={[0.2, 0.3, 0.05]} />
-        <meshStandardMaterial color="#ff00ff" emissive="#ff00ff" emissiveIntensity={0.3} />
-      </mesh>
-      {/* Flame */}
-      <mesh ref={flameRef} position={[0, 0.7, 0]}>
-        <coneGeometry args={[0.15, 0.5, 8]} />
-        <meshStandardMaterial color="#ffa500" emissive="#ff4500" emissiveIntensity={1} transparent opacity={0.8} />
+
+      {/* Trail particles */}
+      <mesh position={[0, -0.65, 0.75]}>
+        <sphereGeometry args={[0.12, 8, 8]} />
+        <meshStandardMaterial
+          color="#ff00ff"
+          emissive="#ff00ff"
+          emissiveIntensity={1}
+          transparent
+          opacity={0.6}
+        />
       </mesh>
     </group>
   );
@@ -632,7 +729,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       <pointLight position={[-10, -10, 10]} intensity={0.5} color="#00ffff" />
 
       <Starfield />
-      <Rocket position={rocketPos} rotation={rocketRotation} />
+      <CCCharacter position={rocketPos} rotation={rocketRotation} />
 
       {bullets.map(bullet => (
         <BulletMesh key={bullet.id} bullet={bullet} time={gameTime} />

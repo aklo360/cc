@@ -6,6 +6,27 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2025-01-22] - 3D CC Character Model
+
+### Changed
+- **Moon Mission player is now the actual $CC mascot:**
+  - Rocket ship replaced with 3D extruded $CC character
+  - Uses exact SVG path from `public/claudecode.svg` (Adobe Illustrator export)
+  - Perfect silhouette: body, arms, 4 legs, eye holes
+  - Metallic reflective material (metalness 0.7, roughness 0.2)
+  - Claude orange (#da7756) with emissive glow
+  - Cyan engine glow + pink trail particles behind character
+
+### Added
+- `public/claudecode.svg` - Vector source file for 3D extrusion
+
+### Technical
+- THREE.Shape traced from SVG path coordinates
+- ExtrudeGeometry with bevel for polished 3D look
+- Centered and scaled to fit game viewport
+
+---
+
 ## [2025-01-22] - Moon Mission Keyboard Controls + Combat
 
 ### Changed
