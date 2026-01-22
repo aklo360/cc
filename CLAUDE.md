@@ -133,6 +133,7 @@ ccwtf/
 │   └── page.tsx                  # Homepage
 ├── public/
 │   ├── cc.png                    # 2D logo (SOURCE OF TRUTH)
+│   ├── claudecode.svg            # Vector SVG for 3D extrusion (Adobe Illustrator)
 │   ├── claudecode.jpg            # 3D rendered mascot
 │   └── og.jpg                    # Social preview
 ├── worker/                       # Cloudflare Worker (API)
@@ -179,6 +180,11 @@ ccwtf/
 ### 4. Moon Mission (`/moon`)
 - Three.js 3D endless runner
 - Synthwave aesthetic (purple/cyan/pink)
+- **3D CC Character:** Player ship is the actual $CC mascot extruded from SVG
+  - Uses `public/claudecode.svg` (Adobe Illustrator export)
+  - THREE.Shape + ExtrudeGeometry for accurate silhouette
+  - Metallic reflective material with Claude orange (#da7756) emissive glow
+  - Cyan engine glow + pink trail particles
 - **Controls:**
   - WASD: Move up/down/left/right
   - Arrow Up/Down: Forward/backward (z-axis)
