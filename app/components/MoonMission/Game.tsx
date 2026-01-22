@@ -2,6 +2,7 @@
 
 import { useFrame, useThree } from '@react-three/fiber';
 import { useRef, useState, useEffect, useMemo } from 'react';
+import { Text } from '@react-three/drei';
 import * as THREE from 'three';
 
 interface GameProps {
@@ -199,10 +200,34 @@ function CoinMesh({ coin, speed }: { coin: Coin; speed: number }) {
 
   return (
     <group ref={ref} position={coin.position}>
+      {/* Coin disc */}
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.5, 0.5, 0.1, 32]} />
         <meshStandardMaterial color="#ffd700" emissive="#ffd700" emissiveIntensity={0.8} />
       </mesh>
+      {/* CC text front */}
+      <Text
+        position={[0, 0, 0.06]}
+        fontSize={0.35}
+        color="#b8860b"
+        anchorX="center"
+        anchorY="middle"
+        fontWeight="bold"
+      >
+        CC
+      </Text>
+      {/* CC text back */}
+      <Text
+        position={[0, 0, -0.06]}
+        rotation={[0, Math.PI, 0]}
+        fontSize={0.35}
+        color="#b8860b"
+        anchorX="center"
+        anchorY="middle"
+        fontWeight="bold"
+      >
+        CC
+      </Text>
     </group>
   );
 }
