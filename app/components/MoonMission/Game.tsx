@@ -17,6 +17,7 @@ interface Asteroid {
   position: THREE.Vector3;
   rotation: THREE.Euler;
   scale: number;
+  health: number;
 }
 
 interface Coin {
@@ -25,18 +26,37 @@ interface Coin {
   collected: boolean;
 }
 
-function Rocket({ position }: { position: [number, number, number] }) {
+interface Bullet {
+  id: number;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+}
+
+interface Bomb {
+  id: number;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+}
+
+interface Explosion {
+  id: number;
+  position: THREE.Vector3;
+  scale: number;
+  opacity: number;
+}
+
+function Rocket({ position, rotation }: { position: [number, number, number]; rotation: number }) {
   const groupRef = useRef<THREE.Group>(null);
   const flameRef = useRef<THREE.Mesh>(null);
 
-  useFrame((_, delta) => {
+  useFrame(() => {
     if (flameRef.current) {
       flameRef.current.scale.y = 0.8 + Math.sin(Date.now() * 0.02) * 0.3;
     }
   });
 
   return (
-    <group ref={groupRef} position={position} rotation={[0, 0, Math.PI]}>
+    <group ref={groupRef} position={position} rotation={[0, 0, Math.PI + rotation]}>
       {/* Rocket body */}
       <mesh position={[0, 0, 0]}>
         <coneGeometry args={[0.3, 1, 8]} />
@@ -60,6 +80,48 @@ function Rocket({ position }: { position: [number, number, number] }) {
   );
 }
 
+function BulletMesh({ bullet }: { bullet: Bullet }) {
+  return (
+    <mesh position={bullet.position}>
+      <sphereGeometry args={[0.08, 8, 8]} />
+      <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={1} />
+    </mesh>
+  );
+}
+
+function BombMesh({ bomb }: { bomb: Bomb }) {
+  const ref = useRef<THREE.Mesh>(null);
+
+  useFrame((_, delta) => {
+    if (ref.current) {
+      ref.current.rotation.x += delta * 2;
+      ref.current.rotation.y += delta * 3;
+    }
+  });
+
+  return (
+    <mesh ref={ref} position={bomb.position}>
+      <octahedronGeometry args={[0.2]} />
+      <meshStandardMaterial color="#ff4444" emissive="#ff0000" emissiveIntensity={0.8} />
+    </mesh>
+  );
+}
+
+function ExplosionMesh({ explosion }: { explosion: Explosion }) {
+  return (
+    <mesh position={explosion.position} scale={explosion.scale}>
+      <sphereGeometry args={[1, 16, 16]} />
+      <meshStandardMaterial
+        color="#ff8800"
+        emissive="#ff4400"
+        emissiveIntensity={2}
+        transparent
+        opacity={explosion.opacity}
+      />
+    </mesh>
+  );
+}
+
 function AsteroidMesh({ asteroid, speed }: { asteroid: Asteroid; speed: number }) {
   const ref = useRef<THREE.Mesh>(null);
 
@@ -71,15 +133,18 @@ function AsteroidMesh({ asteroid, speed }: { asteroid: Asteroid; speed: number }
     }
   });
 
+  // Color based on health
+  const color = asteroid.health > 1 ? '#666' : '#884444';
+
   return (
     <mesh ref={ref} position={asteroid.position} scale={asteroid.scale}>
       <dodecahedronGeometry args={[0.5]} />
-      <meshStandardMaterial color="#555" roughness={0.8} />
+      <meshStandardMaterial color={color} roughness={0.8} />
     </mesh>
   );
 }
 
-function CoinMesh({ coin, speed, onCollect }: { coin: Coin; speed: number; onCollect: () => void }) {
+function CoinMesh({ coin, speed }: { coin: Coin; speed: number }) {
   const ref = useRef<THREE.Mesh>(null);
 
   useFrame((_, delta) => {
@@ -129,13 +194,24 @@ function Starfield() {
 
 export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpdate, onCoinsUpdate }: GameProps) {
   const [rocketPos, setRocketPos] = useState<[number, number, number]>([0, 0, 0]);
+  const [rocketRotation, setRocketRotation] = useState(0);
   const [asteroids, setAsteroids] = useState<Asteroid[]>([]);
   const [coins, setCoins] = useState<Coin[]>([]);
+  const [bullets, setBullets] = useState<Bullet[]>([]);
+  const [bombs, setBombs] = useState<Bomb[]>([]);
+  const [explosions, setExplosions] = useState<Explosion[]>([]);
   const { viewport } = useThree();
 
   const gameDataRef = useRef({
-    targetX: 0,
-    targetY: 0,
+    keys: {} as Record<string, boolean>,
+    posX: 0,
+    posY: 0,
+    posZ: 0,
+    rotation: 0,
+    targetRotation: 0,
+    barrelRollAngle: 0,
+    isBarrelRolling: false,
+    barrelRollDirection: 0,
     score: 0,
     distance: 0,
     coinsCollected: 0,
@@ -143,37 +219,62 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     startTime: 0,
     asteroidId: 0,
     coinId: 0,
+    bulletId: 0,
+    bombId: 0,
+    explosionId: 0,
     lastAsteroidSpawn: 0,
     lastCoinSpawn: 0,
+    lastBulletTime: 0,
+    lastBombTime: 0,
   });
 
-  // Mouse tracking
+  // Keyboard input
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      const g = gameDataRef.current;
-      g.targetX = ((e.clientX / window.innerWidth) * 2 - 1) * (viewport.width / 2) * 0.85;
-      g.targetY = -((e.clientY / window.innerHeight) * 2 - 1) * (viewport.height / 2) * 0.85;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      gameDataRef.current.keys[e.code] = true;
+
+      // Barrel roll on left/right arrows (only if not already rolling)
+      if (!gameDataRef.current.isBarrelRolling) {
+        if (e.code === 'ArrowLeft') {
+          gameDataRef.current.isBarrelRolling = true;
+          gameDataRef.current.barrelRollDirection = 1;
+          gameDataRef.current.barrelRollAngle = 0;
+        } else if (e.code === 'ArrowRight') {
+          gameDataRef.current.isBarrelRolling = true;
+          gameDataRef.current.barrelRollDirection = -1;
+          gameDataRef.current.barrelRollAngle = 0;
+        }
+      }
+
+      // Prevent default for game keys
+      if (['Space', 'ShiftLeft', 'ShiftRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+        e.preventDefault();
+      }
     };
 
-    const handleTouchMove = (e: TouchEvent) => {
-      const touch = e.touches[0];
-      const g = gameDataRef.current;
-      g.targetX = ((touch.clientX / window.innerWidth) * 2 - 1) * (viewport.width / 2) * 0.85;
-      g.targetY = -((touch.clientY / window.innerHeight) * 2 - 1) * (viewport.height / 2) * 0.85;
+    const handleKeyUp = (e: KeyboardEvent) => {
+      gameDataRef.current.keys[e.code] = false;
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('touchmove', handleTouchMove);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [viewport]);
+  }, []);
 
   // Reset game on start
   useEffect(() => {
     if (gameState === 'playing') {
       const g = gameDataRef.current;
+      g.posX = 0;
+      g.posY = 0;
+      g.posZ = 0;
+      g.rotation = 0;
+      g.targetRotation = 0;
+      g.barrelRollAngle = 0;
+      g.isBarrelRolling = false;
       g.score = 0;
       g.distance = 0;
       g.coinsCollected = 0;
@@ -181,11 +282,21 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       g.startTime = Date.now();
       g.asteroidId = 0;
       g.coinId = 0;
+      g.bulletId = 0;
+      g.bombId = 0;
+      g.explosionId = 0;
       g.lastAsteroidSpawn = 0;
       g.lastCoinSpawn = 0;
+      g.lastBulletTime = 0;
+      g.lastBombTime = 0;
+      g.keys = {};
       setAsteroids([]);
       setCoins([]);
+      setBullets([]);
+      setBombs([]);
+      setExplosions([]);
       setRocketPos([0, 0, 0]);
+      setRocketRotation(0);
     }
   }, [gameState]);
 
@@ -194,6 +305,63 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
 
     const g = gameDataRef.current;
     const time = state.clock.getElapsedTime();
+    const keys = g.keys;
+
+    // Movement speed
+    const moveSpeed = 8;
+    const zMoveSpeed = 5;
+
+    // WASD movement (left/right/up/down)
+    if (keys['KeyA'] || keys['KeyLeft']) g.posX -= moveSpeed * delta;
+    if (keys['KeyD'] || keys['KeyRight']) g.posX += moveSpeed * delta;
+    if (keys['KeyW'] || keys['KeyUp']) g.posY += moveSpeed * delta;
+    if (keys['KeyS'] || keys['KeyDown']) g.posY -= moveSpeed * delta;
+
+    // Arrow up/down for forward/back (z-axis)
+    if (keys['ArrowUp']) g.posZ -= zMoveSpeed * delta;
+    if (keys['ArrowDown']) g.posZ += zMoveSpeed * delta;
+
+    // Clamp position
+    const maxX = (viewport.width / 2) * 0.85;
+    const maxY = (viewport.height / 2) * 0.85;
+    const maxZ = 5;
+    g.posX = THREE.MathUtils.clamp(g.posX, -maxX, maxX);
+    g.posY = THREE.MathUtils.clamp(g.posY, -maxY, maxY);
+    g.posZ = THREE.MathUtils.clamp(g.posZ, -maxZ, maxZ);
+
+    // Barrel roll animation
+    if (g.isBarrelRolling) {
+      g.barrelRollAngle += delta * 12; // Speed of roll
+      if (g.barrelRollAngle >= Math.PI * 2) {
+        g.isBarrelRolling = false;
+        g.barrelRollAngle = 0;
+        g.rotation = 0;
+      } else {
+        g.rotation = g.barrelRollAngle * g.barrelRollDirection;
+      }
+    }
+
+    // Shooting bullets (Space) - rapid fire
+    if (keys['Space'] && time - g.lastBulletTime > 0.1) {
+      const newBullet: Bullet = {
+        id: g.bulletId++,
+        position: new THREE.Vector3(g.posX, g.posY, g.posZ - 1),
+        velocity: new THREE.Vector3(0, 0, -40),
+      };
+      setBullets(prev => [...prev.slice(-50), newBullet]);
+      g.lastBulletTime = time;
+    }
+
+    // Shooting bombs (Shift) - slower, bigger damage
+    if ((keys['ShiftLeft'] || keys['ShiftRight']) && time - g.lastBombTime > 0.5) {
+      const newBomb: Bomb = {
+        id: g.bombId++,
+        position: new THREE.Vector3(g.posX, g.posY, g.posZ - 1),
+        velocity: new THREE.Vector3(0, 0, -25),
+      };
+      setBombs(prev => [...prev.slice(-10), newBomb]);
+      g.lastBombTime = time;
+    }
 
     // Update speed based on time
     const elapsedSeconds = (Date.now() - g.startTime) / 1000;
@@ -213,12 +381,9 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     onDistanceUpdate(g.distance);
     onScoreUpdate(g.score);
 
-    // Smooth rocket follow
-    setRocketPos(prev => [
-      THREE.MathUtils.lerp(prev[0], g.targetX, 0.1),
-      THREE.MathUtils.lerp(prev[1], g.targetY, 0.1),
-      0
-    ]);
+    // Update rocket position
+    setRocketPos([g.posX, g.posY, g.posZ]);
+    setRocketRotation(g.rotation);
 
     // Spawn asteroids
     const asteroidInterval = elapsedSeconds < 10 ? 1.5 : elapsedSeconds < 30 ? 1.0 : elapsedSeconds < 60 ? 0.6 : 0.3;
@@ -232,6 +397,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
         ),
         rotation: new THREE.Euler(Math.random() * Math.PI, Math.random() * Math.PI, 0),
         scale: 0.5 + Math.random() * 1,
+        health: 2,
       };
       setAsteroids(prev => [...prev.slice(-30), newAsteroid]);
       g.lastAsteroidSpawn = time;
@@ -252,19 +418,94 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       g.lastCoinSpawn = time;
     }
 
-    // Check collisions
-    const rocketBounds = { x: rocketPos[0], y: rocketPos[1], radius: 0.4 };
+    // Update bullets
+    setBullets(prev => {
+      const updated = prev.map(b => {
+        b.position.add(b.velocity.clone().multiplyScalar(delta));
+        return b;
+      }).filter(b => b.position.z > -60);
+      return updated;
+    });
 
-    // Asteroid collision
-    for (const asteroid of asteroids) {
-      const dist = Math.sqrt(
-        Math.pow(asteroid.position.x - rocketBounds.x, 2) +
-        Math.pow(asteroid.position.y - rocketBounds.y, 2) +
-        Math.pow(asteroid.position.z - 0, 2)
-      );
-      if (dist < 0.8 * asteroid.scale && asteroid.position.z > -5 && asteroid.position.z < 5) {
-        onDeath(g.score, g.distance, g.coinsCollected);
-        return;
+    // Update bombs
+    setBombs(prev => {
+      const updated = prev.map(b => {
+        b.position.add(b.velocity.clone().multiplyScalar(delta));
+        return b;
+      }).filter(b => b.position.z > -60);
+      return updated;
+    });
+
+    // Update explosions (fade out)
+    setExplosions(prev => {
+      return prev.map(e => ({
+        ...e,
+        scale: e.scale + delta * 3,
+        opacity: e.opacity - delta * 2,
+      })).filter(e => e.opacity > 0);
+    });
+
+    // Bullet-asteroid collisions
+    let newExplosions: Explosion[] = [];
+    setAsteroids(prev => {
+      return prev.map(asteroid => {
+        // Check bullet hits
+        for (const bullet of bullets) {
+          const dist = asteroid.position.distanceTo(bullet.position);
+          if (dist < asteroid.scale * 0.6) {
+            asteroid.health--;
+            // Remove bullet
+            setBullets(b => b.filter(bb => bb.id !== bullet.id));
+            if (asteroid.health <= 0) {
+              g.score += 25;
+              newExplosions.push({
+                id: g.explosionId++,
+                position: asteroid.position.clone(),
+                scale: 0.3,
+                opacity: 1,
+              });
+              return { ...asteroid, health: -1 }; // Mark for removal
+            }
+          }
+        }
+
+        // Check bomb hits (bigger radius, instant kill)
+        for (const bomb of bombs) {
+          const dist = asteroid.position.distanceTo(bomb.position);
+          if (dist < asteroid.scale * 1.5) {
+            g.score += 50;
+            newExplosions.push({
+              id: g.explosionId++,
+              position: asteroid.position.clone(),
+              scale: 0.5,
+              opacity: 1,
+            });
+            // Remove bomb
+            setBombs(b => b.filter(bb => bb.id !== bomb.id));
+            return { ...asteroid, health: -1 }; // Mark for removal
+          }
+        }
+
+        return asteroid;
+      }).filter(a => a.health > 0);
+    });
+
+    if (newExplosions.length > 0) {
+      setExplosions(prev => [...prev, ...newExplosions]);
+    }
+
+    // Rocket collision with asteroids (only if not barrel rolling - invincibility frames!)
+    if (!g.isBarrelRolling) {
+      for (const asteroid of asteroids) {
+        const dist = Math.sqrt(
+          Math.pow(asteroid.position.x - g.posX, 2) +
+          Math.pow(asteroid.position.y - g.posY, 2) +
+          Math.pow(asteroid.position.z - g.posZ, 2)
+        );
+        if (dist < 0.8 * asteroid.scale && asteroid.position.z > -5 && asteroid.position.z < 5) {
+          onDeath(g.score, g.distance, g.coinsCollected);
+          return;
+        }
       }
     }
 
@@ -272,11 +513,11 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     setCoins(prev => prev.map(coin => {
       if (coin.collected) return coin;
       const dist = Math.sqrt(
-        Math.pow(coin.position.x - rocketBounds.x, 2) +
-        Math.pow(coin.position.y - rocketBounds.y, 2) +
-        Math.pow(coin.position.z - 0, 2)
+        Math.pow(coin.position.x - g.posX, 2) +
+        Math.pow(coin.position.y - g.posY, 2) +
+        Math.pow(coin.position.z - g.posZ, 2)
       );
-      if (dist < 1 && coin.position.z > -3 && coin.position.z < 3) {
+      if (dist < 1.2) {
         g.coinsCollected++;
         onCoinsUpdate(g.coinsCollected);
         return { ...coin, collected: true };
@@ -284,7 +525,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       return coin;
     }));
 
-    // Update asteroid positions and remove off-screen
+    // Update asteroid positions
     setAsteroids(prev => prev.filter(a => a.position.z < 20).map(a => {
       a.position.z += g.speed * delta;
       return a;
@@ -306,19 +547,26 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       <pointLight position={[-10, -10, 10]} intensity={0.5} color="#00ffff" />
 
       <Starfield />
-      <Rocket position={rocketPos} />
+      <Rocket position={rocketPos} rotation={rocketRotation} />
+
+      {bullets.map(bullet => (
+        <BulletMesh key={bullet.id} bullet={bullet} />
+      ))}
+
+      {bombs.map(bomb => (
+        <BombMesh key={bomb.id} bomb={bomb} />
+      ))}
+
+      {explosions.map(explosion => (
+        <ExplosionMesh key={explosion.id} explosion={explosion} />
+      ))}
 
       {asteroids.map(asteroid => (
         <AsteroidMesh key={asteroid.id} asteroid={asteroid} speed={gameDataRef.current.speed} />
       ))}
 
       {coins.map(coin => (
-        <CoinMesh
-          key={coin.id}
-          coin={coin}
-          speed={gameDataRef.current.speed}
-          onCollect={() => {}}
-        />
+        <CoinMesh key={coin.id} coin={coin} speed={gameDataRef.current.speed} />
       ))}
     </>
   );

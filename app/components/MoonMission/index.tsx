@@ -80,8 +80,13 @@ export default function MoonMission() {
           >
             LAUNCH
           </button>
-          <p className="text-gray-500 text-sm mt-4 font-mono">Move mouse to control</p>
-          <p className="text-gray-600 text-xs mt-2 font-mono">HIGH SCORE: {highScore}</p>
+          <div className="text-gray-500 text-sm mt-6 font-mono text-center space-y-1">
+            <p><span className="text-cyan-400">WASD</span> Move</p>
+            <p><span className="text-cyan-400">↑↓</span> Forward/Back</p>
+            <p><span className="text-cyan-400">←→</span> Barrel Roll (dodge!)</p>
+            <p><span className="text-fuchsia-400">SPACE</span> Shoot · <span className="text-red-400">SHIFT</span> Bomb</p>
+          </div>
+          <p className="text-gray-600 text-xs mt-4 font-mono">HIGH SCORE: {highScore}</p>
         </div>
       )}
 

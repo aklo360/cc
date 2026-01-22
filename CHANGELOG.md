@@ -6,6 +6,27 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2025-01-22] - Moon Mission Keyboard Controls + Combat
+
+### Changed
+- **Moon Mission controls completely overhauled:**
+  - WASD: Move up/down/left/right
+  - Arrow Up/Down: Move forward/backward (z-axis)
+  - Arrow Left/Right: Barrel roll (with invincibility frames!)
+  - Spacebar: Rapid-fire bullets (cyan)
+  - Shift: Launch bombs (red, bigger damage radius)
+
+### Added
+- **Combat system:**
+  - Bullets: Fast, require 2 hits to destroy asteroid (+25 pts)
+  - Bombs: Slower, instant kill on asteroids (+50 pts)
+  - Explosions with fade-out animation
+  - Asteroids change color when damaged (1 health = red tint)
+- **Barrel roll mechanic:**
+  - Full 360° roll animation
+  - Invincibility during roll (dodge mechanic!)
+- Updated start screen with new control instructions
+
 ---
 
 ## [2025-01-22] - Moon Mission + Space Invaders

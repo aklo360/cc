@@ -179,8 +179,17 @@ ccwtf/
 ### 4. Moon Mission (`/moon`)
 - Three.js 3D endless runner
 - Synthwave aesthetic (purple/cyan/pink)
-- Rocket follows mouse/touch
-- Dodge asteroids, collect $CC coins
+- **Controls:**
+  - WASD: Move up/down/left/right
+  - Arrow Up/Down: Forward/backward (z-axis)
+  - Arrow Left/Right: Barrel roll (invincibility!)
+  - Space: Shoot bullets (rapid fire)
+  - Shift: Launch bombs (slow, high damage)
+- **Combat:**
+  - Bullets: 2 hits to destroy asteroid (+25 pts)
+  - Bombs: Instant kill, larger radius (+50 pts)
+  - Explosions with fade animation
+- Dodge asteroids, collect $CC coins (+10 pts)
 - Speed ramps: 8 → 10 → 14 → 20 over 60s
 - "REKT" death screen with share
 
