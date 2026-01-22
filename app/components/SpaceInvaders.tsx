@@ -11,7 +11,7 @@ export default function SpaceInvaders({ width = 480, height = 640 }: SpaceInvade
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playerImgRef = useRef<HTMLImageElement | null>(null);
   const gameRef = useRef({
-    player: { x: 220, y: 580, w: 40, h: 40, lives: 3 },
+    player: { x: 220, y: 520, w: 40, h: 40, lives: 3 },
     playerBullet: null as { x: number; y: number; w: number; h: number } | null,
     alienBullets: [] as { x: number; y: number; w: number; h: number }[],
     aliens: [] as { x: number; y: number; w: number; h: number; alive: boolean }[],
@@ -43,7 +43,7 @@ export default function SpaceInvaders({ width = 480, height = 640 }: SpaceInvade
 
   const resetGame = useCallback(() => {
     const g = gameRef.current;
-    g.player = { x: 220, y: 580, w: 40, h: 40, lives: 3 };
+    g.player = { x: 220, y: 520, w: 40, h: 40, lives: 3 };
     g.playerBullet = null;
     g.alienBullets = [];
     g.alienDir = 1;
@@ -223,18 +223,22 @@ export default function SpaceInvaders({ width = 480, height = 640 }: SpaceInvade
         ctx.fillRect(g.player.x, g.player.y, g.player.w, g.player.h);
       }
 
-      // Aliens (inverted CC mascots - draw as orange squares for enemies)
+      // Aliens - green classic space invader shape
       g.aliens.forEach(a => {
         if (a.alive) {
-          // Draw alien as pixelated invader shape
-          ctx.fillStyle = '#da7756';
-          const s = a.w / 6; // scale unit
-          // Simple invader pattern
-          ctx.fillRect(a.x + s, a.y, s * 4, s);
-          ctx.fillRect(a.x, a.y + s, s * 6, s);
-          ctx.fillRect(a.x, a.y + s * 2, s * 6, s * 2);
-          ctx.fillRect(a.x + s, a.y + s * 4, s, s * 2);
-          ctx.fillRect(a.x + s * 4, a.y + s * 4, s, s * 2);
+          ctx.fillStyle = '#4ade80';
+          const s = a.w / 8; // scale unit
+          // Classic space invader pattern
+          ctx.fillRect(a.x + s * 2, a.y, s * 4, s); // top
+          ctx.fillRect(a.x + s, a.y + s, s * 6, s); // row 2
+          ctx.fillRect(a.x, a.y + s * 2, s * 8, s); // row 3 full
+          ctx.fillRect(a.x, a.y + s * 3, s * 2, s); // row 4 left
+          ctx.fillRect(a.x + s * 3, a.y + s * 3, s * 2, s); // row 4 mid
+          ctx.fillRect(a.x + s * 6, a.y + s * 3, s * 2, s); // row 4 right
+          ctx.fillRect(a.x + s, a.y + s * 4, s * 2, s); // row 5 left
+          ctx.fillRect(a.x + s * 5, a.y + s * 4, s * 2, s); // row 5 right
+          ctx.fillRect(a.x + s * 2, a.y + s * 5, s, s); // feet left
+          ctx.fillRect(a.x + s * 5, a.y + s * 5, s, s); // feet right
         }
       });
 
@@ -244,8 +248,8 @@ export default function SpaceInvaders({ width = 480, height = 640 }: SpaceInvade
         ctx.fillRect(g.playerBullet.x, g.playerBullet.y, g.playerBullet.w, g.playerBullet.h);
       }
 
-      // Alien bullets (red)
-      ctx.fillStyle = '#ff4444';
+      // Alien bullets (green to match aliens)
+      ctx.fillStyle = '#22c55e';
       g.alienBullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
 
       // HUD
