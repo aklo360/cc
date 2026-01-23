@@ -62,7 +62,7 @@ export interface FeatureTrailerProps {
   featureName: string;
   featureSlug: string;
   description: string;
-  featureType: "static" | "interactive" | "game";
+  featureType: "static" | "interactive" | "game" | "complex";
   tagline?: string;
   footagePath?: string; // For games - path to screen-recorded footage
 }
@@ -872,17 +872,59 @@ const GameplayVideo: React.FC<{ footagePath: string; durationInFrames: number }>
 // ═══════════════════════════════════════════════════════════════════════════
 export const FeatureTrailer: React.FC<FeatureTrailerProps> = ({ featureName, featureSlug, description, featureType, tagline, footagePath }) => {
   const isGame = featureType === "game";
+  const isComplex = featureType === "complex";
+  const isLong = isGame || isComplex; // Both get 30-second trailers
 
   // Standard features: 15 seconds (450 frames)
   // Games/complex: 30 seconds (900 frames)
 
-  if (isGame) {
-    // GAME TIMELINE (30 seconds)
-    const hookDuration = 90;      // 3s
-    const gameplay1Duration = 270; // 9s
-    const gameplay2Duration = 240; // 8s
-    const calloutDuration = 180;   // 6s
-    const ctaDuration = 120;       // 4s
+  if (isLong) {
+    // LONG TIMELINE (30 seconds) - for games with footage OR complex features without
+    // Games: Show intercut screen recording footage
+    // Complex: Extended INPUT → MAGIC → OUTPUT flow for detailed explanation
+
+    if (isGame && footagePath) {
+      // GAME with footage
+      const hookDuration = 90;      // 3s
+      const gameplay1Duration = 270; // 9s
+      const gameplay2Duration = 240; // 8s
+      const calloutDuration = 180;   // 6s
+      const ctaDuration = 120;       // 4s
+
+      return (
+        <AbsoluteFill style={{ backgroundColor: "#0d0d0d" }}>
+          <Sequence from={0} durationInFrames={hookDuration}>
+            <HookScene featureName={featureName} />
+          </Sequence>
+
+          <Sequence from={hookDuration} durationInFrames={gameplay1Duration}>
+            <GameplayVideo footagePath={footagePath} durationInFrames={gameplay1Duration} />
+          </Sequence>
+
+          <Sequence from={hookDuration + gameplay1Duration} durationInFrames={gameplay2Duration}>
+            <GameplayVideo footagePath={footagePath} durationInFrames={gameplay2Duration} />
+          </Sequence>
+
+          <Sequence from={hookDuration + gameplay1Duration + gameplay2Duration} durationInFrames={calloutDuration}>
+            <CalloutScene description={tagline || description} />
+          </Sequence>
+
+          <Sequence from={hookDuration + gameplay1Duration + gameplay2Duration + calloutDuration} durationInFrames={ctaDuration}>
+            <CTAScene featureSlug={featureSlug} ctaText="PLAY NOW" />
+          </Sequence>
+        </AbsoluteFill>
+      );
+    }
+
+    // COMPLEX FEATURE TIMELINE (30 seconds) - Extended story with more explanation time
+    // For code-heavy, conceptually dense features that need more time to explain
+    // HOOK → INPUT → MAGIC → OUTPUT → CALLOUT (extended) → CTA
+    const hookDuration = 90;      // 3s - Title card
+    const inputDuration = 150;    // 5s - Show the input
+    const magicDuration = 120;    // 4s - Processing
+    const outputDuration = 180;   // 6s - The result reveal
+    const calloutDuration = 240;  // 8s - Extended explanation of how it works
+    const ctaDuration = 120;      // 4s - CTA
 
     return (
       <AbsoluteFill style={{ backgroundColor: "#0d0d0d" }}>
@@ -890,28 +932,24 @@ export const FeatureTrailer: React.FC<FeatureTrailerProps> = ({ featureName, fea
           <HookScene featureName={featureName} />
         </Sequence>
 
-        <Sequence from={hookDuration} durationInFrames={gameplay1Duration}>
-          {footagePath ? (
-            <GameplayVideo footagePath={footagePath} durationInFrames={gameplay1Duration} />
-          ) : (
-            <InputScene featureName={featureName} />
-          )}
+        <Sequence from={hookDuration} durationInFrames={inputDuration}>
+          <InputScene featureName={featureName} />
         </Sequence>
 
-        <Sequence from={hookDuration + gameplay1Duration} durationInFrames={gameplay2Duration}>
-          {footagePath ? (
-            <GameplayVideo footagePath={footagePath} durationInFrames={gameplay2Duration} />
-          ) : (
-            <OutputScene featureName={featureName} />
-          )}
+        <Sequence from={hookDuration + inputDuration} durationInFrames={magicDuration}>
+          <MagicScene featureName={featureName} />
         </Sequence>
 
-        <Sequence from={hookDuration + gameplay1Duration + gameplay2Duration} durationInFrames={calloutDuration}>
+        <Sequence from={hookDuration + inputDuration + magicDuration} durationInFrames={outputDuration}>
+          <OutputScene featureName={featureName} />
+        </Sequence>
+
+        <Sequence from={hookDuration + inputDuration + magicDuration + outputDuration} durationInFrames={calloutDuration}>
           <CalloutScene description={tagline || description} />
         </Sequence>
 
-        <Sequence from={hookDuration + gameplay1Duration + gameplay2Duration + calloutDuration} durationInFrames={ctaDuration}>
-          <CTAScene featureSlug={featureSlug} ctaText="PLAY NOW" />
+        <Sequence from={hookDuration + inputDuration + magicDuration + outputDuration + calloutDuration} durationInFrames={ctaDuration}>
+          <CTAScene featureSlug={featureSlug} ctaText="TRY IT NOW" />
         </Sequence>
       </AbsoluteFill>
     );

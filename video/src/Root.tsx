@@ -29,11 +29,11 @@ export const RemotionRoot: React.FC = () => {
           description: "Turn your code into beautiful haikus and poetry",
           featureType: "static",
         }}
-        // Duration: 15 seconds for standard, 30 seconds for games/larger features
+        // Duration: 15 seconds for standard, 30 seconds for games/complex features
         calculateMetadata={({ props }) => {
-          const isGame = props.featureType === "game";
+          const isLongForm = props.featureType === "game" || props.featureType === "complex";
           return {
-            durationInFrames: isGame ? 30 * 30 : 15 * 30,
+            durationInFrames: isLongForm ? 30 * 30 : 15 * 30,
           };
         }}
       />

@@ -3,12 +3,25 @@
  *
  * Complete loop:
  * 1. PLAN    - Claude plans project + tweets
- * 2. BUILD   - Claude Agent SDK builds the feature
- * 3. TEST    - Verify build succeeds
- * 4. DEPLOY  - Push to Cloudflare Pages
- * 5. VERIFY  - Check deployment works
+ * 2-5. BUILD/DEPLOY/VERIFY/TEST - Retry loop (up to 5 attempts)
+ *      2. BUILD   - Claude Agent SDK builds the feature
+ *      3. DEPLOY  - Push to Cloudflare Pages
+ *      4. VERIFY  - Check deployment HTTP status
+ *      5. TEST    - FUNCTIONAL VERIFICATION (Puppeteer UX testing)
+ *      → If TEST fails, LOOP BACK to BUILD with errors (Claude fixes the code)
+ *      → If 5 attempts fail: CLEANUP broken code, START NEW CYCLE with different feature
  * 6. RECORD  - Capture video of the feature
  * 7. TWEET   - Post announcement with video
+ * 8. SCHEDULE - Schedule remaining tweets
+ * 9. HOMEPAGE - Add button to homepage
+ * 10. COMPLETE - Mark cycle complete, trigger next if allowed
+ *
+ * CRITICAL: The cycle NEVER truly stops!
+ * - If verification fails, it loops back to BUILD phase (Claude fixes the code)
+ * - If 5 attempts all fail, the feature is deemed "too complex"
+ * - Broken code is cleaned up (rm -rf app/[slug])
+ * - A NEW cycle starts with a DIFFERENT feature
+ * - This continues until something ships successfully!
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -30,6 +43,7 @@ import { deployToCloudflare, verifyDeployment } from './deployer.js';
 import { generateTrailer, type TrailerResult } from './trailer.js';
 import { addFeatureToHomepage, type HomepageUpdateResult } from './homepage.js';
 import { incrementFeaturesShipped, canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit } from './db.js';
+import { verifyFeature, type VerificationResult } from './verifier.js';
 
 interface CyclePlan {
   project: {
@@ -50,6 +64,7 @@ interface FullCycleResult {
   plan: CyclePlan;
   buildResult?: BuildResult;
   deployUrl?: string;
+  verificationResult?: VerificationResult;
   trailerResult?: TrailerResult;
   announcementTweetId?: string;
   homepageResult?: HomepageUpdateResult;
@@ -138,6 +153,47 @@ function log(message: string): void {
   buildEvents.emit('log', logLine);
 }
 
+/**
+ * Clean up a broken feature that couldn't be fixed after max retries.
+ * Removes the app/[slug] directory to prevent broken code from lingering.
+ */
+async function cleanupBrokenFeature(slug: string, logger: (msg: string) => void): Promise<void> {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+
+  const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
+  const featurePath = `${projectRoot}/app/${slug}`;
+
+  logger(`🧹 Cleaning up broken feature: ${featurePath}`);
+
+  try {
+    // Check if directory exists
+    const { stdout: lsOutput } = await execAsync(`ls -la "${featurePath}" 2>/dev/null || echo "NOT_FOUND"`);
+
+    if (lsOutput.includes('NOT_FOUND')) {
+      logger('   Directory does not exist, nothing to clean up');
+      return;
+    }
+
+    // Remove the directory
+    await execAsync(`rm -rf "${featurePath}"`);
+    logger('   ✓ Removed broken feature directory');
+
+    // Git reset any uncommitted changes in the project
+    try {
+      await execAsync(`cd "${projectRoot}" && git checkout -- . 2>/dev/null || true`);
+      logger('   ✓ Reset any uncommitted git changes');
+    } catch {
+      // Git might not be available or there might be no changes
+    }
+
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger(`   ⚠️ Cleanup failed: ${errorMsg}`);
+  }
+}
+
 export async function startNewCycle(): Promise<FullCycleResult | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -212,71 +268,216 @@ Return ONLY the JSON object, no other text.`;
     return null;
   }
 
-  // ============ PHASE 2: BUILD ============
-  log('\n▸ PHASE 2: BUILDING');
-
-  const buildResult = await buildProject({
-    idea: plan.project.idea,
-    slug: plan.project.slug,
-    description: plan.project.description,
-  });
-
-  if (!buildResult.success) {
-    log(`❌ Build failed: ${buildResult.error}`);
-    log('⚠️ Cycle will continue with tweets only (no feature deployed)');
-    // Schedule tweets anyway
-    await scheduleAllTweets(cycleId, plan, now);
-    return { cycleId, plan, buildResult };
-  }
-
-  log(`✅ Build successful`);
-  log(`   Tokens: ${buildResult.tokensUsed}`);
-  log(`   Cost: $${buildResult.costUsd?.toFixed(4)}`);
-
-  // ============ PHASE 3: DEPLOY ============
-  log('\n▸ PHASE 3: DEPLOYING');
-
-  const deployResult = await deployToCloudflare();
+  // ============ PHASES 2-5: BUILD → DEPLOY → VERIFY → TEST (RETRY LOOP) ============
+  // This loop continues until functional verification passes or max retries exceeded
+  const MAX_BUILD_RETRIES = 5;
+  let buildAttempt = 0;
+  let buildResult: BuildResult | undefined;
   let deployUrl: string | undefined;
-
-  if (!deployResult.success) {
-    log(`❌ Deploy failed: ${deployResult.error}`);
-    log('⚠️ Feature built but not deployed');
-    await scheduleAllTweets(cycleId, plan, now);
-    return { cycleId, plan, buildResult };
-  }
-
-  deployUrl = `https://claudecode.wtf/${plan.project.slug}`;
-  log(`✅ Deployed to: ${deployUrl}`);
-
-  // ============ PHASE 4: VERIFY DEPLOYMENT ============
-  log('\n▸ PHASE 4: VERIFYING DEPLOYMENT');
-
-  // Multiple verification attempts with delay
+  let verificationResult: VerificationResult | undefined;
   let verified = false;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    log(`   Verification attempt ${attempt}/3...`);
-    verified = await verifyDeployment(deployUrl);
-    if (verified) {
-      log(`✅ Deployment verified! URL is live and working.`);
-      break;
+  let verificationErrors: string[] = [];
+
+  while (buildAttempt < MAX_BUILD_RETRIES) {
+    buildAttempt++;
+    log('');
+    log('┌─────────────────────────────────────────────────────────────────┐');
+    log(`│  BUILD ATTEMPT ${buildAttempt}/${MAX_BUILD_RETRIES}                                            │`);
+    log('└─────────────────────────────────────────────────────────────────┘');
+
+    // ============ PHASE 2: BUILD ============
+    log('\n▸ PHASE 2: BUILDING');
+
+    buildResult = await buildProject({
+      idea: plan.project.idea,
+      slug: plan.project.slug,
+      description: plan.project.description,
+      verificationErrors: verificationErrors.length > 0 ? verificationErrors : undefined,
+      retryAttempt: buildAttempt > 1 ? buildAttempt : undefined,
+    });
+
+    if (!buildResult.success) {
+      log(`❌ Build failed: ${buildResult.error}`);
+      if (buildAttempt < MAX_BUILD_RETRIES) {
+        log(`⚠️ Retrying build... (attempt ${buildAttempt + 1}/${MAX_BUILD_RETRIES})`);
+        verificationErrors = [`Build failed: ${buildResult.error}`];
+        continue; // Retry build
+      }
+      // Max retries exceeded - clean up and start fresh
+      log('');
+      log('❌ Build failed after max retries - feature too complex');
+      await cleanupBrokenFeature(plan.project.slug, log);
+      completeCycle(cycleId);
+
+      if (canShipMore()) {
+        log('🔄 Starting new cycle with different feature...');
+        await new Promise(r => setTimeout(r, 5000));
+        return startNewCycle();
+      }
+      return { cycleId, plan, buildResult };
     }
-    if (attempt < 3) {
-      log(`   Waiting 30s before retry...`);
-      await new Promise(r => setTimeout(r, 30000));
+
+    log(`✅ Build successful`);
+    log(`   Tokens: ${buildResult.tokensUsed}`);
+    log(`   Cost: $${buildResult.costUsd?.toFixed(4)}`);
+
+    // ============ PHASE 3: DEPLOY ============
+    log('\n▸ PHASE 3: DEPLOYING');
+
+    const deployResult = await deployToCloudflare();
+
+    if (!deployResult.success) {
+      log(`❌ Deploy failed: ${deployResult.error}`);
+      if (buildAttempt < MAX_BUILD_RETRIES) {
+        log(`⚠️ Retrying from build... (attempt ${buildAttempt + 1}/${MAX_BUILD_RETRIES})`);
+        verificationErrors = [`Deploy failed: ${deployResult.error}`];
+        continue; // Retry from build
+      }
+      // Max retries exceeded - clean up and start fresh
+      log('');
+      log('❌ Deploy failed after max retries - feature too complex');
+      await cleanupBrokenFeature(plan.project.slug, log);
+      completeCycle(cycleId);
+
+      if (canShipMore()) {
+        log('🔄 Starting new cycle with different feature...');
+        await new Promise(r => setTimeout(r, 5000));
+        return startNewCycle();
+      }
+      return { cycleId, plan, buildResult };
     }
+
+    deployUrl = `https://claudecode.wtf/${plan.project.slug}`;
+    log(`✅ Deployed to: ${deployUrl}`);
+
+    // ============ PHASE 4: VERIFY DEPLOYMENT ============
+    log('\n▸ PHASE 4: VERIFYING DEPLOYMENT');
+
+    // Multiple verification attempts with delay
+    verified = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      log(`   Verification attempt ${attempt}/3...`);
+      verified = await verifyDeployment(deployUrl);
+      if (verified) {
+        log(`✅ Deployment verified! URL is live and working.`);
+        break;
+      }
+      if (attempt < 3) {
+        log(`   Waiting 30s before retry...`);
+        await new Promise(r => setTimeout(r, 30000));
+      }
+    }
+
+    if (!verified) {
+      log('❌ Deployment verification FAILED after 3 attempts');
+      if (buildAttempt < MAX_BUILD_RETRIES) {
+        log(`⚠️ Retrying from build... (attempt ${buildAttempt + 1}/${MAX_BUILD_RETRIES})`);
+        verificationErrors = ['Deployment URL not accessible after deploy'];
+        continue; // Retry from build
+      }
+      // Max retries exceeded - clean up and start fresh
+      log('');
+      log('❌ Deployment verification failed after max retries - feature too complex');
+      await cleanupBrokenFeature(plan.project.slug, log);
+      completeCycle(cycleId);
+
+      if (canShipMore()) {
+        log('🔄 Starting new cycle with different feature...');
+        await new Promise(r => setTimeout(r, 5000));
+        return startNewCycle();
+      }
+      return { cycleId, plan, buildResult, deployUrl };
+    }
+
+    // ============ PHASE 5: FUNCTIONAL VERIFICATION (CRITICAL) ============
+    log('\n▸ PHASE 5: FUNCTIONAL VERIFICATION');
+    log('   ⚠️ This is the CRITICAL quality gate - feature MUST work as intended');
+
+    verificationResult = await verifyFeature({
+      slug: plan.project.slug,
+      name: plan.project.idea,
+      description: plan.project.description,
+      deployUrl,
+      timeout: 60000,
+    });
+
+    if (!verificationResult.success) {
+      log('');
+      log('╔═══════════════════════════════════════════════════════════════╗');
+      log('║  ⚠️ FUNCTIONAL VERIFICATION FAILED - RETRYING BUILD          ║');
+      log('╚═══════════════════════════════════════════════════════════════╝');
+      log('');
+      log('   Errors:');
+      for (const error of verificationResult.errors) {
+        log(`     - ${error}`);
+      }
+      if (verificationResult.warnings.length > 0) {
+        log('   Warnings:');
+        for (const warning of verificationResult.warnings) {
+          log(`     - ${warning}`);
+        }
+      }
+
+      // Store errors for next build attempt
+      verificationErrors = verificationResult.errors;
+
+      if (buildAttempt < MAX_BUILD_RETRIES) {
+        log('');
+        log(`🔄 LOOPING BACK TO BUILD PHASE (attempt ${buildAttempt + 1}/${MAX_BUILD_RETRIES})`);
+        log('   Claude will see these errors and fix the feature...');
+        log('');
+        continue; // THIS IS THE KEY: Loop back to build!
+      } else {
+        log('');
+        log('╔═══════════════════════════════════════════════════════════════╗');
+        log('║  ❌ MAX RETRIES EXCEEDED - Feature too complex                ║');
+        log('╠═══════════════════════════════════════════════════════════════╣');
+        log('║  After 5 attempts, the feature could not be fixed.           ║');
+        log('║  Cleaning up broken code and starting fresh...               ║');
+        log('╚═══════════════════════════════════════════════════════════════╝');
+        log('');
+
+        // Clean up the broken feature directory
+        await cleanupBrokenFeature(plan.project.slug, log);
+
+        // Mark this cycle as complete (failed)
+        completeCycle(cycleId);
+
+        // Check if we can ship more today
+        if (canShipMore()) {
+          log('');
+          log('🔄 STARTING NEW CYCLE WITH DIFFERENT FEATURE...');
+          log('');
+
+          // Small delay before starting new cycle
+          await new Promise(r => setTimeout(r, 5000));
+
+          // Start a new cycle with a fresh feature
+          return startNewCycle();
+        } else {
+          log('');
+          log('⏸️ Daily limit reached. Cannot start new cycle.');
+          return { cycleId, plan, buildResult, deployUrl, verificationResult };
+        }
+      }
+    }
+
+    // Verification PASSED - break out of retry loop!
+    log('');
+    log('╔═══════════════════════════════════════════════════════════════╗');
+    log('║  ✅ FUNCTIONAL VERIFICATION PASSED                            ║');
+    log('╚═══════════════════════════════════════════════════════════════╝');
+    if (verificationResult.warnings.length > 0) {
+      log('   Warnings (non-blocking):');
+      for (const warning of verificationResult.warnings) {
+        log(`     - ${warning}`);
+      }
+    }
+    break; // Success! Exit retry loop
   }
 
-  if (!verified) {
-    log('❌ Deployment verification FAILED after 3 attempts');
-    log('⚠️ Will NOT post announcement tweet - URL not confirmed working');
-    // Schedule non-announcement tweets only
-    await scheduleNonAnnouncementTweets(cycleId, plan, now);
-    return { cycleId, plan, buildResult, deployUrl };
-  }
-
-  // ============ PHASE 5: CREATE TRAILER ============
-  log('\n▸ PHASE 5: CREATING TRAILER');
+  // ============ PHASE 6: CREATE TRAILER ============
+  log('\n▸ PHASE 6: CREATING TRAILER');
 
   const trailerResult = await generateTrailer(
     {
@@ -294,9 +495,9 @@ Return ONLY the JSON object, no other text.`;
     log(`✅ Trailer created: ${trailerResult.durationSec}s`);
   }
 
-  // ============ PHASE 6: TWEET ANNOUNCEMENT ============
-  // ONLY runs if deployment is VERIFIED
-  log('\n▸ PHASE 6: TWEETING ANNOUNCEMENT (deployment verified)');
+  // ============ PHASE 7: TWEET ANNOUNCEMENT ============
+  // ONLY runs if deployment is VERIFIED and FUNCTIONAL VERIFICATION passed
+  log('\n▸ PHASE 7: TWEETING ANNOUNCEMENT (verified & tested)');
 
   const announcementTweet = plan.tweets.find((t) => t.type === 'announcement');
   let announcementTweetId: string | undefined;
@@ -332,14 +533,14 @@ Return ONLY the JSON object, no other text.`;
     }
   }
 
-  // ============ PHASE 7: SCHEDULE REMAINING TWEETS ============
-  log('\n▸ PHASE 7: SCHEDULING TWEETS');
+  // ============ PHASE 8: SCHEDULE REMAINING TWEETS ============
+  log('\n▸ PHASE 8: SCHEDULING TWEETS');
 
   // Schedule all non-announcement tweets (announcement already posted)
   await scheduleNonAnnouncementTweets(cycleId, plan, now);
 
-  // ============ PHASE 8: UPDATE HOMEPAGE ============
-  log('\n▸ PHASE 8: UPDATING HOMEPAGE');
+  // ============ PHASE 9: UPDATE HOMEPAGE ============
+  log('\n▸ PHASE 9: UPDATING HOMEPAGE');
 
   let homepageResult: HomepageUpdateResult | undefined;
 
@@ -365,8 +566,8 @@ Return ONLY the JSON object, no other text.`;
     log('   ⏭️ Skipping homepage update (deployment not verified or tweet not posted)');
   }
 
-  // ============ PHASE 9: MARK CYCLE COMPLETE + CONTINUOUS SHIPPING ============
-  log('\n▸ PHASE 9: COMPLETING CYCLE');
+  // ============ PHASE 10: MARK CYCLE COMPLETE + CONTINUOUS SHIPPING ============
+  log('\n▸ PHASE 10: COMPLETING CYCLE');
 
   // Mark this cycle as complete
   completeCycle(cycleId);

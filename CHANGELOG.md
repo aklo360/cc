@@ -6,6 +6,128 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-23] - VJ Agent (Live Audio-Reactive Visuals)
+
+### Added - VJ Agent (`/vj`)
+Claude-powered live audio-reactive visual generator with three rendering engines:
+
+**Visual Engines:**
+- **Three.js Engine**: 3D particles, geometry, rings, tunnel with bloom post-processing
+- **Hydra Engine**: Live GLSL shader coding (Resolume-style)
+- **Remotion Engine**: Hacked Player with live audio props (experimental)
+
+**Visual Styles:**
+- **Abstract**: Pure geometry, wireframes, particles
+- **Branded**: $CC orange (#da7756), mascot colors
+- **Synthwave**: Neon 80s, pink/cyan, retro grids
+- **Auto**: Claude picks style based on music mood
+
+**Audio System:**
+- System audio capture via `getDisplayMedia` (Chrome/Edge)
+- Web Audio API `AnalyserNode` for 60fps FFT analysis
+- Frequency bands: bass (20-250Hz), mid (250-2kHz), high (2k-20kHz)
+- Energy-based beat detection with BPM calculation
+
+**Claude Agent Integration:**
+- Tools: `switch_engine`, `switch_style`, `set_parameter`, `write_hydra_code`
+- Music mood analysis for auto-style selection
+- Quick commands for fast control
+
+**Keyboard Shortcuts:**
+- H: Hide/show UI | F: Fullscreen
+- 1/2/3: Engines (Three.js/Hydra/Remotion)
+- A/B/S/X: Styles (Abstract/Branded/Synthwave/Auto)
+
+### New Files
+- `vj/` - Complete VJ agent project
+  - `src/audio/capture.ts` - getDisplayMedia system audio capture
+  - `src/audio/analyzer.ts` - Web Audio API FFT analysis
+  - `src/audio/beat.ts` - BPM/beat detection
+  - `src/engines/threejs/index.ts` - Three.js visual engine
+  - `src/engines/hydra/index.ts` - Hydra live coding engine
+  - `src/engines/remotion/` - Remotion Player engine
+  - `src/agent/index.ts` - Claude Agent SDK integration
+- `app/vj/page.tsx` - Next.js VJ page with controls
+
+---
+
+## [2026-01-23] - Central Brain v4.2 (NEVER STOP - ALWAYS SHIP)
+
+### Changed - Retry Loop + Auto-Recovery
+When functional verification fails, the cycle NO LONGER STOPS. Instead:
+- **LOOPS BACK** to Phase 2 (BUILD) with the verification errors
+- Claude sees what went wrong and **fixes the code**
+- Redeploys and re-tests automatically
+- Continues until verification passes (max 5 attempts)
+
+**If ALL 5 attempts fail ("too complex"):**
+- **CLEANUP**: Removes broken feature directory (`rm -rf app/[slug]`)
+- **RESET**: Git checkout to undo uncommitted changes
+- **RESTART**: Automatically starts a NEW cycle with a DIFFERENT feature
+- The brain NEVER gives up - it just picks an easier feature!
+
+**New behavior:**
+- Phase 2-5 are wrapped in a retry loop
+- Verification errors are passed to `buildProject()` so Claude knows what to fix
+- `builder.ts` now has a special "fix broken feature" prompt for retries
+- If max retries exceeded: cleanup + start fresh cycle
+
+**Why this matters:**
+- The brain should NEVER stop - it should always ship something
+- If a feature is too complex, move on to something simpler
+- Broken/incomplete code is automatically cleaned up
+- Every cycle eventually ships a working feature!
+
+### New Functions
+- `cleanupBrokenFeature(slug)` - Removes `app/[slug]` directory and resets git
+
+### Modified Files
+- `brain/src/cycle.ts` - Wrapped phases 2-5 in retry loop (5 attempts max)
+  - Added cleanup on max retries
+  - Auto-starts new cycle after cleanup
+- `brain/src/builder.ts` - Added `verificationErrors` and `retryAttempt` to `ProjectSpec`
+  - New fix prompt tells Claude exactly what errors to fix
+  - Added UX requirements to initial prompt (buttons must work immediately)
+
+---
+
+## [2026-01-23] - Central Brain v4.1 (CRITICAL: Functional Verification)
+
+### Added - Phase 5: Functional Verification (CRITICAL QUALITY GATE)
+Before tweeting or adding to homepage, the brain now **actually tests** the deployed feature:
+- Uses Puppeteer to interact with the deployed page
+- **Game verification:** Checks start buttons are NOT disabled, can click to start
+- **Interactive verification:** Tests form submission, button clicks work
+- **Basic verification:** Page loads without errors, has content
+
+**Why this is critical:**
+- v4.0 shipped a broken game (Code Battle Arena) with disabled buttons
+- It even tweeted about the broken feature!
+- This MUST NEVER happen again
+
+**Behavior (v4.1):**
+- If verification FAILS, cycle STOPS immediately
+- NO tweet is posted about broken features
+- NO homepage button is added
+- Errors are logged for debugging
+
+**(Updated in v4.2: No longer stops, loops back to BUILD instead)**
+
+### Fixed - Code Battle Arena
+- Start buttons were disabled because player name was required
+- Fixed by defaulting to "Anonymous Coder" so buttons are always clickable
+- Users can optionally enter a name for leaderboard
+
+### New Files
+- `brain/src/verifier.ts` - Puppeteer-based functional verification (~470 lines)
+
+### Modified Files
+- `brain/src/cycle.ts` - Added Phase 5 (TEST), renumbered phases 6-10
+- `brain/tsconfig.json` - Added DOM lib for page.evaluate() types
+- `app/battle/components/BattleArena.tsx` - Fixed disabled button issue
+
+---
+
 ## [2026-01-23] - Central Brain v4.0 (Continuous Shipping + Homepage Integration)
 
 ### Added - Phase 8: Homepage Button Auto-Update

@@ -48,6 +48,7 @@ A memecoin website for $CC (Claude Code Coin) featuring:
 6. **Twitter Bot** (@ClaudeCodeWTF) - Automated tweet posting with AI-generated memes
 7. **Video Generator** (`/video`) - Remotion-based cinematic trailer generator
 8. **Central Brain** (`/brain`) - Full autonomous software engineering agent
+9. **VJ Agent** (`/vj`) - Claude-powered live audio-reactive visual generator
 
 ### Why It Exists
 $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% of fees go to @bcherny.
@@ -123,6 +124,8 @@ $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% 
 | API | Cloudflare Workers | - |
 | Font | JetBrains Mono | Google Fonts |
 | Video | Remotion | 4.x |
+| VJ Audio | Web Audio API + realtime-bpm-analyzer | 3.x |
+| VJ Visuals | Hydra Synth | 1.3.x |
 
 ---
 
@@ -150,6 +153,8 @@ ccwtf/
 │   │   └── page.tsx              # Space Invaders game page
 │   ├── watch/
 │   │   └── page.tsx              # Brain monitor - real-time build logs
+│   ├── vj/
+│   │   └── page.tsx              # VJ - live audio-reactive visuals
 │   ├── globals.css               # Tailwind + CSS variables
 │   ├── layout.tsx                # Root layout + metadata
 │   └── page.tsx                  # Homepage
@@ -197,6 +202,21 @@ ccwtf/
 │   │   └── types.ts              # TypeScript interfaces
 │   ├── package.json
 │   └── wrangler.toml             # Worker config + cron schedule
+├── vj/                           # VJ Agent - Live audio-reactive visuals
+│   ├── src/
+│   │   ├── index.ts              # Main VJ orchestrator
+│   │   ├── audio/
+│   │   │   ├── capture.ts        # getDisplayMedia system audio capture
+│   │   │   ├── analyzer.ts       # Web Audio API FFT analysis
+│   │   │   └── beat.ts           # BPM detection (realtime-bpm-analyzer)
+│   │   ├── engines/
+│   │   │   ├── types.ts          # Common engine interface
+│   │   │   ├── threejs/index.ts  # Three.js 3D engine (particles, geometry)
+│   │   │   ├── hydra/index.ts    # Hydra live coding engine (GLSL shaders)
+│   │   │   └── remotion/         # Remotion Player (hacked for live)
+│   │   └── agent/
+│   │       └── index.ts          # Claude Agent SDK VJ controller
+│   └── package.json              # Dependencies
 ├── .env                          # Local secrets (GEMINI_API_KEY)
 ├── .env.example                  # Template
 ├── CHANGELOG.md                  # Version history (KEEP UPDATED!)
@@ -296,19 +316,53 @@ Real-time build log viewer for the Central Brain:
 - Status panel showing current cycle, scheduled tweets
 - START CYCLE / CANCEL buttons for manual control
 
-### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT v4.0
+### 9. VJ Agent (`/vj`)
+Claude-powered live audio-reactive visual generator:
+- **Three Visual Engines:**
+  - **Three.js**: 3D particles, geometry, bloom post-processing
+  - **Hydra**: Live coding GLSL shaders (like Resolume)
+  - **Remotion**: Hacked Player with live audio props
+- **Four Visual Styles:**
+  - **Abstract**: Pure geometry, wireframes, particles
+  - **Branded**: $CC orange (#da7756), mascot, token vibes
+  - **Synthwave**: Neon 80s, pink/cyan, retro grids
+  - **Auto**: Claude picks style based on music mood
+- **Audio Capture:**
+  - `getDisplayMedia` for system audio (Chrome/Edge only)
+  - Web Audio API `AnalyserNode` for 60fps FFT
+  - `realtime-bpm-analyzer` for BPM/beat detection
+  - Frequency bands: bass (20-250Hz), mid (250-2kHz), high (2k-20kHz)
+- **Claude Agent Integration:**
+  - Tools: `switch_engine`, `switch_style`, `set_parameter`, `write_hydra_code`
+  - Can analyze music mood and auto-adjust visuals
+  - Quick commands: `three`, `hydra`, `synthwave`, `intensity 1.5`, etc.
+- **Keyboard Shortcuts:**
+  - H: Hide/show UI
+  - F: Fullscreen
+  - 1/2/3: Switch engines
+  - A/B/S/X: Switch styles (Abstract/Branded/Synthwave/Auto)
+
+**Run locally:**
+```bash
+cd vj
+npm install
+# Then visit /vj in the main Next.js app
+```
+
+### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT v4.1
 Continuous shipping agent - ships up to 5 features per day:
 
-- **Full 9-Phase Autonomous Loop:**
+- **Full 10-Phase Autonomous Loop:**
   1. **PLAN** - Claude plans project + 5 tweets for 24 hours
   2. **BUILD** - Claude Agent SDK builds the feature (with 3-retry debug loop)
   3. **DEPLOY** - Cloudflare Pages deployment via wrangler
   4. **VERIFY** - Confirms deployment is live (3 retries)
-  5. **TRAILER** - Remotion generates cinematic trailer
-  6. **TWEET** - Posts announcement with video to $CC community
-  7. **SCHEDULE** - Remaining tweets posted over 24 hours
-  8. **HOMEPAGE** - Auto-adds button to homepage for new feature
-  9. **CONTINUE** - After 30min cooldown, starts next cycle (up to 5/day)
+  5. **TEST** - **CRITICAL: Functional verification via Puppeteer** (buttons clickable, forms work, games playable)
+  6. **TRAILER** - Remotion generates cinematic trailer
+  7. **TWEET** - Posts announcement with video to $CC community
+  8. **SCHEDULE** - Remaining tweets posted over 24 hours
+  9. **HOMEPAGE** - Auto-adds button to homepage for new feature
+  10. **CONTINUE** - After 30min cooldown, starts next cycle (up to 5/day)
 - **Continuous Shipping Mode:**
   - 30-minute cooldown between cycles
   - Daily limit of 5 features (prevents runaway costs)
@@ -324,6 +378,7 @@ Continuous shipping agent - ships up to 5 features per day:
 - **Key Files:**
   - `builder.ts` - Claude Agent SDK integration
   - `deployer.ts` - Cloudflare Pages deployment
+  - `verifier.ts` - **Functional verification via Puppeteer (CRITICAL)**
   - `trailer.ts` - Remotion trailer generation
   - `homepage.ts` - Homepage button auto-updater
   - `cycle.ts` - Full autonomous loop orchestration
@@ -477,6 +532,13 @@ npx wrangler deploy
 | `brain/src/recorder.ts` | Video capture (Puppeteer) | ~320 |
 | `brain/src/db.ts` | SQLite database | ~380 |
 | `brain/src/twitter.ts` | Twitter API + community | ~300 |
+| `app/vj/page.tsx` | VJ page UI | ~250 |
+| `vj/src/index.ts` | VJ orchestrator | ~280 |
+| `vj/src/audio/capture.ts` | System audio capture | ~85 |
+| `vj/src/audio/analyzer.ts` | FFT analysis | ~150 |
+| `vj/src/engines/threejs/index.ts` | Three.js engine | ~250 |
+| `vj/src/engines/hydra/index.ts` | Hydra engine | ~200 |
+| `vj/src/agent/index.ts` | Claude Agent SDK VJ | ~300 |
 
 ---
 

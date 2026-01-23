@@ -29,6 +29,10 @@ export interface ProjectSpec {
   idea: string;
   slug: string;
   description: string;
+  /** If retrying after verification failure, provide the errors so Claude can fix them */
+  verificationErrors?: string[];
+  /** If retrying, this indicates which attempt we're on */
+  retryAttempt?: number;
 }
 
 function log(message: string): void {
@@ -82,7 +86,42 @@ const projectPath = `${projectRoot}/app/${spec.slug}`;
   }
   log(`🔑 API key found (${apiKey.slice(0, 10)}...)`);
 
-  const buildPrompt = `Build a new feature for claudecode.wtf:
+  // Build the prompt - different for initial build vs retry after verification failure
+  let buildPrompt: string;
+
+  if (spec.verificationErrors && spec.verificationErrors.length > 0) {
+    // This is a RETRY after functional verification failed
+    buildPrompt = `URGENT: FIX BROKEN FEATURE - Functional verification FAILED!
+
+PROJECT: ${spec.idea}
+SLUG: ${spec.slug}
+DESCRIPTION: ${spec.description}
+
+THE FEATURE WAS DEPLOYED BUT FAILED FUNCTIONAL TESTING. The deployed feature is BROKEN.
+You MUST fix these issues so the feature works correctly:
+
+VERIFICATION ERRORS:
+${spec.verificationErrors.map((e, i) => `${i + 1}. ${e}`).join('\n')}
+
+THIS IS RETRY ATTEMPT #${spec.retryAttempt || 2}. The feature exists but doesn't work properly.
+
+WHAT YOU NEED TO DO:
+1. Read the existing code in app/${spec.slug}/ to understand what was built
+2. Fix the specific issues listed above
+3. For games: Make sure START/PLAY buttons are NEVER disabled - they should always be clickable
+4. For forms: Ensure inputs have sensible defaults so submit buttons work immediately
+5. Run "npm run build" to verify it compiles
+6. Test your fix makes sense
+
+COMMON FIXES:
+- If buttons are disabled until input: Set default values so buttons work immediately
+- If start buttons don't work: Remove disabled conditions or provide defaults
+- If forms require input: Add placeholder/default values
+
+You CAN modify the files you created in app/${spec.slug}/ - fix the broken code!`;
+  } else {
+    // Initial build prompt
+    buildPrompt = `Build a new feature for claudecode.wtf:
 
 PROJECT: ${spec.idea}
 SLUG: ${spec.slug}
@@ -95,12 +134,20 @@ REQUIREMENTS:
 4. Include fun, engaging interactivity
 5. Must work as static HTML (no server-side code)
 
+CRITICAL UX REQUIREMENTS (to pass functional verification):
+- ALL buttons must be clickable immediately on page load
+- For games: START/PLAY buttons must NEVER be disabled
+- For forms: Provide sensible default values so submit works immediately
+- For generators: Pre-fill inputs with examples
+- NEVER require user input before primary actions are available
+
 After creating the files:
 1. Run "npm run build" to verify it compiles
 2. If there are errors, fix them
 3. Report success or failure
 
 Remember: ONLY create NEW files. Never modify existing files.`;
+  }
 
   try {
     let sessionId: string | undefined;

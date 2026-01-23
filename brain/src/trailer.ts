@@ -51,7 +51,6 @@ function log(message: string): void {
 export function needsScreenRecording(slug: string, description: string): boolean {
   // Keywords that indicate we need intercut screen recordings
   const recordingKeywords = [
-    'game',
     '3d',
     'three.js',
     'canvas',
@@ -77,14 +76,60 @@ export function needsScreenRecording(slug: string, description: string): boolean
     }
   }
 
-  // Known game/complex routes
-  const complexRoutes = ['moon', 'play', 'game'];
+  // Known game/complex routes that need screen recording
+  const complexRoutes = ['moon', 'play'];
   if (complexRoutes.some((r) => slugLower.includes(r))) {
     log(`[Trailer] Feature "${slug}" needs intercut footage (known complex route)`);
     return true;
   }
 
   log(`[Trailer] Feature "${slug}" - pure Remotion (no screen recording needed)`);
+  return false;
+}
+
+/**
+ * Determine if a feature needs a longer (30s) trailer for better explanation
+ * Used for code-heavy, complex, or conceptually dense features
+ */
+export function needsLongTrailer(slug: string, description: string): boolean {
+  const descLower = description.toLowerCase();
+  const slugLower = slug.toLowerCase();
+
+  // Keywords that indicate complexity needing more explanation time
+  const complexKeywords = [
+    'battle',
+    'arena',
+    'algorithm',
+    'code challenge',
+    'code battle',
+    'ai vs',
+    'versus',
+    'competition',
+    'tournament',
+    'multiplayer',
+    'real-time',
+    'simulation',
+    'engine',
+    'compiler',
+    'interpreter',
+    'debugger',
+    'analyzer',
+  ];
+
+  for (const keyword of complexKeywords) {
+    if (descLower.includes(keyword) || slugLower.includes(keyword)) {
+      log(`[Trailer] Feature "${slug}" needs 30s trailer (complex/code-heavy: ${keyword})`);
+      return true;
+    }
+  }
+
+  // Known code-heavy/complex routes
+  const complexRoutes = ['battle', 'arena', 'challenge', 'tournament'];
+  if (complexRoutes.some((r) => slugLower.includes(r))) {
+    log(`[Trailer] Feature "${slug}" needs 30s trailer (known complex route)`);
+    return true;
+  }
+
   return false;
 }
 
@@ -137,14 +182,30 @@ export async function generateTrailer(
     footagePath = (await captureIntercutFootage(config, deployUrl)) || undefined;
   }
 
+  // Determine if this needs a longer trailer (30s vs 15s)
+  const needsLong = needsLongTrailer(config.slug, config.description);
+
   // Always render with Remotion
   const outputPath = path.join(OUTPUT_DIR, `${config.slug}_${Date.now()}.mp4`);
+
+  // Determine feature type for Remotion:
+  // - 'game' = has screen recording footage, 30s
+  // - 'complex' = code-heavy/dense, needs 30s for explanation
+  // - 'static' = simple feature, 15s
+  let featureType: string;
+  if (footagePath) {
+    featureType = 'game';
+  } else if (needsLong) {
+    featureType = 'complex'; // New type for code-heavy features
+  } else {
+    featureType = 'static';
+  }
 
   const props = {
     featureName: config.name,
     featureSlug: config.slug,
     description: config.description,
-    featureType: footagePath ? 'game' : 'static', // 'game' tells Remotion to use footage
+    featureType,
     tagline: config.tagline || config.description,
     footagePath: footagePath,
   };
@@ -188,7 +249,8 @@ export async function generateTrailer(
     const stats = fs.statSync(outputPath);
     const sizeMb = (stats.size / 1024 / 1024).toFixed(1);
 
-    const durationSec = footagePath ? 30 : 15; // Games get 30s, standard features get 15s
+    // Duration: games and complex features get 30s, standard features get 15s
+    const durationSec = (footagePath || needsLong) ? 30 : 15;
     log(`✅ Trailer generated: ${sizeMb} MB (${durationSec}s)`);
 
     return {
