@@ -62,7 +62,9 @@ If the build fails, fix the errors and try again (up to 3 attempts).`;
 
 export async function buildProject(spec: ProjectSpec): Promise<BuildResult> {
   const logs: string[] = [];
-  const projectPath = `/Users/aklo/dev/ccwtf/app/${spec.slug}`;
+  // Use PROJECT_ROOT env var or default to cwd parent
+const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
+const projectPath = `${projectRoot}/app/${spec.slug}`;
 
   log(`🔨 Starting build: ${spec.idea}`);
   log(`📁 Target path: ${projectPath}`);
@@ -119,7 +121,7 @@ Remember: ONLY create NEW files. Never modify existing files.`;
           allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
           permissionMode: 'bypassPermissions',
           model: 'sonnet',
-          cwd: '/Users/aklo/dev/ccwtf',
+          cwd: projectRoot,
           resume: sessionId,
           maxTurns: 20,
           maxBudgetUsd: 2.0,
@@ -212,6 +214,7 @@ Remember: ONLY create NEW files. Never modify existing files.`;
 
 export async function verifyBuild(): Promise<{ success: boolean; output: string }> {
   log('🔍 Verifying build...');
+  const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
 
   try {
     for await (const message of query({
@@ -220,7 +223,7 @@ export async function verifyBuild(): Promise<{ success: boolean; output: string 
         allowedTools: ['Bash'],
         permissionMode: 'bypassPermissions',
         model: 'haiku',
-        cwd: '/Users/aklo/dev/ccwtf',
+        cwd: projectRoot,
         maxTurns: 3,
         maxBudgetUsd: 0.1,
         env: process.env as Record<string, string>,
