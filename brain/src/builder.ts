@@ -67,6 +67,19 @@ export async function buildProject(spec: ProjectSpec): Promise<BuildResult> {
   log(`🔨 Starting build: ${spec.idea}`);
   log(`📁 Target path: ${projectPath}`);
 
+  // Debug: Check if API key is available
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    log(`❌ ANTHROPIC_API_KEY not found in environment!`);
+    return {
+      success: false,
+      projectPath,
+      logs: ['ANTHROPIC_API_KEY not set'],
+      error: 'ANTHROPIC_API_KEY environment variable is not set',
+    };
+  }
+  log(`🔑 API key found (${apiKey.slice(0, 10)}...)`);
+
   const buildPrompt = `Build a new feature for claudecode.wtf:
 
 PROJECT: ${spec.idea}
@@ -110,6 +123,7 @@ Remember: ONLY create NEW files. Never modify existing files.`;
           resume: sessionId,
           maxTurns: 20,
           maxBudgetUsd: 2.0,
+          env: process.env as Record<string, string>,
         },
       })) {
         // Capture session ID
@@ -209,6 +223,7 @@ export async function verifyBuild(): Promise<{ success: boolean; output: string 
         cwd: '/Users/aklo/dev/ccwtf',
         maxTurns: 3,
         maxBudgetUsd: 0.1,
+        env: process.env as Record<string, string>,
       },
     })) {
       if (message.type === 'result' && message.subtype === 'success') {
