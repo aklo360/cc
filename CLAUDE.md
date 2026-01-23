@@ -46,6 +46,7 @@ A memecoin website for $CC (Claude Code Coin) featuring:
 4. **StarClaude64** (`/moon`) - 3D endless runner with Three.js
 5. **Twitter Bot** (@ClaudeCodeWTF) - Automated tweet posting with AI-generated memes
 6. **Video Generator** (`/video`) - Remotion-based cinematic trailer generator
+7. **Central Brain** (`/brain`) - Autonomous growth orchestrator (Docker)
 
 ### Why It Exists
 $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% of fees go to @bcherny.
@@ -168,6 +169,14 @@ ccwtf/
 │   ├── out/                      # Rendered output (trailer.mp4)
 │   ├── post-tweet.ts             # Script to post video to Twitter
 │   └── package.json              # Remotion dependencies
+├── brain/                        # Central Brain orchestrator (ultra-lean)
+│   ├── src/
+│   │   ├── index.ts              # Main entry + node-cron setup
+│   │   ├── db.ts                 # SQLite database + schema
+│   │   ├── decision.ts           # Strategic AI reasoning (Claude)
+│   │   └── twitter.ts            # Twitter API (ported from worker)
+│   ├── brain.db                  # SQLite database file
+│   └── package.json              # Minimal dependencies (~30 packages)
 ├── worker/                       # Cloudflare Worker (API + Bot)
 │   ├── src/
 │   │   ├── index.ts              # API routes + bot logic (~800 lines)
@@ -269,6 +278,28 @@ ccwtf/
   4. Frame-by-frame screenshots → ffmpeg encodes to MP4
   5. Remotion assembles clips with motion graphics → final trailer
 - **Output:** `video/out/trailer.mp4` (15 seconds, 1080p, 30fps)
+
+### 7. Central Brain (`/brain`) - ULTRA-LEAN
+Autonomous growth orchestrator - no Docker, no Redis, just SQLite + node-cron:
+
+- **Decision Engine:** Strategic AI reasoning using Claude
+  - Analyzes context: tweets, experiments, timing
+  - Prioritizes actions: build, tweet, campaign, distribute
+- **Database:** SQLite (single file: `brain.db`)
+  - 4 tables: tweets, experiments, decisions, game_scores
+- **Cron:** node-cron (no Redis/Bull)
+  - Decision Engine: hourly
+  - Tweet Scheduler: every 4 hours
+  - Daily Experiment: 10 AM UTC
+- **Process:** pm2 on VPS (no Docker)
+
+**Run locally:**
+```bash
+cd brain
+npm install
+npm run dev   # Development with hot reload
+npm start     # Production
+```
 
 ---
 
@@ -378,6 +409,10 @@ npx wrangler deploy
 | `video/src/Trailer.tsx` | Main 15s composition | ~200 |
 | `video/src/scenes/*.tsx` | Motion graphics scenes | ~230 |
 | `video/post-tweet.ts` | Twitter video posting | ~35 |
+| `brain/src/index.ts` | Main entry + cron | ~100 |
+| `brain/src/db.ts` | SQLite database | ~180 |
+| `brain/src/decision.ts` | Strategic AI (Claude) | ~150 |
+| `brain/src/twitter.ts` | Twitter API | ~280 |
 
 ---
 
@@ -389,6 +424,10 @@ npx wrangler deploy
 - [ ] Image storage (Vercel Blob) for persistence
 - [ ] Database (KV/D1) for leaderboard
 - [ ] Mobile game controls (virtual joystick)
+- [ ] Central Brain: Experiment Generator (Claude Code SDK)
+- [ ] Central Brain: P2E Integration (Solana token distribution)
+- [ ] Central Brain: Campaign System (Meme2Earn, voting)
+- [ ] Central Brain: VPS deployment
 
 ---
 
