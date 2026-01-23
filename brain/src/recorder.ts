@@ -1,0 +1,321 @@
+/**
+ * Recorder - Captures video of deployed features
+ *
+ * Based on StarClaude64 trailer generator learnings:
+ * - Frame-perfect capture via page.screenshot()
+ * - Virtual time control for consistent capture
+ * - ffmpeg encoding to MP4
+ *
+ * Each feature gets a unique trailer based on what it does.
+ */
+
+import puppeteer, { Page, Browser } from 'puppeteer';
+import { exec, execSync } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+import fs from 'fs';
+import { buildEvents } from './builder.js';
+
+const execAsync = promisify(exec);
+
+// Output directories (relative to brain/)
+const FRAMES_DIR = '/tmp/cc-brain-frames';
+const OUTPUT_DIR = '/Users/aklo/dev/ccwtf/brain/recordings';
+
+fs.mkdirSync(FRAMES_DIR, { recursive: true });
+fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+const TARGET_FPS = 30;
+
+export interface RecordResult {
+  success: boolean;
+  videoPath?: string;
+  videoBase64?: string;
+  error?: string;
+  durationSec?: number;
+}
+
+function log(message: string): void {
+  const timestamp = new Date().toISOString();
+  const logLine = `[${timestamp}] ${message}`;
+  console.log(logLine);
+  buildEvents.emit('log', logLine);
+}
+
+/**
+ * Record a feature at a given URL
+ * Captures 5-10 seconds of the feature in action
+ */
+export async function recordFeature(
+  url: string,
+  featureName: string,
+  durationSec: number = 8
+): Promise<RecordResult> {
+  log(`🎬 Starting recording: ${featureName}`);
+  log(`📍 URL: ${url}`);
+  log(`⏱️ Duration: ${durationSec}s at ${TARGET_FPS}fps`);
+
+  const framesDir = path.join(FRAMES_DIR, featureName);
+  fs.mkdirSync(framesDir, { recursive: true });
+
+  try {
+    // Launch browser
+    log('🌐 Launching browser...');
+    const browser = await puppeteer.launch({
+      headless: true, // Headless for VPS
+      defaultViewport: null,
+      args: [
+        '--window-size=1920,1080',
+        '--disable-web-security',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+      ],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    // Navigate to the feature
+    log('📄 Loading page...');
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await new Promise(r => setTimeout(r, 2000)); // Let animations settle
+
+    // Capture frames
+    const totalFrames = durationSec * TARGET_FPS;
+    log(`📸 Capturing ${totalFrames} frames...`);
+
+    for (let frame = 0; frame < totalFrames; frame++) {
+      const frameNum = String(frame).padStart(5, '0');
+      await page.screenshot({
+        path: path.join(framesDir, `frame_${frameNum}.png`),
+        type: 'png',
+      });
+
+      // Small delay to allow page updates (for interactive features)
+      await new Promise(r => setTimeout(r, 33)); // ~30fps real-time
+
+      // Simulate some basic interaction for interactive features
+      if (frame === Math.floor(totalFrames * 0.3)) {
+        // Click somewhere in the middle of the page
+        await page.mouse.click(960, 540);
+      }
+      if (frame === Math.floor(totalFrames * 0.6)) {
+        // Another click
+        await page.mouse.click(700, 400);
+      }
+
+      if (frame % 30 === 0) {
+        log(`  Progress: ${frame}/${totalFrames} frames`);
+      }
+    }
+
+    log(`✅ Captured ${totalFrames} frames`);
+    await browser.close();
+
+    // Encode to MP4
+    log('🎥 Encoding to MP4...');
+    const timestamp = Date.now();
+    const outputPath = path.join(OUTPUT_DIR, `${featureName}_${timestamp}.mp4`);
+
+    try {
+      execSync(
+        `ffmpeg -y -framerate ${TARGET_FPS} -i "${framesDir}/frame_%05d.png" -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p "${outputPath}"`,
+        { stdio: 'pipe' }
+      );
+      log(`✅ Video encoded: ${path.basename(outputPath)}`);
+    } catch (e) {
+      log(`❌ ffmpeg error: ${e}`);
+      fs.rmSync(framesDir, { recursive: true, force: true });
+      return { success: false, error: `ffmpeg encoding failed: ${e}` };
+    }
+
+    // Cleanup frames
+    fs.rmSync(framesDir, { recursive: true, force: true });
+
+    // Read video as base64 for Twitter upload
+    const videoBuffer = fs.readFileSync(outputPath);
+    const videoBase64 = videoBuffer.toString('base64');
+
+    const stats = fs.statSync(outputPath);
+    log(`🎬 Recording complete: ${(stats.size / 1024 / 1024).toFixed(1)} MB`);
+
+    return {
+      success: true,
+      videoPath: outputPath,
+      videoBase64,
+      durationSec,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log(`💥 Recording error: ${errorMessage}`);
+    fs.rmSync(framesDir, { recursive: true, force: true });
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Record a game-like feature with AI gameplay
+ * Uses virtual time control for frame-perfect capture
+ */
+export async function recordGameFeature(
+  url: string,
+  featureName: string,
+  durationSec: number = 10
+): Promise<RecordResult> {
+  log(`🎮 Starting game recording: ${featureName}`);
+  log(`📍 URL: ${url}`);
+
+  const framesDir = path.join(FRAMES_DIR, featureName);
+  fs.mkdirSync(framesDir, { recursive: true });
+
+  try {
+    const browser = await puppeteer.launch({
+      headless: false, // Need visible for games
+      defaultViewport: null,
+      args: [
+        '--window-size=1920,1080',
+        '--disable-web-security',
+        '--autoplay-policy=no-user-gesture-required',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+      ],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    log('📄 Loading game...');
+    await page.goto(url, { waitUntil: 'networkidle2' });
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Inject time control for games
+    await page.evaluate(() => {
+      const originalRAF = window.requestAnimationFrame;
+      (window as any).__virtualTime = performance.now();
+      (window as any).__frameCallbacks = [] as FrameRequestCallback[];
+      (window as any).__frameDuration = 1000 / 30;
+      (window as any).__timeControlActive = true;
+
+      window.requestAnimationFrame = (callback: FrameRequestCallback): number => {
+        if ((window as any).__timeControlActive) {
+          (window as any).__frameCallbacks.push(callback);
+          return (window as any).__frameCallbacks.length;
+        }
+        return originalRAF(callback);
+      };
+
+      const perfNowOriginal = performance.now;
+      performance.now = () => {
+        if ((window as any).__timeControlActive) {
+          return (window as any).__virtualTime;
+        }
+        return perfNowOriginal.call(performance);
+      };
+
+      (window as any).__advanceFrame = () => {
+        if (!(window as any).__timeControlActive) return;
+        (window as any).__virtualTime += (window as any).__frameDuration;
+        const callbacks = [...(window as any).__frameCallbacks];
+        (window as any).__frameCallbacks = [];
+        for (const cb of callbacks) {
+          try {
+            cb((window as any).__virtualTime);
+          } catch (e) {
+            console.error('RAF callback error:', e);
+          }
+        }
+      };
+    });
+
+    // Start the game if there's a launch button
+    const launchBtn = await page.$('button');
+    if (launchBtn) {
+      await launchBtn.click();
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    const totalFrames = durationSec * TARGET_FPS;
+    log(`📸 Capturing ${totalFrames} game frames...`);
+
+    // Simulate AI gameplay
+    const keys = new Set<string>();
+    let savedCount = 0;
+
+    for (let frame = 0; frame < totalFrames; frame++) {
+      // AI inputs - basic movement and action
+      if (frame % 4 === 0) await page.keyboard.down(' ');
+      if (frame % 4 === 2) await page.keyboard.up(' ');
+
+      if (frame % 20 === 0) {
+        const dirs = ['w', 'a', 's', 'd'];
+        const dir = dirs[Math.floor(Math.random() * 4)];
+        await page.keyboard.down(dir);
+        keys.add(dir);
+      }
+      if (frame % 20 === 15) {
+        for (const key of keys) {
+          await page.keyboard.up(key);
+        }
+        keys.clear();
+      }
+
+      // Advance game frame
+      await page.evaluate(() => {
+        if ((window as any).__advanceFrame) {
+          (window as any).__advanceFrame();
+        }
+      });
+      await new Promise(r => setTimeout(r, 16));
+
+      // Capture frame
+      const frameNum = String(savedCount).padStart(5, '0');
+      await page.screenshot({
+        path: path.join(framesDir, `frame_${frameNum}.png`),
+        type: 'png',
+      });
+      savedCount++;
+
+      if (savedCount % 30 === 0) {
+        log(`  Progress: ${savedCount}/${totalFrames} frames`);
+      }
+    }
+
+    // Cleanup
+    for (const key of keys) await page.keyboard.up(key);
+    await browser.close();
+
+    // Encode
+    log('🎥 Encoding game footage...');
+    const timestamp = Date.now();
+    const outputPath = path.join(OUTPUT_DIR, `${featureName}_${timestamp}.mp4`);
+
+    execSync(
+      `ffmpeg -y -framerate ${TARGET_FPS} -i "${framesDir}/frame_%05d.png" -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p "${outputPath}"`,
+      { stdio: 'pipe' }
+    );
+
+    fs.rmSync(framesDir, { recursive: true, force: true });
+
+    const videoBuffer = fs.readFileSync(outputPath);
+    const videoBase64 = videoBuffer.toString('base64');
+    const stats = fs.statSync(outputPath);
+
+    log(`🎬 Game recording complete: ${(stats.size / 1024 / 1024).toFixed(1)} MB`);
+
+    return {
+      success: true,
+      videoPath: outputPath,
+      videoBase64,
+      durationSec,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log(`💥 Game recording error: ${errorMessage}`);
+    fs.rmSync(framesDir, { recursive: true, force: true });
+    return { success: false, error: errorMessage };
+  }
+}

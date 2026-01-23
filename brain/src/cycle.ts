@@ -1,11 +1,14 @@
 /**
- * Cycle Engine - Plans and executes 24-hour growth cycles
+ * Cycle Engine - Full Autonomous 24-Hour Growth Cycle
  *
- * When triggered:
- * 1. Creates a new 24h cycle
- * 2. Uses Claude to plan a project + 4-6 tweets
- * 3. Schedules tweets throughout the 24h period
- * 4. Executes scheduled tweets via cron
+ * Complete loop:
+ * 1. PLAN    - Claude plans project + tweets
+ * 2. BUILD   - Claude Agent SDK builds the feature
+ * 3. TEST    - Verify build succeeds
+ * 4. DEPLOY  - Push to Cloudflare Pages
+ * 5. VERIFY  - Check deployment works
+ * 6. RECORD  - Capture video of the feature
+ * 7. TWEET   - Post announcement with video
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -21,7 +24,10 @@ import {
   completeCycle,
   type Cycle,
 } from './db.js';
-import { postTweetToCommunity, getTwitterCredentials } from './twitter.js';
+import { postTweetToCommunity, postTweetWithVideo, getTwitterCredentials, CC_COMMUNITY_ID } from './twitter.js';
+import { buildProject, buildEvents, type BuildResult } from './builder.js';
+import { deployToCloudflare, verifyDeployment } from './deployer.js';
+import { recordFeature, type RecordResult } from './recorder.js';
 
 interface CyclePlan {
   project: {
@@ -35,6 +41,15 @@ interface CyclePlan {
     type: 'teaser' | 'announcement' | 'update' | 'engagement' | 'meme';
     hours_from_start: number;
   }>;
+}
+
+interface FullCycleResult {
+  cycleId: number;
+  plan: CyclePlan;
+  buildResult?: BuildResult;
+  deployUrl?: string;
+  recordResult?: RecordResult;
+  announcementTweetId?: string;
 }
 
 const SYSTEM_PROMPT = `You are the Central Brain for $CC (Claude Code Coin), a memecoin community celebrating Claude Code.
@@ -72,11 +87,11 @@ EXISTING FEATURES (DO NOT BREAK):
 - All existing components and APIs
 
 TWEET STRATEGY:
-- Tweet 1 (hour 0-1): Teaser - hint at what's coming
-- Tweet 2 (hour 4-6): Announcement - ship the thing, share the link
-- Tweet 3 (hour 8-12): Update/engagement - share stats, respond to feedback
-- Tweet 4 (hour 14-18): Meme or dev humor related to the project
-- Tweet 5-6 (hour 20-24): Wrap up, tease tomorrow
+- Tweet 1 (hour 0): Teaser - hint at what's coming, build hype
+- Tweet 2 (hour 0, after deploy): Announcement - "just shipped [feature]" with link + video
+- Tweet 3 (hour 6-8): Update/engagement - share reactions, respond to feedback
+- Tweet 4 (hour 12-16): Meme or dev humor related to the project
+- Tweet 5 (hour 20-24): Wrap up, tease what's next
 
 PERSONALITY:
 - Dev-focused: "just wanna code and vibe"
@@ -86,7 +101,7 @@ PERSONALITY:
 
 CONSTRAINTS:
 - Each tweet max 280 chars
-- Include claudecode.wtf links when relevant
+- Include claudecode.wtf/[slug] links in announcement tweet
 - Don't be cringe
 - No hashtags unless ironic
 
@@ -107,37 +122,54 @@ Return a JSON object with this exact structure:
   ]
 }`;
 
-export async function startNewCycle(): Promise<{ cycleId: number; plan: CyclePlan } | null> {
+function log(message: string): void {
+  const timestamp = new Date().toISOString();
+  const logLine = `[${timestamp}] ${message}`;
+  console.log(logLine);
+  buildEvents.emit('log', logLine);
+}
+
+export async function startNewCycle(): Promise<FullCycleResult | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.log('[Cycle Engine] No ANTHROPIC_API_KEY - cannot start cycle');
+    log('[Cycle Engine] No ANTHROPIC_API_KEY - cannot start cycle');
     return null;
   }
 
   // Check if there's already an active cycle
   const activeCycle = getActiveCycle();
   if (activeCycle) {
-    console.log(`[Cycle Engine] Active cycle already exists (id: ${activeCycle.id})`);
+    log(`[Cycle Engine] Active cycle already exists (id: ${activeCycle.id})`);
     return null;
   }
 
-  console.log('[Cycle Engine] Starting new 24-hour cycle...');
+  log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  log('🚀 STARTING NEW 24-HOUR GROWTH CYCLE');
+  log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   // Create the cycle in DB
   const cycleId = createCycle();
-  console.log(`[Cycle Engine] Created cycle #${cycleId}`);
+  log(`📋 Created cycle #${cycleId}`);
 
-  // Get Claude to plan the cycle
+  // ============ PHASE 1: PLAN ============
+  log('\n▸ PHASE 1: PLANNING');
+
   const client = new Anthropic({ apiKey });
-
   const now = new Date();
+
   const userPrompt = `Current time: ${now.toISOString()}
 
 Plan a complete 24-hour cycle starting now. Pick an exciting project and plan the tweets.
 
 Remember: We're building for the $CC community - devs who love Claude Code and coding culture.
 
+IMPORTANT: The first tweet should be a teaser (hours_from_start: 0).
+The second tweet should be the announcement with video (hours_from_start: 0, but posted after deploy).
+The rest should be spread across the 24 hours.
+
 Return ONLY the JSON object, no other text.`;
+
+  let plan: CyclePlan;
 
   try {
     const response = await client.messages.create({
@@ -149,38 +181,158 @@ Return ONLY the JSON object, no other text.`;
 
     const textContent = response.content.find((c) => c.type === 'text');
     if (!textContent || textContent.type !== 'text') {
-      console.log('[Cycle Engine] No text response from Claude');
+      log('[Cycle Engine] No text response from Claude');
       return null;
     }
 
-    // Extract JSON
     const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.log('[Cycle Engine] No JSON found in response');
-      console.log('Response:', textContent.text);
+      log('[Cycle Engine] No JSON found in response');
       return null;
     }
 
-    const plan = JSON.parse(jsonMatch[0]) as CyclePlan;
-    console.log(`[Cycle Engine] Plan generated:`);
-    console.log(`  Project: ${plan.project.idea} (${plan.project.slug})`);
-    console.log(`  Tweets: ${plan.tweets.length}`);
+    plan = JSON.parse(jsonMatch[0]) as CyclePlan;
+    log(`✅ Plan generated:`);
+    log(`   Project: ${plan.project.idea} (/${plan.project.slug})`);
+    log(`   Description: ${plan.project.description}`);
+    log(`   Tweets: ${plan.tweets.length}`);
 
-    // Update cycle with project info
     updateCycleProject(cycleId, plan.project.idea, plan.project.slug);
-
-    // Schedule all tweets
-    for (const tweet of plan.tweets) {
-      const scheduledTime = new Date(now.getTime() + tweet.hours_from_start * 60 * 60 * 1000);
-      insertScheduledTweet(cycleId, tweet.content, scheduledTime.toISOString(), tweet.type);
-      console.log(`  → Tweet scheduled for ${scheduledTime.toISOString()}: "${tweet.content.slice(0, 50)}..."`);
-    }
-
-    console.log('[Cycle Engine] Cycle planned and scheduled!');
-    return { cycleId, plan };
   } catch (error) {
-    console.error('[Cycle Engine] Error planning cycle:', error);
+    log(`❌ Planning failed: ${error}`);
     return null;
+  }
+
+  // ============ PHASE 2: BUILD ============
+  log('\n▸ PHASE 2: BUILDING');
+
+  const buildResult = await buildProject({
+    idea: plan.project.idea,
+    slug: plan.project.slug,
+    description: plan.project.description,
+  });
+
+  if (!buildResult.success) {
+    log(`❌ Build failed: ${buildResult.error}`);
+    log('⚠️ Cycle will continue with tweets only (no feature deployed)');
+    // Schedule tweets anyway
+    await scheduleAllTweets(cycleId, plan, now);
+    return { cycleId, plan, buildResult };
+  }
+
+  log(`✅ Build successful`);
+  log(`   Tokens: ${buildResult.tokensUsed}`);
+  log(`   Cost: $${buildResult.costUsd?.toFixed(4)}`);
+
+  // ============ PHASE 3: DEPLOY ============
+  log('\n▸ PHASE 3: DEPLOYING');
+
+  const deployResult = await deployToCloudflare();
+  let deployUrl: string | undefined;
+
+  if (!deployResult.success) {
+    log(`❌ Deploy failed: ${deployResult.error}`);
+    log('⚠️ Feature built but not deployed');
+    await scheduleAllTweets(cycleId, plan, now);
+    return { cycleId, plan, buildResult };
+  }
+
+  deployUrl = `https://claudecode.wtf/${plan.project.slug}`;
+  log(`✅ Deployed to: ${deployUrl}`);
+
+  // Verify deployment
+  const verified = await verifyDeployment(deployUrl);
+  if (!verified) {
+    log('⚠️ Deployment verification failed, but continuing...');
+  }
+
+  // ============ PHASE 4: RECORD ============
+  log('\n▸ PHASE 4: RECORDING');
+
+  const recordResult = await recordFeature(deployUrl, plan.project.slug, 8);
+
+  if (!recordResult.success) {
+    log(`⚠️ Recording failed: ${recordResult.error}`);
+    log('   Will post announcement without video');
+  } else {
+    log(`✅ Video recorded: ${recordResult.durationSec}s`);
+  }
+
+  // ============ PHASE 5: TWEET ANNOUNCEMENT ============
+  log('\n▸ PHASE 5: TWEETING ANNOUNCEMENT');
+
+  // Find the announcement tweet
+  const announcementTweet = plan.tweets.find((t) => t.type === 'announcement');
+  let announcementTweetId: string | undefined;
+
+  if (announcementTweet) {
+    try {
+      const credentials = getTwitterCredentials();
+      const tweetContent = announcementTweet.content.includes('claudecode.wtf')
+        ? announcementTweet.content
+        : `${announcementTweet.content}\n\n${deployUrl}`;
+
+      if (recordResult.success && recordResult.videoBase64) {
+        // Post with video
+        log('📹 Posting announcement with video...');
+        const result = await postTweetWithVideo(
+          tweetContent,
+          recordResult.videoBase64,
+          credentials,
+          CC_COMMUNITY_ID
+        );
+        announcementTweetId = result.id;
+        log(`✅ Announcement posted with video: ${result.id}`);
+      } else {
+        // Post without video
+        log('📝 Posting announcement (no video)...');
+        const result = await postTweetToCommunity(tweetContent, credentials);
+        announcementTweetId = result.id;
+        log(`✅ Announcement posted: ${result.id}`);
+      }
+
+      // Record in DB
+      insertTweet(tweetContent, 'announcement', announcementTweetId);
+    } catch (error) {
+      log(`❌ Announcement tweet failed: ${error}`);
+    }
+  }
+
+  // ============ PHASE 6: SCHEDULE REMAINING TWEETS ============
+  log('\n▸ PHASE 6: SCHEDULING TWEETS');
+
+  // Schedule all non-announcement tweets
+  for (const tweet of plan.tweets) {
+    if (tweet.type === 'announcement') continue; // Already posted
+
+    const scheduledTime = new Date(now.getTime() + tweet.hours_from_start * 60 * 60 * 1000);
+    insertScheduledTweet(cycleId, tweet.content, scheduledTime.toISOString(), tweet.type);
+    log(`   → ${tweet.type} scheduled for ${scheduledTime.toISOString()}`);
+  }
+
+  // ============ COMPLETE ============
+  log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  log('🎉 CYCLE STARTED SUCCESSFULLY');
+  log(`   Project: ${plan.project.idea}`);
+  log(`   URL: ${deployUrl || 'not deployed'}`);
+  log(`   Tweets scheduled: ${plan.tweets.length - 1}`);
+  log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  return {
+    cycleId,
+    plan,
+    buildResult,
+    deployUrl,
+    recordResult,
+    announcementTweetId,
+  };
+}
+
+async function scheduleAllTweets(cycleId: number, plan: CyclePlan, now: Date): Promise<void> {
+  for (const tweet of plan.tweets) {
+    const scheduledTime = new Date(now.getTime() + tweet.hours_from_start * 60 * 60 * 1000);
+    insertScheduledTweet(cycleId, tweet.content, scheduledTime.toISOString(), tweet.type);
+    log(`   → ${tweet.type} scheduled for ${scheduledTime.toISOString()}`);
   }
 }
 
@@ -195,7 +347,7 @@ export async function executeScheduledTweets(): Promise<number> {
     return 0;
   }
 
-  console.log(`[Cycle Engine] Found ${unpostedTweets.length} tweets ready to post`);
+  log(`[Tweet Executor] Found ${unpostedTweets.length} tweets ready to post`);
 
   let posted = 0;
   for (const tweet of unpostedTweets) {
@@ -207,7 +359,7 @@ export async function executeScheduledTweets(): Promise<number> {
       markTweetPosted(tweet.id, result.id);
       insertTweet(tweet.content, tweet.tweet_type, result.id);
 
-      console.log(`  ✓ Posted to community: "${tweet.content.slice(0, 50)}..." (${result.id})`);
+      log(`  ✓ Posted to community: "${tweet.content.slice(0, 50)}..." (${result.id})`);
       posted++;
 
       // Wait a bit between tweets to avoid rate limits
@@ -215,7 +367,7 @@ export async function executeScheduledTweets(): Promise<number> {
         await new Promise((r) => setTimeout(r, 2000));
       }
     } catch (error) {
-      console.error(`  ✗ Failed to post tweet:`, error);
+      log(`  ✗ Failed to post tweet: ${error}`);
     }
   }
 
@@ -251,6 +403,9 @@ export function cancelActiveCycle(): Cycle | null {
   }
 
   completeCycle(cycle.id);
-  console.log(`[Cycle Engine] Cancelled cycle #${cycle.id}: ${cycle.project_idea}`);
+  log(`[Cycle Engine] Cancelled cycle #${cycle.id}: ${cycle.project_idea}`);
   return cycle;
 }
+
+// Re-export buildEvents for the WebSocket server
+export { buildEvents };

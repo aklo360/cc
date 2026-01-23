@@ -138,6 +138,24 @@ export default function Home() {
             </svg>
             StarClaude64
           </a>
+          <a
+            href="/watch"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-fuchsia-500 text-fuchsia-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-fuchsia-500 hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+              <line x1="8" y1="21" x2="16" y2="21" />
+              <line x1="12" y1="17" x2="12" y2="21" />
+            </svg>
+            Watch Brain
+          </a>
           <BuyButton />
           <a
             href="https://x.com/bcherny"
