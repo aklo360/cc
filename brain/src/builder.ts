@@ -123,7 +123,7 @@ Remember: ONLY create NEW files. Never modify existing files.`;
         prompt: attempt === 1 ? buildPrompt : 'The build failed. Please fix the errors and try again.',
         options: {
           allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
-          permissionMode: 'bypassPermissions',
+          permissionMode: 'acceptEdits',
           model: 'sonnet',
           cwd: projectRoot,
           resume: sessionId,
@@ -228,7 +228,7 @@ export async function verifyBuild(): Promise<{ success: boolean; output: string 
       prompt: 'Run "npm run build" and tell me if it succeeds or fails. Just report the result.',
       options: {
         allowedTools: ['Bash'],
-        permissionMode: 'bypassPermissions',
+        permissionMode: 'acceptEdits',
         model: 'haiku',
         cwd: projectRoot,
         maxTurns: 3,
