@@ -156,6 +156,7 @@ export async function postTweet(
     text: string;
     media?: { media_ids: string[] };
     community_id?: string;
+    share_with_followers?: boolean;
   } = { text };
 
   if (options.mediaId) {
@@ -164,6 +165,7 @@ export async function postTweet(
 
   if (options.communityId) {
     body.community_id = options.communityId;
+    body.share_with_followers = true; // Broadcast to followers too (like web UI)
   }
 
   const authHeader = await generateOAuth1Header('POST', url, credentials);
