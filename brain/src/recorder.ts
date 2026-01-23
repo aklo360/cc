@@ -9,7 +9,7 @@
  * Each feature gets a unique trailer based on what it does.
  */
 
-import puppeteer, { Page, Browser } from 'puppeteer';
+import puppeteer, { Page, Browser, KeyInput } from 'puppeteer';
 import { exec, execSync } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
@@ -192,44 +192,46 @@ export async function recordGameFeature(
     await page.goto(url, { waitUntil: 'networkidle2' });
     await new Promise(r => setTimeout(r, 2000));
 
-    // Inject time control for games
-    await page.evaluate(() => {
-      const originalRAF = window.requestAnimationFrame;
-      (window as any).__virtualTime = performance.now();
-      (window as any).__frameCallbacks = [] as FrameRequestCallback[];
-      (window as any).__frameDuration = 1000 / 30;
-      (window as any).__timeControlActive = true;
+    // Inject time control for games (runs in browser context)
+    await page.evaluate(`
+      (function() {
+        const originalRAF = window.requestAnimationFrame;
+        window.__virtualTime = performance.now();
+        window.__frameCallbacks = [];
+        window.__frameDuration = 1000 / 30;
+        window.__timeControlActive = true;
 
-      window.requestAnimationFrame = (callback: FrameRequestCallback): number => {
-        if ((window as any).__timeControlActive) {
-          (window as any).__frameCallbacks.push(callback);
-          return (window as any).__frameCallbacks.length;
-        }
-        return originalRAF(callback);
-      };
-
-      const perfNowOriginal = performance.now;
-      performance.now = () => {
-        if ((window as any).__timeControlActive) {
-          return (window as any).__virtualTime;
-        }
-        return perfNowOriginal.call(performance);
-      };
-
-      (window as any).__advanceFrame = () => {
-        if (!(window as any).__timeControlActive) return;
-        (window as any).__virtualTime += (window as any).__frameDuration;
-        const callbacks = [...(window as any).__frameCallbacks];
-        (window as any).__frameCallbacks = [];
-        for (const cb of callbacks) {
-          try {
-            cb((window as any).__virtualTime);
-          } catch (e) {
-            console.error('RAF callback error:', e);
+        window.requestAnimationFrame = function(callback) {
+          if (window.__timeControlActive) {
+            window.__frameCallbacks.push(callback);
+            return window.__frameCallbacks.length;
           }
-        }
-      };
-    });
+          return originalRAF(callback);
+        };
+
+        const perfNowOriginal = performance.now.bind(performance);
+        performance.now = function() {
+          if (window.__timeControlActive) {
+            return window.__virtualTime;
+          }
+          return perfNowOriginal();
+        };
+
+        window.__advanceFrame = function() {
+          if (!window.__timeControlActive) return;
+          window.__virtualTime += window.__frameDuration;
+          const callbacks = [...window.__frameCallbacks];
+          window.__frameCallbacks = [];
+          for (const cb of callbacks) {
+            try {
+              cb(window.__virtualTime);
+            } catch (e) {
+              console.error('RAF callback error:', e);
+            }
+          }
+        };
+      })();
+    `);
 
     // Start the game if there's a launch button
     const launchBtn = await page.$('button');
@@ -242,16 +244,16 @@ export async function recordGameFeature(
     log(`📸 Capturing ${totalFrames} game frames...`);
 
     // Simulate AI gameplay
-    const keys = new Set<string>();
+    const keys = new Set<KeyInput>();
     let savedCount = 0;
 
     for (let frame = 0; frame < totalFrames; frame++) {
       // AI inputs - basic movement and action
-      if (frame % 4 === 0) await page.keyboard.down(' ');
-      if (frame % 4 === 2) await page.keyboard.up(' ');
+      if (frame % 4 === 0) await page.keyboard.down('Space');
+      if (frame % 4 === 2) await page.keyboard.up('Space');
 
       if (frame % 20 === 0) {
-        const dirs = ['w', 'a', 's', 'd'];
+        const dirs: KeyInput[] = ['KeyW', 'KeyA', 'KeyS', 'KeyD'];
         const dir = dirs[Math.floor(Math.random() * 4)];
         await page.keyboard.down(dir);
         keys.add(dir);
@@ -264,11 +266,11 @@ export async function recordGameFeature(
       }
 
       // Advance game frame
-      await page.evaluate(() => {
-        if ((window as any).__advanceFrame) {
-          (window as any).__advanceFrame();
+      await page.evaluate(`
+        if (window.__advanceFrame) {
+          window.__advanceFrame();
         }
-      });
+      `);
       await new Promise(r => setTimeout(r, 16));
 
       // Capture frame
@@ -285,7 +287,9 @@ export async function recordGameFeature(
     }
 
     // Cleanup
-    for (const key of keys) await page.keyboard.up(key);
+    for (const key of keys) {
+      await page.keyboard.up(key);
+    }
     await browser.close();
 
     // Encode
