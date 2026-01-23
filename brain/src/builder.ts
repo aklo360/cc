@@ -115,6 +115,10 @@ Remember: ONLY create NEW files. Never modify existing files.`;
       attempt++;
       log(`📝 Build attempt ${attempt}/${maxAttempts}`);
 
+      // Find claude executable - check common locations
+      const claudePath = process.env.CLAUDE_PATH ||
+        (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : undefined);
+
       for await (const message of query({
         prompt: attempt === 1 ? buildPrompt : 'The build failed. Please fix the errors and try again.',
         options: {
@@ -126,6 +130,7 @@ Remember: ONLY create NEW files. Never modify existing files.`;
           maxTurns: 20,
           maxBudgetUsd: 2.0,
           env: process.env as Record<string, string>,
+          pathToClaudeCodeExecutable: claudePath,
         },
       })) {
         // Capture session ID
@@ -215,6 +220,8 @@ Remember: ONLY create NEW files. Never modify existing files.`;
 export async function verifyBuild(): Promise<{ success: boolean; output: string }> {
   log('🔍 Verifying build...');
   const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
+  const claudePath = process.env.CLAUDE_PATH ||
+    (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : undefined);
 
   try {
     for await (const message of query({
@@ -227,6 +234,7 @@ export async function verifyBuild(): Promise<{ success: boolean; output: string 
         maxTurns: 3,
         maxBudgetUsd: 0.1,
         env: process.env as Record<string, string>,
+        pathToClaudeCodeExecutable: claudePath,
       },
     })) {
       if (message.type === 'result' && message.subtype === 'success') {
