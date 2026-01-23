@@ -150,7 +150,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         project: result.plan.project,
         buildSuccess: result.buildResult?.success,
         deployUrl: result.deployUrl,
-        videoRecorded: result.recordResult?.success,
+        trailerGenerated: result.trailerResult?.success,
         announcementTweetId: result.announcementTweetId,
         tweets: result.plan.tweets.map((t) => ({
           content: t.content,
@@ -259,9 +259,29 @@ async function main(): Promise<void> {
   // Create WebSocket server
   const wss = new WebSocketServer({ server, path: '/ws' });
 
+  // Heartbeat to keep connections alive through Cloudflare tunnel
+  const heartbeatInterval = setInterval(() => {
+    for (const client of wsClients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.ping();
+      }
+    }
+  }, 30000); // Ping every 30 seconds
+
+  wss.on('close', () => {
+    clearInterval(heartbeatInterval);
+  });
+
   wss.on('connection', (ws) => {
     console.log('[WS] Client connected');
     wsClients.add(ws);
+
+    // Mark connection as alive
+    (ws as WebSocket & { isAlive: boolean }).isAlive = true;
+
+    ws.on('pong', () => {
+      (ws as WebSocket & { isAlive: boolean }).isAlive = true;
+    });
 
     // Send welcome message
     ws.send(JSON.stringify({
