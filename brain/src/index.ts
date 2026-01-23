@@ -1,20 +1,35 @@
 /**
- * Central Brain - Ultra-Lean $CC Growth Orchestrator
+ * Central Brain - Autonomous $CC Growth Agent
  *
- * No Docker. No Redis. Just SQLite + node-cron + HTTP server.
+ * Full autonomous engineering loop:
+ * 1. PLAN    - Claude plans project + tweets
+ * 2. BUILD   - Claude Agent SDK builds the feature
+ * 3. TEST    - Verify build succeeds
+ * 4. DEPLOY  - Push to Cloudflare Pages
+ * 5. VERIFY  - Check deployment works
+ * 6. RECORD  - Capture video of the feature
+ * 7. TWEET   - Post announcement with video
  *
- * Endpoints:
+ * HTTP Endpoints:
  *   GET  /status  - Check brain status and active cycle
  *   POST /go      - Start a new 24-hour cycle
+ *   POST /cancel  - Cancel the active cycle
+ *
+ * WebSocket: ws://localhost:3001/ws
+ *   Real-time log streaming for /watch page
  */
 
 import 'dotenv/config';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
 import cron from 'node-cron';
-import { db, cleanupOnStartup, completeCycle } from './db.js';
-import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle } from './cycle.js';
+import { db, cleanupOnStartup } from './db.js';
+import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
 
 const PORT = process.env.PORT || 3001;
+
+// Store connected WebSocket clients
+const wsClients = new Set<WebSocket>();
 
 // ASCII art banner
 const BANNER = `
@@ -32,9 +47,25 @@ const BANNER = `
   ██████╔╝██║  ██║██║  ██║██║██║ ╚████║
   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 
-  $CC Growth Orchestrator v2.1.0
-  Ultra-lean: SQLite + node-cron + HTTP
+  $CC Autonomous Growth Agent v3.0.0
+  Full loop: Plan → Build → Deploy → Record → Tweet
 `;
+
+// ============ WebSocket Broadcast ============
+
+function broadcastLog(message: string): void {
+  const payload = JSON.stringify({ type: 'log', message, timestamp: Date.now() });
+  for (const client of wsClients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(payload);
+    }
+  }
+}
+
+// Subscribe to build events
+buildEvents.on('log', (message: string) => {
+  broadcastLog(message);
+});
 
 // ============ HTTP Server ============
 
@@ -64,14 +95,23 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   if (url === '/' && method === 'GET') {
     sendJson(res, 200, {
       name: 'Central Brain',
-      version: '2.1.0',
+      version: '3.0.0',
       status: 'running',
       endpoints: {
         'GET /': 'This info',
         'GET /status': 'Check brain status and active cycle',
-        'POST /go': 'Start a new 24-hour cycle',
+        'POST /go': 'Start a new 24-hour cycle (full autonomous loop)',
         'POST /cancel': 'Cancel the active cycle',
+        'WS /ws': 'Real-time log streaming (WebSocket)',
       },
+      capabilities: [
+        'Plan projects with Claude',
+        'Build features with Claude Agent SDK',
+        'Deploy to Cloudflare Pages',
+        'Record video of deployed features',
+        'Tweet announcements with video',
+        'Schedule follow-up tweets',
+      ],
     });
     return;
   }
@@ -80,11 +120,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     const status = getCycleStatus();
     sendJson(res, 200, {
       brain: 'running',
+      wsClients: wsClients.size,
       cycle: status.active
         ? {
             id: status.cycle?.id,
             status: status.cycle?.status,
             project: status.cycle?.project_idea,
+            slug: status.cycle?.project_slug,
             started: status.cycle?.started_at,
             ends: status.cycle?.ends_at,
             tweets: status.tweets,
@@ -95,16 +137,21 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   if (url === '/go' && method === 'POST') {
-    console.log('\n🚀 GO triggered! Starting new 24-hour cycle...\n');
+    console.log('\n🚀 GO triggered! Starting full autonomous cycle...\n');
+    broadcastLog('🚀 GO triggered! Starting full autonomous cycle...');
 
     const result = await startNewCycle();
 
     if (result) {
       sendJson(res, 200, {
         success: true,
-        message: 'New 24-hour cycle started!',
+        message: 'Autonomous cycle started!',
         cycleId: result.cycleId,
         project: result.plan.project,
+        buildSuccess: result.buildResult?.success,
+        deployUrl: result.deployUrl,
+        videoRecorded: result.recordResult?.success,
+        announcementTweetId: result.announcementTweetId,
         tweets: result.plan.tweets.map((t) => ({
           content: t.content,
           type: t.type,
@@ -135,6 +182,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   if (url === '/cancel' && method === 'POST') {
     console.log('\n⛔ CANCEL triggered! Stopping active cycle...\n');
+    broadcastLog('⛔ CANCEL triggered! Stopping active cycle...');
 
     const result = cancelActiveCycle();
 
@@ -166,6 +214,7 @@ async function handleTweetExecutor(): Promise<void> {
     const posted = await executeScheduledTweets();
     if (posted > 0) {
       console.log(`[Tweet Executor] Posted ${posted} tweet(s)`);
+      broadcastLog(`[Tweet Executor] Posted ${posted} tweet(s)`);
     } else {
       console.log('[Tweet Executor] No tweets due');
     }
@@ -199,7 +248,7 @@ async function main(): Promise<void> {
   // Set up cron schedules
   setupCronJobs();
 
-  // Start HTTP server
+  // Create HTTP server
   const server = createServer((req, res) => {
     handleRequest(req, res).catch((error) => {
       console.error('[HTTP] Error:', error);
@@ -207,19 +256,54 @@ async function main(): Promise<void> {
     });
   });
 
+  // Create WebSocket server
+  const wss = new WebSocketServer({ server, path: '/ws' });
+
+  wss.on('connection', (ws) => {
+    console.log('[WS] Client connected');
+    wsClients.add(ws);
+
+    // Send welcome message
+    ws.send(JSON.stringify({
+      type: 'connected',
+      message: 'Connected to Central Brain',
+      timestamp: Date.now(),
+    }));
+
+    ws.on('close', () => {
+      console.log('[WS] Client disconnected');
+      wsClients.delete(ws);
+    });
+
+    ws.on('error', (error) => {
+      console.error('[WS] Error:', error);
+      wsClients.delete(ws);
+    });
+  });
+
+  // Start server
   server.listen(PORT, () => {
     console.log(`✓ HTTP server running on port ${PORT}`);
+    console.log(`✓ WebSocket server running on ws://localhost:${PORT}/ws`);
   });
 
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Central Brain is now running');
-  console.log(`  Trigger a cycle: curl -X POST http://localhost:${PORT}/go`);
+  console.log(`  Start cycle: curl -X POST http://localhost:${PORT}/go`);
+  console.log(`  Watch logs:  ws://localhost:${PORT}/ws`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 }
 
 // Graceful shutdown
 function shutdown(): void {
   console.log('\nShutting down Central Brain...');
+
+  // Close all WebSocket connections
+  for (const client of wsClients) {
+    client.close();
+  }
+  wsClients.clear();
+
   db.close();
   console.log('Goodbye!');
   process.exit(0);

@@ -44,9 +44,10 @@ A memecoin website for $CC (Claude Code Coin) featuring:
 2. **Meme Generator** (`/meme`) - AI-powered meme creation with Gemini
 3. **Space Invaders** (`/play`) - 2D Canvas game with CC mascot
 4. **StarClaude64** (`/moon`) - 3D endless runner with Three.js
-5. **Twitter Bot** (@ClaudeCodeWTF) - Automated tweet posting with AI-generated memes
-6. **Video Generator** (`/video`) - Remotion-based cinematic trailer generator
-7. **Central Brain** (`/brain`) - Autonomous growth orchestrator (Docker)
+5. **Watch Brain** (`/watch`) - Real-time build logs from the autonomous agent
+6. **Twitter Bot** (@ClaudeCodeWTF) - Automated tweet posting with AI-generated memes
+7. **Video Generator** (`/video`) - Remotion-based cinematic trailer generator
+8. **Central Brain** (`/brain`) - Full autonomous software engineering agent
 
 ### Why It Exists
 $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% of fees go to @bcherny.
@@ -147,6 +148,8 @@ ccwtf/
 │   │   └── page.tsx              # StarClaude64 3D game page
 │   ├── play/
 │   │   └── page.tsx              # Space Invaders game page
+│   ├── watch/
+│   │   └── page.tsx              # Brain monitor - real-time build logs
 │   ├── globals.css               # Tailwind + CSS variables
 │   ├── layout.tsx                # Root layout + metadata
 │   └── page.tsx                  # Homepage
@@ -279,19 +282,42 @@ ccwtf/
   5. Remotion assembles clips with motion graphics → final trailer
 - **Output:** `video/out/trailer.mp4` (15 seconds, 1080p, 30fps)
 
-### 7. Central Brain (`/brain`) - ULTRA-LEAN
-Autonomous growth orchestrator - no Docker, no Redis, just SQLite + node-cron:
+### 7. Watch Brain (`/watch`)
+Real-time build log viewer for the Central Brain:
+- WebSocket connection to brain server (`ws://[host]:3001/ws`)
+- Live streaming of all build phases
+- Status panel showing current cycle, scheduled tweets
+- START CYCLE / CANCEL buttons for manual control
 
-- **Decision Engine:** Strategic AI reasoning using Claude
-  - Analyzes context: tweets, experiments, timing
-  - Prioritizes actions: build, tweet, campaign, distribute
-- **Database:** SQLite (single file: `brain.db`)
-  - 4 tables: tweets, experiments, decisions, game_scores
-- **Cron:** node-cron (no Redis/Bull)
-  - Decision Engine: hourly
-  - Tweet Scheduler: every 4 hours
-  - Daily Experiment: 10 AM UTC
-- **Process:** pm2 on VPS (no Docker)
+### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT
+24-hour autonomous software engineering cycles - PLAN → BUILD → DEPLOY → RECORD → TWEET:
+
+- **Full 6-Phase Autonomous Loop:**
+  1. **PLAN** - Claude plans project + 5 tweets for 24 hours
+  2. **BUILD** - Claude Agent SDK builds the feature (with 3-retry debug loop)
+  3. **DEPLOY** - Cloudflare Pages deployment via wrangler
+  4. **RECORD** - Puppeteer captures video of deployed feature
+  5. **TWEET** - Posts announcement with video to $CC community
+  6. **SCHEDULE** - Remaining tweets posted over 24 hours
+- **Strict Rules:**
+  - Projects can ONLY ADD features, never modify/break existing code
+  - Tweets go to Twitter community (not "everyone")
+  - Automatic cleanup of crashed/incomplete cycles on startup
+- **Architecture:** Ultra-lean (no Docker)
+  - SQLite (brain.db) + node-cron + pm2
+  - WebSocket server for real-time log streaming
+- **Key Files:**
+  - `builder.ts` - Claude Agent SDK integration
+  - `deployer.ts` - Cloudflare Pages deployment
+  - `recorder.ts` - Puppeteer video capture
+  - `cycle.ts` - Full autonomous loop orchestration
+  - `index.ts` - HTTP/WebSocket server
+
+**API Endpoints:**
+- `GET /status` - Current cycle status
+- `POST /go` - Start new 24-hour cycle
+- `POST /cancel` - Cancel active cycle
+- `WS /ws` - Real-time log streaming
 
 **Run locally:**
 ```bash
@@ -409,10 +435,14 @@ npx wrangler deploy
 | `video/src/Trailer.tsx` | Main 15s composition | ~200 |
 | `video/src/scenes/*.tsx` | Motion graphics scenes | ~230 |
 | `video/post-tweet.ts` | Twitter video posting | ~35 |
-| `brain/src/index.ts` | Main entry + cron | ~100 |
-| `brain/src/db.ts` | SQLite database | ~180 |
-| `brain/src/decision.ts` | Strategic AI (Claude) | ~150 |
-| `brain/src/twitter.ts` | Twitter API | ~280 |
+| `app/watch/page.tsx` | Brain monitor UI | ~345 |
+| `brain/src/index.ts` | HTTP + WebSocket server | ~320 |
+| `brain/src/cycle.ts` | Full autonomous loop | ~410 |
+| `brain/src/builder.ts` | Claude Agent SDK builder | ~180 |
+| `brain/src/deployer.ts` | Cloudflare deployment | ~85 |
+| `brain/src/recorder.ts` | Video capture (Puppeteer) | ~320 |
+| `brain/src/db.ts` | SQLite database | ~380 |
+| `brain/src/twitter.ts` | Twitter API + community | ~300 |
 
 ---
 
@@ -424,10 +454,8 @@ npx wrangler deploy
 - [ ] Image storage (Vercel Blob) for persistence
 - [ ] Database (KV/D1) for leaderboard
 - [ ] Mobile game controls (virtual joystick)
-- [ ] Central Brain: Experiment Generator (Claude Code SDK)
 - [ ] Central Brain: P2E Integration (Solana token distribution)
 - [ ] Central Brain: Campaign System (Meme2Earn, voting)
-- [ ] Central Brain: VPS deployment
 
 ---
 
