@@ -349,3 +349,31 @@ export function markTweetPosted(id: number, twitterId: string): void {
   `);
   stmt.run(twitterId, id);
 }
+
+// ============ Cleanup Helpers ============
+
+export function cancelIncompleteCycles(): number {
+  // Cancel any cycles that are still in 'planning' status (interrupted before completion)
+  const stmt = db.prepare(`
+    UPDATE cycles SET status = 'cancelled', completed_at = CURRENT_TIMESTAMP
+    WHERE status = 'planning'
+  `);
+  const result = stmt.run();
+  return result.changes;
+}
+
+export function cancelExpiredCycles(): number {
+  // Cancel any cycles that have passed their end time but are still 'executing'
+  const stmt = db.prepare(`
+    UPDATE cycles SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+    WHERE status = 'executing' AND datetime(ends_at) < datetime('now')
+  `);
+  const result = stmt.run();
+  return result.changes;
+}
+
+export function cleanupOnStartup(): { cancelled: number; expired: number } {
+  const cancelled = cancelIncompleteCycles();
+  const expired = cancelExpiredCycles();
+  return { cancelled, expired };
+}

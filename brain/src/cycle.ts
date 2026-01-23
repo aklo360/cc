@@ -18,9 +18,10 @@ import {
   markTweetPosted,
   getAllScheduledTweets,
   insertTweet,
+  completeCycle,
   type Cycle,
 } from './db.js';
-import { postTweet, getTwitterCredentials } from './twitter.js';
+import { postTweetToCommunity, getTwitterCredentials } from './twitter.js';
 
 interface CyclePlan {
   project: {
@@ -53,6 +54,22 @@ The project should be:
 - Shareable/viral potential
 - Related to coding, AI, or dev culture
 - Fun and engaging
+
+⚠️ CRITICAL PROJECT RULES - NEVER VIOLATE THESE:
+1. ONLY ADD NEW FEATURES - Never modify, remove, or break existing code
+2. Projects are ADDITIVE ONLY - New pages, new components, new files
+3. NEVER touch existing files unless absolutely necessary for integration
+4. If integration is needed, ONLY add imports/links - never change existing logic
+5. All new code goes in NEW files in appropriate directories
+6. Existing features MUST continue to work exactly as before
+7. The site at claudecode.wtf must remain fully functional
+
+EXISTING FEATURES (DO NOT BREAK):
+- Landing page (/)
+- Meme Generator (/meme)
+- Space Invaders (/play)
+- StarClaude64 3D game (/moon)
+- All existing components and APIs
 
 TWEET STRATEGY:
 - Tweet 1 (hour 0-1): Teaser - hint at what's coming
@@ -184,12 +201,13 @@ export async function executeScheduledTweets(): Promise<number> {
   for (const tweet of unpostedTweets) {
     try {
       const credentials = getTwitterCredentials();
-      const result = await postTweet(tweet.content, credentials);
+      // Post to the $CC community
+      const result = await postTweetToCommunity(tweet.content, credentials);
 
       markTweetPosted(tweet.id, result.id);
       insertTweet(tweet.content, tweet.tweet_type, result.id);
 
-      console.log(`  ✓ Posted tweet: "${tweet.content.slice(0, 50)}..." (${result.id})`);
+      console.log(`  ✓ Posted to community: "${tweet.content.slice(0, 50)}..." (${result.id})`);
       posted++;
 
       // Wait a bit between tweets to avoid rate limits
@@ -224,4 +242,15 @@ export function getCycleStatus(): {
       posted: t.posted === 1,
     })),
   };
+}
+
+export function cancelActiveCycle(): Cycle | null {
+  const cycle = getActiveCycle();
+  if (!cycle) {
+    return null;
+  }
+
+  completeCycle(cycle.id);
+  console.log(`[Cycle Engine] Cancelled cycle #${cycle.id}: ${cycle.project_idea}`);
+  return cycle;
 }

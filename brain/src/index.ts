@@ -11,8 +11,8 @@
 import 'dotenv/config';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import cron from 'node-cron';
-import { db } from './db.js';
-import { startNewCycle, executeScheduledTweets, getCycleStatus } from './cycle.js';
+import { db, cleanupOnStartup, completeCycle } from './db.js';
+import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle } from './cycle.js';
 
 const PORT = process.env.PORT || 3001;
 
@@ -70,6 +70,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'GET /': 'This info',
         'GET /status': 'Check brain status and active cycle',
         'POST /go': 'Start a new 24-hour cycle',
+        'POST /cancel': 'Cancel the active cycle',
       },
     });
     return;
@@ -132,6 +133,27 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
+  if (url === '/cancel' && method === 'POST') {
+    console.log('\n⛔ CANCEL triggered! Stopping active cycle...\n');
+
+    const result = cancelActiveCycle();
+
+    if (result) {
+      sendJson(res, 200, {
+        success: true,
+        message: 'Cycle cancelled',
+        cycleId: result.id,
+        project: result.project_idea,
+      });
+    } else {
+      sendJson(res, 404, {
+        success: false,
+        message: 'No active cycle to cancel',
+      });
+    }
+    return;
+  }
+
   // 404
   sendJson(res, 404, { error: 'Not found' });
 }
@@ -167,6 +189,12 @@ async function main(): Promise<void> {
 
   // Database is initialized on import (see db.ts)
   console.log('✓ Database ready');
+
+  // Cleanup any incomplete cycles from previous crashes
+  const cleanup = cleanupOnStartup();
+  if (cleanup.cancelled > 0 || cleanup.expired > 0) {
+    console.log(`✓ Cleanup: ${cleanup.cancelled} cancelled, ${cleanup.expired} expired cycles cleaned`);
+  }
 
   // Set up cron schedules
   setupCronJobs();

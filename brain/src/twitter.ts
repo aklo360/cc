@@ -138,17 +138,32 @@ export async function uploadMedia(
   return data.media_id_string;
 }
 
+// $CC Community ID on Twitter
+export const CC_COMMUNITY_ID = '2014131779628618154';
+
 // Post a tweet using Twitter v2 API
 export async function postTweet(
   text: string,
   credentials: OAuth1Credentials,
-  mediaId?: string
+  options: {
+    mediaId?: string;
+    communityId?: string;
+  } = {}
 ): Promise<{ id: string; text: string }> {
   const url = 'https://api.twitter.com/2/tweets';
 
-  const body: { text: string; media?: { media_ids: string[] } } = { text };
-  if (mediaId) {
-    body.media = { media_ids: [mediaId] };
+  const body: {
+    text: string;
+    media?: { media_ids: string[] };
+    community_id?: string;
+  } = { text };
+
+  if (options.mediaId) {
+    body.media = { media_ids: [options.mediaId] };
+  }
+
+  if (options.communityId) {
+    body.community_id = options.communityId;
   }
 
   const authHeader = await generateOAuth1Header('POST', url, credentials);
@@ -171,15 +186,28 @@ export async function postTweet(
   return data.data;
 }
 
+// Post tweet to $CC community
+export async function postTweetToCommunity(
+  text: string,
+  credentials: OAuth1Credentials,
+  mediaId?: string
+): Promise<{ id: string; text: string }> {
+  return postTweet(text, credentials, {
+    mediaId,
+    communityId: CC_COMMUNITY_ID,
+  });
+}
+
 // Post tweet with image
 export async function postTweetWithImage(
   text: string,
   imageBase64: string,
-  credentials: OAuth1Credentials
+  credentials: OAuth1Credentials,
+  communityId?: string
 ): Promise<{ id: string; text: string }> {
   const mediaId = await uploadMedia(imageBase64, credentials);
   console.log('Media uploaded, media_id:', mediaId);
-  return postTweet(text, credentials, mediaId);
+  return postTweet(text, credentials, { mediaId, communityId });
 }
 
 // Upload video using chunked upload
@@ -353,11 +381,12 @@ export async function uploadVideo(
 export async function postTweetWithVideo(
   text: string,
   videoBase64: string,
-  credentials: OAuth1Credentials
+  credentials: OAuth1Credentials,
+  communityId?: string
 ): Promise<{ id: string; text: string }> {
   const mediaId = await uploadVideo(videoBase64, credentials);
   console.log('Video uploaded, media_id:', mediaId);
-  return postTweet(text, credentials, mediaId);
+  return postTweet(text, credentials, { mediaId, communityId });
 }
 
 // Get credentials from environment
