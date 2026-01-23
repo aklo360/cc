@@ -177,13 +177,14 @@ ccwtf/
 ├── brain/                        # Central Brain v3.1 (full autonomous loop)
 │   ├── src/
 │   │   ├── index.ts              # HTTP/WS server + cron (port 3001)
-│   │   ├── cycle.ts              # Full 7-phase cycle orchestration
+│   │   ├── cycle.ts              # Full 9-phase cycle orchestration
 │   │   ├── builder.ts            # Claude Agent SDK integration
 │   │   ├── deployer.ts           # Cloudflare Pages deployment
 │   │   ├── trailer.ts            # Remotion trailer generation
+│   │   ├── homepage.ts           # Homepage button auto-updater
 │   │   ├── recorder.ts           # Puppeteer video capture (fallback)
 │   │   ├── twitter.ts            # OAuth 1.0a + video upload
-│   │   └── db.ts                 # SQLite database + schema
+│   │   └── db.ts                 # SQLite database + daily_stats
 │   ├── brain.db                  # SQLite database file
 │   └── package.json              # Dependencies
 ├── worker/                       # Cloudflare Worker (API + Bot)
@@ -295,19 +296,27 @@ Real-time build log viewer for the Central Brain:
 - Status panel showing current cycle, scheduled tweets
 - START CYCLE / CANCEL buttons for manual control
 
-### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT
-24-hour autonomous software engineering cycles - PLAN → BUILD → DEPLOY → RECORD → TWEET:
+### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT v4.0
+Continuous shipping agent - ships up to 5 features per day:
 
-- **Full 6-Phase Autonomous Loop:**
+- **Full 9-Phase Autonomous Loop:**
   1. **PLAN** - Claude plans project + 5 tweets for 24 hours
   2. **BUILD** - Claude Agent SDK builds the feature (with 3-retry debug loop)
   3. **DEPLOY** - Cloudflare Pages deployment via wrangler
-  4. **RECORD** - Puppeteer captures video of deployed feature
-  5. **TWEET** - Posts announcement with video to $CC community
-  6. **SCHEDULE** - Remaining tweets posted over 24 hours
+  4. **VERIFY** - Confirms deployment is live (3 retries)
+  5. **TRAILER** - Remotion generates cinematic trailer
+  6. **TWEET** - Posts announcement with video to $CC community
+  7. **SCHEDULE** - Remaining tweets posted over 24 hours
+  8. **HOMEPAGE** - Auto-adds button to homepage for new feature
+  9. **CONTINUE** - After 30min cooldown, starts next cycle (up to 5/day)
+- **Continuous Shipping Mode:**
+  - 30-minute cooldown between cycles
+  - Daily limit of 5 features (prevents runaway costs)
+  - Auto-starts next cycle after cooldown
+  - Resets at midnight UTC
 - **Strict Rules:**
   - Projects can ONLY ADD features, never modify/break existing code
-  - Tweets go to Twitter community (not "everyone")
+  - Tweets go to Twitter community + everyone (share_with_followers: true)
   - Automatic cleanup of crashed/incomplete cycles on startup
 - **Architecture:** Ultra-lean (no Docker)
   - SQLite (brain.db) + node-cron + pm2
@@ -315,13 +324,16 @@ Real-time build log viewer for the Central Brain:
 - **Key Files:**
   - `builder.ts` - Claude Agent SDK integration
   - `deployer.ts` - Cloudflare Pages deployment
-  - `recorder.ts` - Puppeteer video capture
+  - `trailer.ts` - Remotion trailer generation
+  - `homepage.ts` - Homepage button auto-updater
   - `cycle.ts` - Full autonomous loop orchestration
   - `index.ts` - HTTP/WebSocket server
+  - `db.ts` - SQLite database + daily_stats
 
 **API Endpoints:**
 - `GET /status` - Current cycle status
-- `POST /go` - Start new 24-hour cycle
+- `GET /stats` - Daily shipping statistics
+- `POST /go` - Start new cycle
 - `POST /cancel` - Cancel active cycle
 - `WS /ws` - Real-time log streaming
 

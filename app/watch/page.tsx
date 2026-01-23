@@ -64,6 +64,9 @@ export default function WatchPage() {
 
   // WebSocket connection
   useEffect(() => {
+    let reconnectAttempts = 0;
+    let isFirstConnect = true;
+
     const connectWs = () => {
       try {
         const ws = new WebSocket(BRAIN_WS_URL);
@@ -72,10 +75,15 @@ export default function WatchPage() {
         ws.onopen = () => {
           setConnected(true);
           setError(null);
-          setLogs(prev => [...prev, {
-            timestamp: Date.now(),
-            message: '--- Connected to Central Brain ---'
-          }]);
+          reconnectAttempts = 0;
+          // Only log connection message on first connect
+          if (isFirstConnect) {
+            setLogs(prev => [...prev, {
+              timestamp: Date.now(),
+              message: '--- Connected to Central Brain ---'
+            }]);
+            isFirstConnect = false;
+          }
         };
 
         ws.onmessage = (event) => {
@@ -86,29 +94,38 @@ export default function WatchPage() {
                 timestamp: data.timestamp || Date.now(),
                 message: data.message
               }]);
-            } else if (data.type === 'connected') {
+            } else if (data.type === 'connected' && isFirstConnect) {
+              // Only show connected message once
               setLogs(prev => [...prev, {
                 timestamp: data.timestamp || Date.now(),
                 message: data.message
               }]);
             }
+            // Ignore ping/pong messages
           } catch {
-            // Handle non-JSON messages
-            setLogs(prev => [...prev, {
-              timestamp: Date.now(),
-              message: event.data
-            }]);
+            // Handle non-JSON messages (ignore binary ping/pong)
+            if (typeof event.data === 'string' && event.data.length > 0) {
+              setLogs(prev => [...prev, {
+                timestamp: Date.now(),
+                message: event.data
+              }]);
+            }
           }
         };
 
         ws.onclose = () => {
           setConnected(false);
-          setLogs(prev => [...prev, {
-            timestamp: Date.now(),
-            message: '--- Disconnected from Central Brain ---'
-          }]);
-          // Attempt to reconnect after 5 seconds
-          setTimeout(connectWs, 5000);
+          reconnectAttempts++;
+          // Only log disconnect after multiple failed attempts
+          if (reconnectAttempts > 3) {
+            setLogs(prev => [...prev, {
+              timestamp: Date.now(),
+              message: '--- Connection lost, reconnecting... ---'
+            }]);
+          }
+          // Exponential backoff with max 30s
+          const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 30000);
+          setTimeout(connectWs, delay);
         };
 
         ws.onerror = () => {

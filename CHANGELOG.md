@@ -6,6 +6,46 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-23] - Central Brain v4.0 (Continuous Shipping + Homepage Integration)
+
+### Added - Phase 8: Homepage Button Auto-Update
+After successful deploy + tweet, the brain now automatically adds a button to the homepage:
+- Inserts before BuyButton (consistent position)
+- Color rotation across 8 different accent colors
+- Auto-selects icon based on feature name (game, tool, poetry, etc.)
+- Rebuilds and redeploys site after adding button
+- NEVER modifies existing buttons - ONLY adds new ones
+- Idempotent: skips if button already exists
+
+### Added - Continuous Shipping Mode
+The brain can now ship up to 5 features per day:
+- 30-minute cooldown between cycles
+- Daily limit of 5 features (prevents runaway costs)
+- Auto-starts next cycle after cooldown
+- Resets at midnight UTC
+- `/stats` endpoint for monitoring daily progress
+
+### New Files
+- `brain/src/homepage.ts` - Homepage button updater (~180 lines)
+
+### Modified Files
+- `brain/src/cycle.ts` - Added Phase 8 + Phase 9, continuous shipping
+- `brain/src/db.ts` - Added daily_stats table + helper functions
+- `brain/src/index.ts` - Added /stats endpoint, updated version to 4.0.0
+
+### New Endpoint
+```bash
+# Check daily shipping stats
+curl https://brain.claudecode.wtf/stats
+# Returns: { date, features_shipped, daily_limit, remaining, can_ship_more, ... }
+```
+
+### Poetry Feature Button
+- First feature button auto-added to homepage via Phase 8
+- Code Poetry Generator now accessible from homepage
+
+---
+
 ## [2026-01-23] - Central Brain v3.1 (Dynamic Trailer System)
 
 ### Added - Remotion-Based Trailer Generation

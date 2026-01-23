@@ -10,8 +10,14 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { buildEvents } from './builder.js';
+import { config } from 'dotenv';
+import { join } from 'path';
 
 const execAsync = promisify(exec);
+
+// Load .env from brain directory
+const brainDir = process.cwd().includes('/brain') ? process.cwd() : join(process.cwd(), 'brain');
+config({ path: join(brainDir, '.env') });
 
 export interface DeployResult {
   success: boolean;
@@ -31,9 +37,32 @@ export async function deployToCloudflare(): Promise<DeployResult> {
   const logs: string[] = [];
   const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
 
+  // Ensure we have required Cloudflare credentials
+  const cfToken = process.env.CLOUDFLARE_API_TOKEN;
+  const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+
+  if (!cfToken) {
+    log('❌ CLOUDFLARE_API_TOKEN not set');
+    return {
+      success: false,
+      error: 'CLOUDFLARE_API_TOKEN environment variable required',
+      logs: ['Missing CLOUDFLARE_API_TOKEN'],
+    };
+  }
+
+  // Build environment with proper PATH for node/npx
+  const nodeDir = process.env.HOME ? `${process.env.HOME}/.nvm/versions/node/v22.22.0/bin` : '';
+  const execEnv = {
+    ...process.env,
+    PATH: nodeDir ? `${nodeDir}:${process.env.PATH}` : process.env.PATH,
+    CLOUDFLARE_API_TOKEN: cfToken,
+    CLOUDFLARE_ACCOUNT_ID: cfAccountId || '',
+  } as NodeJS.ProcessEnv;
+
   try {
     log('🚀 Starting deployment to Cloudflare Pages...');
     log(`📁 Project root: ${projectRoot}`);
+    log(`🔑 Cloudflare token: ${cfToken.slice(0, 10)}...`);
 
     // Step 1: Build the Next.js static export
     log('📦 Building Next.js static export...');
@@ -41,7 +70,7 @@ export async function deployToCloudflare(): Promise<DeployResult> {
       const buildResult = await execAsync('npm run build', {
         cwd: projectRoot,
         timeout: 300000, // 5 minutes
-        env: process.env as NodeJS.ProcessEnv,
+        env: execEnv,
       });
       logs.push(buildResult.stdout);
       log('✅ Build complete');
@@ -63,7 +92,7 @@ export async function deployToCloudflare(): Promise<DeployResult> {
         {
           cwd: projectRoot,
           timeout: 300000, // 5 minutes
-          env: process.env as NodeJS.ProcessEnv,
+          env: execEnv,
         }
       );
       logs.push(deployResult.stdout);

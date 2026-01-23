@@ -156,6 +156,22 @@ export default function Home() {
             </svg>
             Watch Brain
           </a>
+                    <a
+            href="/poetry"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-accent-green text-accent-green px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-accent-green hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            Code Poetry Generator
+          </a>
           <BuyButton />
           <a
             href="https://x.com/bcherny"

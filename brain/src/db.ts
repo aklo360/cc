@@ -81,6 +81,12 @@ db.exec(`
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (cycle_id) REFERENCES cycles(id)
   );
+
+  CREATE TABLE IF NOT EXISTS daily_stats (
+    date TEXT PRIMARY KEY,
+    features_shipped INTEGER DEFAULT 0,
+    last_cycle_end TEXT
+  );
 `);
 
 console.log('✓ SQLite database initialized');
@@ -376,4 +382,82 @@ export function cleanupOnStartup(): { cancelled: number; expired: number } {
   const cancelled = cancelIncompleteCycles();
   const expired = cancelExpiredCycles();
   return { cancelled, expired };
+}
+
+// ============ Daily Stats Helpers ============
+
+export interface DailyStats {
+  date: string;
+  features_shipped: number;
+  last_cycle_end: string | null;
+}
+
+const DAILY_LIMIT = 5; // Maximum features per day
+
+export function getTodayStats(): DailyStats {
+  const today = new Date().toISOString().split('T')[0];
+  const stmt = db.prepare(`
+    SELECT * FROM daily_stats WHERE date = ?
+  `);
+  const result = stmt.get(today) as DailyStats | undefined;
+
+  if (!result) {
+    // Create today's entry
+    const insertStmt = db.prepare(`
+      INSERT INTO daily_stats (date, features_shipped) VALUES (?, 0)
+    `);
+    insertStmt.run(today);
+    return { date: today, features_shipped: 0, last_cycle_end: null };
+  }
+
+  return result;
+}
+
+export function incrementFeaturesShipped(): DailyStats {
+  const today = new Date().toISOString().split('T')[0];
+  const now = new Date().toISOString();
+
+  // Upsert: increment if exists, insert if not
+  const stmt = db.prepare(`
+    INSERT INTO daily_stats (date, features_shipped, last_cycle_end)
+    VALUES (?, 1, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      features_shipped = features_shipped + 1,
+      last_cycle_end = ?
+  `);
+  stmt.run(today, now, now);
+
+  return getTodayStats();
+}
+
+export function canShipMore(): boolean {
+  const stats = getTodayStats();
+  return stats.features_shipped < DAILY_LIMIT;
+}
+
+export function getDailyLimit(): number {
+  return DAILY_LIMIT;
+}
+
+export function getTimeUntilNextAllowed(): number {
+  const stats = getTodayStats();
+
+  // If we've hit the daily limit, wait until midnight UTC
+  if (stats.features_shipped >= DAILY_LIMIT) {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setUTCHours(24, 0, 0, 0);
+    return tomorrow.getTime() - now.getTime();
+  }
+
+  // Otherwise, 30-minute cooldown from last cycle
+  if (stats.last_cycle_end) {
+    const lastEnd = new Date(stats.last_cycle_end).getTime();
+    const cooldown = 30 * 60 * 1000; // 30 minutes
+    const nextAllowed = lastEnd + cooldown;
+    const now = Date.now();
+    return Math.max(0, nextAllowed - now);
+  }
+
+  return 0; // Can start immediately
 }

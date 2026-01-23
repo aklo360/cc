@@ -23,7 +23,7 @@ import 'dotenv/config';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cron from 'node-cron';
-import { db, cleanupOnStartup } from './db.js';
+import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed } from './db.js';
 import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
 
 const PORT = process.env.PORT || 3001;
@@ -47,8 +47,9 @@ const BANNER = `
   ██████╔╝██║  ██║██║  ██║██║██║ ╚████║
   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 
-  $CC Autonomous Growth Agent v3.0.0
-  Full loop: Plan → Build → Deploy → Record → Tweet
+  $CC Autonomous Growth Agent v4.0.0
+  Full loop: Plan → Build → Deploy → Record → Tweet → Homepage
+  Continuous Shipping: Up to 5 features per day!
 `;
 
 // ============ WebSocket Broadcast ============
@@ -95,11 +96,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   if (url === '/' && method === 'GET') {
     sendJson(res, 200, {
       name: 'Central Brain',
-      version: '3.0.0',
+      version: '4.0.0',
       status: 'running',
       endpoints: {
         'GET /': 'This info',
         'GET /status': 'Check brain status and active cycle',
+        'GET /stats': 'Daily shipping statistics',
         'POST /go': 'Start a new 24-hour cycle (full autonomous loop)',
         'POST /cancel': 'Cancel the active cycle',
         'WS /ws': 'Real-time log streaming (WebSocket)',
@@ -111,6 +113,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'Record video of deployed features',
         'Tweet announcements with video',
         'Schedule follow-up tweets',
+        'Auto-add feature buttons to homepage',
+        'Continuous shipping (up to 5/day)',
       ],
     });
     return;
@@ -132,6 +136,24 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
             tweets: status.tweets,
           }
         : null,
+    });
+    return;
+  }
+
+  if (url === '/stats' && method === 'GET') {
+    const stats = getTodayStats();
+    const limit = getDailyLimit();
+    const cooldownMs = getTimeUntilNextAllowed();
+
+    sendJson(res, 200, {
+      date: stats.date,
+      features_shipped: stats.features_shipped,
+      daily_limit: limit,
+      remaining: limit - stats.features_shipped,
+      can_ship_more: canShipMore(),
+      last_cycle_end: stats.last_cycle_end,
+      next_allowed_in_ms: cooldownMs,
+      next_allowed_in_mins: Math.ceil(cooldownMs / 60000),
     });
     return;
   }

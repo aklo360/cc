@@ -28,6 +28,8 @@ import { postTweetToCommunity, postTweetWithVideo, getTwitterCredentials, CC_COM
 import { buildProject, buildEvents, type BuildResult } from './builder.js';
 import { deployToCloudflare, verifyDeployment } from './deployer.js';
 import { generateTrailer, type TrailerResult } from './trailer.js';
+import { addFeatureToHomepage, type HomepageUpdateResult } from './homepage.js';
+import { incrementFeaturesShipped, canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit } from './db.js';
 
 interface CyclePlan {
   project: {
@@ -50,6 +52,7 @@ interface FullCycleResult {
   deployUrl?: string;
   trailerResult?: TrailerResult;
   announcementTweetId?: string;
+  homepageResult?: HomepageUpdateResult;
 }
 
 const SYSTEM_PROMPT = `You are the Central Brain for $CC (Claude Code Coin), a memecoin community celebrating Claude Code.
@@ -335,13 +338,69 @@ Return ONLY the JSON object, no other text.`;
   // Schedule all non-announcement tweets (announcement already posted)
   await scheduleNonAnnouncementTweets(cycleId, plan, now);
 
+  // ============ PHASE 8: UPDATE HOMEPAGE ============
+  log('\n▸ PHASE 8: UPDATING HOMEPAGE');
+
+  let homepageResult: HomepageUpdateResult | undefined;
+
+  // Only update homepage if deployment was verified AND announcement was posted
+  if (verified && announcementTweetId) {
+    homepageResult = await addFeatureToHomepage(
+      plan.project.slug,
+      plan.project.idea,
+      log
+    );
+    if (homepageResult.success) {
+      if (homepageResult.alreadyExists) {
+        log('   ✓ Button already exists on homepage');
+      } else if (homepageResult.deployed) {
+        log('   ✓ Homepage updated and deployed with new button');
+      } else {
+        log('   ⚠️ Button added but deploy failed');
+      }
+    } else {
+      log(`   ⚠️ Homepage update failed: ${homepageResult.error}`);
+    }
+  } else {
+    log('   ⏭️ Skipping homepage update (deployment not verified or tweet not posted)');
+  }
+
+  // ============ PHASE 9: MARK CYCLE COMPLETE + CONTINUOUS SHIPPING ============
+  log('\n▸ PHASE 9: COMPLETING CYCLE');
+
+  // Mark this cycle as complete
+  completeCycle(cycleId);
+
+  // Increment daily stats
+  const stats = incrementFeaturesShipped();
+  log(`   ✓ Features shipped today: ${stats.features_shipped}/${getDailyLimit()}`);
+
   // ============ COMPLETE ============
   log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  log('🎉 CYCLE STARTED SUCCESSFULLY');
+  log('🎉 CYCLE COMPLETED SUCCESSFULLY');
   log(`   Project: ${plan.project.idea}`);
   log(`   URL: ${deployUrl || 'not deployed'}`);
   log(`   Tweets scheduled: ${plan.tweets.length - 1}`);
-  log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  log(`   Features today: ${stats.features_shipped}/${getDailyLimit()}`);
+
+  // Check for continuous shipping
+  if (canShipMore()) {
+    const cooldownMs = getTimeUntilNextAllowed();
+    const cooldownMins = Math.ceil(cooldownMs / 60000);
+    log(`\n   🔄 Continuous shipping: Next cycle in ${cooldownMins} minutes`);
+    log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    // Schedule next cycle after cooldown
+    setTimeout(() => {
+      log('\n🔄 AUTO-CONTINUING: Starting next cycle...');
+      startNewCycle().catch((error) => {
+        log(`❌ Auto-continue failed: ${error}`);
+      });
+    }, cooldownMs);
+  } else {
+    log('\n   ⏸️ Daily limit reached. Next cycle tomorrow (midnight UTC)');
+    log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  }
 
   return {
     cycleId,
@@ -350,6 +409,7 @@ Return ONLY the JSON object, no other text.`;
     deployUrl,
     trailerResult,
     announcementTweetId,
+    homepageResult,
   };
 }
 
