@@ -86,12 +86,18 @@ EXISTING FEATURES (DO NOT BREAK):
 - StarClaude64 3D game (/moon)
 - All existing components and APIs
 
-TWEET STRATEGY:
+TWEET STRATEGY (spread across 24 hours, mix feature + meme content):
 - Tweet 1 (hour 0): Teaser - hint at what's coming, build hype
-- Tweet 2 (hour 0, after deploy): Announcement - "just shipped [feature]" with link + video
-- Tweet 3 (hour 6-8): Update/engagement - share reactions, respond to feedback
-- Tweet 4 (hour 12-16): Meme or dev humor related to the project
-- Tweet 5 (hour 20-24): Wrap up, tease what's next
+- Tweet 2 (hour 2-4): Random meme - dev humor unrelated to current project
+- Tweet 3 (hour 6-8): Update/engagement - share progress, tease features
+- Tweet 4 (hour 10-12): Random meme - coding culture, AI jokes
+- Tweet 5 (hour 14-16): Another update or meme
+- Tweet 6 (hour 18-20): Meme or dev humor
+- Tweet 7 (hour 22-24): Wrap up, tease what's next
+- ANNOUNCEMENT TWEET: Posted ONLY after deployment is verified (not scheduled)
+
+IMPORTANT: Mix in 2-3 random meme tweets that are NOT about the current project.
+These should be general dev/coding/AI humor to keep the feed engaging.
 
 PERSONALITY:
 - Dev-focused: "just wanna code and vibe"
@@ -240,14 +246,34 @@ Return ONLY the JSON object, no other text.`;
   deployUrl = `https://claudecode.wtf/${plan.project.slug}`;
   log(`✅ Deployed to: ${deployUrl}`);
 
-  // Verify deployment
-  const verified = await verifyDeployment(deployUrl);
-  if (!verified) {
-    log('⚠️ Deployment verification failed, but continuing...');
+  // ============ PHASE 4: VERIFY DEPLOYMENT ============
+  log('\n▸ PHASE 4: VERIFYING DEPLOYMENT');
+
+  // Multiple verification attempts with delay
+  let verified = false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    log(`   Verification attempt ${attempt}/3...`);
+    verified = await verifyDeployment(deployUrl);
+    if (verified) {
+      log(`✅ Deployment verified! URL is live and working.`);
+      break;
+    }
+    if (attempt < 3) {
+      log(`   Waiting 30s before retry...`);
+      await new Promise(r => setTimeout(r, 30000));
+    }
   }
 
-  // ============ PHASE 4: RECORD ============
-  log('\n▸ PHASE 4: RECORDING');
+  if (!verified) {
+    log('❌ Deployment verification FAILED after 3 attempts');
+    log('⚠️ Will NOT post announcement tweet - URL not confirmed working');
+    // Schedule non-announcement tweets only
+    await scheduleNonAnnouncementTweets(cycleId, plan, now);
+    return { cycleId, plan, buildResult, deployUrl };
+  }
+
+  // ============ PHASE 5: RECORD ============
+  log('\n▸ PHASE 5: RECORDING');
 
   const recordResult = await recordFeature(deployUrl, plan.project.slug, 8);
 
@@ -258,10 +284,10 @@ Return ONLY the JSON object, no other text.`;
     log(`✅ Video recorded: ${recordResult.durationSec}s`);
   }
 
-  // ============ PHASE 5: TWEET ANNOUNCEMENT ============
-  log('\n▸ PHASE 5: TWEETING ANNOUNCEMENT');
+  // ============ PHASE 6: TWEET ANNOUNCEMENT ============
+  // ONLY runs if deployment is VERIFIED
+  log('\n▸ PHASE 6: TWEETING ANNOUNCEMENT (deployment verified)');
 
-  // Find the announcement tweet
   const announcementTweet = plan.tweets.find((t) => t.type === 'announcement');
   let announcementTweetId: string | undefined;
 
@@ -273,7 +299,6 @@ Return ONLY the JSON object, no other text.`;
         : `${announcementTweet.content}\n\n${deployUrl}`;
 
       if (recordResult.success && recordResult.videoBase64) {
-        // Post with video
         log('📹 Posting announcement with video...');
         const result = await postTweetWithVideo(
           tweetContent,
@@ -284,7 +309,6 @@ Return ONLY the JSON object, no other text.`;
         announcementTweetId = result.id;
         log(`✅ Announcement posted with video: ${result.id}`);
       } else {
-        // Post without video
         log('📝 Posting announcement (no video)...');
         const result = await postTweetToCommunity(tweetContent, credentials);
         announcementTweetId = result.id;
@@ -298,17 +322,11 @@ Return ONLY the JSON object, no other text.`;
     }
   }
 
-  // ============ PHASE 6: SCHEDULE REMAINING TWEETS ============
-  log('\n▸ PHASE 6: SCHEDULING TWEETS');
+  // ============ PHASE 7: SCHEDULE REMAINING TWEETS ============
+  log('\n▸ PHASE 7: SCHEDULING TWEETS');
 
-  // Schedule all non-announcement tweets
-  for (const tweet of plan.tweets) {
-    if (tweet.type === 'announcement') continue; // Already posted
-
-    const scheduledTime = new Date(now.getTime() + tweet.hours_from_start * 60 * 60 * 1000);
-    insertScheduledTweet(cycleId, tweet.content, scheduledTime.toISOString(), tweet.type);
-    log(`   → ${tweet.type} scheduled for ${scheduledTime.toISOString()}`);
-  }
+  // Schedule all non-announcement tweets (announcement already posted)
+  await scheduleNonAnnouncementTweets(cycleId, plan, now);
 
   // ============ COMPLETE ============
   log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -330,6 +348,21 @@ Return ONLY the JSON object, no other text.`;
 
 async function scheduleAllTweets(cycleId: number, plan: CyclePlan, now: Date): Promise<void> {
   for (const tweet of plan.tweets) {
+    // Skip announcement tweets - they should NEVER be auto-scheduled
+    // Announcements are only posted after deployment is verified
+    if (tweet.type === 'announcement') {
+      log(`   ⏭️ Skipping announcement tweet (requires verified deployment)`);
+      continue;
+    }
+    const scheduledTime = new Date(now.getTime() + tweet.hours_from_start * 60 * 60 * 1000);
+    insertScheduledTweet(cycleId, tweet.content, scheduledTime.toISOString(), tweet.type);
+    log(`   → ${tweet.type} scheduled for ${scheduledTime.toISOString()}`);
+  }
+}
+
+async function scheduleNonAnnouncementTweets(cycleId: number, plan: CyclePlan, now: Date): Promise<void> {
+  for (const tweet of plan.tweets) {
+    if (tweet.type === 'announcement') continue; // Never schedule announcements
     const scheduledTime = new Date(now.getTime() + tweet.hours_from_start * 60 * 60 * 1000);
     insertScheduledTweet(cycleId, tweet.content, scheduledTime.toISOString(), tweet.type);
     log(`   → ${tweet.type} scheduled for ${scheduledTime.toISOString()}`);
