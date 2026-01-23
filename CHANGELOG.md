@@ -6,6 +6,63 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2025-01-22] - Central Brain v2.0 (Ultra-Lean)
+
+### Changed - Complete Rewrite for Minimal Footprint
+Rewrote the Central Brain to be as lean as possible:
+
+| Before | After |
+|--------|-------|
+| PostgreSQL (Docker) | **SQLite (single file)** |
+| Redis + Bull | **node-cron** |
+| Drizzle ORM | **Raw SQL** |
+| Docker Compose | **pm2** |
+| 207 npm packages | **~30 packages** |
+| ~$115-205/month | **~$25-70/month** |
+
+### Added
+- **SQLite Database** (`brain/src/db.ts`)
+  - Single file: `brain.db`
+  - 4 tables: tweets, experiments, decisions, game_scores
+  - WAL mode for concurrency
+  - Helper functions for all CRUD operations
+
+- **node-cron Scheduler** (replaces Bull/Redis)
+  - Decision Engine: hourly at :00
+  - Tweet Scheduler: every 4 hours
+  - Daily Experiment: 10 AM UTC
+
+### Removed
+- Docker (docker-compose.yml, Dockerfile)
+- PostgreSQL dependency
+- Redis dependency
+- Bull queue library
+- Drizzle ORM
+- 170+ npm packages
+
+### Files
+- `brain/src/index.ts` - Main entry + cron setup (~100 lines)
+- `brain/src/db.ts` - SQLite database (~180 lines)
+- `brain/src/decision.ts` - Claude reasoning (~150 lines)
+- `brain/src/twitter.ts` - Twitter API (~280 lines)
+
+### Run
+```bash
+cd brain
+npm install       # Only ~30 packages
+npm run dev       # Development
+pm2 start dist/index.js  # Production
+```
+
+---
+
+## [2025-01-22] - Central Brain v1.0 (Deprecated)
+- Campaign System (Meme2Earn)
+- Twitter Strategy Engine
+- VPS deployment
+
+---
+
 ## [2025-01-22] - Video Trailer Generator + Twitter Video Support
 
 ### Added
