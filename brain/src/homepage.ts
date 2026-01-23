@@ -128,14 +128,25 @@ export async function addFeatureToHomepage(
       return { success: false, error: `Feature page not found: /${slug}` };
     }
 
-    // 5. Find insertion point (before BuyButton)
-    const buyButtonMarker = '<BuyButton />';
-    const insertIndex = content.indexOf(buyButtonMarker);
+    // 5. Find insertion point (end of feature buttons section, before </section>)
+    // Look for the closing tag of the feature buttons section
+    const featureButtonsSectionMarker = '{/* Feature Buttons - RIGHT BELOW JOIN COMMUNITY */}';
+    const sectionStart = content.indexOf(featureButtonsSectionMarker);
 
-    if (insertIndex === -1) {
-      log('   ⚠️ Could not find BuyButton marker for insertion');
-      return { success: false, error: 'BuyButton marker not found' };
+    if (sectionStart === -1) {
+      log('   ⚠️ Could not find feature buttons section');
+      return { success: false, error: 'Feature buttons section not found' };
     }
+
+    // Find the closing </section> after the feature buttons
+    const sectionEnd = content.indexOf('</section>', sectionStart);
+    if (sectionEnd === -1) {
+      log('   ⚠️ Could not find end of feature buttons section');
+      return { success: false, error: 'Feature buttons section end not found' };
+    }
+
+    // Insert before the closing </section>
+    const insertIndex = sectionEnd;
 
     // 6. Count existing buttons for color selection
     const existingCount = countExistingButtons(content);
@@ -144,11 +155,11 @@ export async function addFeatureToHomepage(
     // 7. Generate button HTML
     const buttonHtml = generateButtonHtml(slug, featureName, colorIndex);
 
-    // 8. Insert the button
+    // 8. Insert the button (before </section>)
     const newContent =
       content.slice(0, insertIndex) +
       buttonHtml +
-      '\n          ' +
+      '\n        ' +
       content.slice(insertIndex);
 
     // 9. Write updated file

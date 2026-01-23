@@ -56,38 +56,8 @@ export default function Home() {
           </a>
         </section>
 
-        {/* Terminal */}
-        <section className="my-4 sm:my-6">
-          <Terminal />
-        </section>
-
-        {/* Info Cards */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 my-4 sm:my-6">
-          <div className="bg-bg-secondary border border-border rounded-lg p-4 sm:p-5">
-            <div className="text-claude-orange text-xs uppercase tracking-wider mb-2">
-              Token Supply
-            </div>
-            <div className="text-2xl font-bold text-text-primary">
-              1,000,000,000
-            </div>
-            <div className="text-text-muted text-xs mt-1">One billion $CC</div>
-          </div>
-          <div className="bg-bg-secondary border border-border rounded-lg p-4 sm:p-5">
-            <div className="text-claude-orange text-xs uppercase tracking-wider mb-2">
-              Creator Fees
-            </div>
-            <div className="text-2xl font-bold text-text-primary">100%</div>
-            <div className="text-text-muted text-xs mt-1">All fees to @bcherny</div>
-          </div>
-        </section>
-
-        {/* Contract Address */}
-        <section className="my-4 sm:my-6">
-          <ContractAddress />
-        </section>
-
-        {/* Links */}
-        <section className="flex flex-wrap gap-2 sm:gap-3 justify-center my-6 sm:my-8">
+        {/* Feature Buttons - RIGHT BELOW JOIN COMMUNITY */}
+        <section className="flex flex-wrap gap-2 sm:gap-3 justify-center my-4 sm:my-6">
           <a
             href="/meme"
             className="inline-flex items-center gap-2 bg-claude-orange text-white px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-claude-orange-dim"
@@ -156,7 +126,7 @@ export default function Home() {
             </svg>
             Watch Brain
           </a>
-                    <a
+          <a
             href="/poetry"
             className="inline-flex items-center gap-2 bg-bg-secondary border border-accent-green text-accent-green px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-accent-green hover:text-white"
           >
@@ -172,6 +142,40 @@ export default function Home() {
             </svg>
             Code Poetry Generator
           </a>
+        </section>
+
+        {/* Terminal */}
+        <section className="my-4 sm:my-6">
+          <Terminal />
+        </section>
+
+        {/* Info Cards */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 my-4 sm:my-6">
+          <div className="bg-bg-secondary border border-border rounded-lg p-4 sm:p-5">
+            <div className="text-claude-orange text-xs uppercase tracking-wider mb-2">
+              Token Supply
+            </div>
+            <div className="text-2xl font-bold text-text-primary">
+              1,000,000,000
+            </div>
+            <div className="text-text-muted text-xs mt-1">One billion $CC</div>
+          </div>
+          <div className="bg-bg-secondary border border-border rounded-lg p-4 sm:p-5">
+            <div className="text-claude-orange text-xs uppercase tracking-wider mb-2">
+              Creator Fees
+            </div>
+            <div className="text-2xl font-bold text-text-primary">100%</div>
+            <div className="text-text-muted text-xs mt-1">All fees to @bcherny</div>
+          </div>
+        </section>
+
+        {/* Contract Address */}
+        <section className="my-4 sm:my-6">
+          <ContractAddress />
+        </section>
+
+        {/* External Links (Buy, Twitter, GitHub) */}
+        <section className="flex flex-wrap gap-2 sm:gap-3 justify-center my-6 sm:my-8">
           <BuyButton />
           <a
             href="https://x.com/bcherny"
