@@ -59,6 +59,28 @@ db.exec(`
     tx_signature TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS cycles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT DEFAULT 'planning',
+    project_idea TEXT,
+    project_slug TEXT,
+    started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    ends_at TEXT,
+    completed_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS scheduled_tweets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cycle_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    scheduled_for TEXT NOT NULL,
+    tweet_type TEXT DEFAULT 'general',
+    posted INTEGER DEFAULT 0,
+    twitter_id TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (cycle_id) REFERENCES cycles(id)
+  );
 `);
 
 console.log('✓ SQLite database initialized');
@@ -227,4 +249,103 @@ export function getDailyClaimedTokens(wallet: string): number {
   `);
   const result = stmt.get(wallet) as { total: number };
   return result.total;
+}
+
+// ============ Cycle Helpers ============
+
+export interface Cycle {
+  id: number;
+  status: string;
+  project_idea: string | null;
+  project_slug: string | null;
+  started_at: string;
+  ends_at: string | null;
+  completed_at: string | null;
+}
+
+export function createCycle(): number {
+  const endsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO cycles (status, ends_at) VALUES ('planning', ?)
+  `);
+  const result = stmt.run(endsAt);
+  return result.lastInsertRowid as number;
+}
+
+export function updateCycleProject(id: number, projectIdea: string, projectSlug: string): void {
+  const stmt = db.prepare(`
+    UPDATE cycles SET project_idea = ?, project_slug = ?, status = 'executing' WHERE id = ?
+  `);
+  stmt.run(projectIdea, projectSlug, id);
+}
+
+export function completeCycle(id: number): void {
+  const stmt = db.prepare(`
+    UPDATE cycles SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?
+  `);
+  stmt.run(id);
+}
+
+export function getActiveCycle(): Cycle | null {
+  const stmt = db.prepare(`
+    SELECT * FROM cycles WHERE status IN ('planning', 'executing') ORDER BY id DESC LIMIT 1
+  `);
+  return (stmt.get() as Cycle) || null;
+}
+
+export function getLastCycle(): Cycle | null {
+  const stmt = db.prepare(`
+    SELECT * FROM cycles ORDER BY id DESC LIMIT 1
+  `);
+  return (stmt.get() as Cycle) || null;
+}
+
+// ============ Scheduled Tweet Helpers ============
+
+export interface ScheduledTweet {
+  id: number;
+  cycle_id: number;
+  content: string;
+  scheduled_for: string;
+  tweet_type: string;
+  posted: number;
+  twitter_id: string | null;
+  created_at: string;
+}
+
+export function insertScheduledTweet(
+  cycleId: number,
+  content: string,
+  scheduledFor: string,
+  tweetType: string = 'general'
+): number {
+  const stmt = db.prepare(`
+    INSERT INTO scheduled_tweets (cycle_id, content, scheduled_for, tweet_type)
+    VALUES (?, ?, ?, ?)
+  `);
+  const result = stmt.run(cycleId, content, scheduledFor, tweetType);
+  return result.lastInsertRowid as number;
+}
+
+export function getUnpostedTweets(cycleId: number): ScheduledTweet[] {
+  const stmt = db.prepare(`
+    SELECT * FROM scheduled_tweets
+    WHERE cycle_id = ? AND posted = 0 AND datetime(scheduled_for) <= datetime('now')
+    ORDER BY scheduled_for ASC
+  `);
+  return stmt.all(cycleId) as ScheduledTweet[];
+}
+
+export function getAllScheduledTweets(cycleId: number): ScheduledTweet[] {
+  const stmt = db.prepare(`
+    SELECT * FROM scheduled_tweets WHERE cycle_id = ? ORDER BY scheduled_for ASC
+  `);
+  return stmt.all(cycleId) as ScheduledTweet[];
+}
+
+export function markTweetPosted(id: number, twitterId: string): void {
+  const stmt = db.prepare(`
+    UPDATE scheduled_tweets SET posted = 1, twitter_id = ? WHERE id = ?
+  `);
+  stmt.run(twitterId, id);
 }

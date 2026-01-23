@@ -1,13 +1,20 @@
 /**
  * Central Brain - Ultra-Lean $CC Growth Orchestrator
  *
- * No Docker. No Redis. Just SQLite + node-cron.
+ * No Docker. No Redis. Just SQLite + node-cron + HTTP server.
+ *
+ * Endpoints:
+ *   GET  /status  - Check brain status and active cycle
+ *   POST /go      - Start a new 24-hour cycle
  */
 
 import 'dotenv/config';
+import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import cron from 'node-cron';
 import { db } from './db.js';
-import { runDecisionEngine } from './decision.js';
+import { startNewCycle, executeScheduledTweets, getCycleStatus } from './cycle.js';
+
+const PORT = process.env.PORT || 3001;
 
 // ASCII art banner
 const BANNER = `
@@ -25,50 +32,135 @@ const BANNER = `
   ██████╔╝██║  ██║██║  ██║██║██║ ╚████║
   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 
-  $CC Growth Orchestrator v2.0.0
-  Ultra-lean: SQLite + node-cron
+  $CC Growth Orchestrator v2.1.0
+  Ultra-lean: SQLite + node-cron + HTTP
 `;
 
-// ============ Cron Job Handlers ============
+// ============ HTTP Server ============
 
-async function handleDecisionEngine(): Promise<void> {
-  console.log('\n[Decision Engine] Starting hourly analysis...');
+function sendJson(res: ServerResponse, status: number, data: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data, null, 2));
+}
+
+async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const url = req.url || '/';
+  const method = req.method || 'GET';
+
+  console.log(`[HTTP] ${method} ${url}`);
+
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // Routes
+  if (url === '/' && method === 'GET') {
+    sendJson(res, 200, {
+      name: 'Central Brain',
+      version: '2.1.0',
+      status: 'running',
+      endpoints: {
+        'GET /': 'This info',
+        'GET /status': 'Check brain status and active cycle',
+        'POST /go': 'Start a new 24-hour cycle',
+      },
+    });
+    return;
+  }
+
+  if (url === '/status' && method === 'GET') {
+    const status = getCycleStatus();
+    sendJson(res, 200, {
+      brain: 'running',
+      cycle: status.active
+        ? {
+            id: status.cycle?.id,
+            status: status.cycle?.status,
+            project: status.cycle?.project_idea,
+            started: status.cycle?.started_at,
+            ends: status.cycle?.ends_at,
+            tweets: status.tweets,
+          }
+        : null,
+    });
+    return;
+  }
+
+  if (url === '/go' && method === 'POST') {
+    console.log('\n🚀 GO triggered! Starting new 24-hour cycle...\n');
+
+    const result = await startNewCycle();
+
+    if (result) {
+      sendJson(res, 200, {
+        success: true,
+        message: 'New 24-hour cycle started!',
+        cycleId: result.cycleId,
+        project: result.plan.project,
+        tweets: result.plan.tweets.map((t) => ({
+          content: t.content,
+          type: t.type,
+          scheduled_hours: t.hours_from_start,
+        })),
+      });
+    } else {
+      const existing = getCycleStatus();
+      if (existing.active) {
+        sendJson(res, 409, {
+          success: false,
+          message: 'A cycle is already active',
+          cycle: {
+            id: existing.cycle?.id,
+            project: existing.cycle?.project_idea,
+            ends: existing.cycle?.ends_at,
+          },
+        });
+      } else {
+        sendJson(res, 500, {
+          success: false,
+          message: 'Failed to start cycle - check logs',
+        });
+      }
+    }
+    return;
+  }
+
+  // 404
+  sendJson(res, 404, { error: 'Not found' });
+}
+
+// ============ Cron Jobs ============
+
+async function handleTweetExecutor(): Promise<void> {
+  console.log('\n[Tweet Executor] Checking for scheduled tweets...');
   try {
-    await runDecisionEngine();
+    const posted = await executeScheduledTweets();
+    if (posted > 0) {
+      console.log(`[Tweet Executor] Posted ${posted} tweet(s)`);
+    } else {
+      console.log('[Tweet Executor] No tweets due');
+    }
   } catch (error) {
-    console.error('[Decision Engine] Error:', error);
+    console.error('[Tweet Executor] Error:', error);
   }
 }
-
-async function handleTweetScheduler(): Promise<void> {
-  console.log('\n[Tweet Scheduler] Checking tweet queue...');
-  // TODO: Implement strategic tweet posting
-  console.log('[Tweet Scheduler] Not yet implemented');
-}
-
-async function handleDailyExperiment(): Promise<void> {
-  console.log('\n[Daily Experiment] Building today\'s experiment...');
-  // TODO: Implement experiment generator
-  console.log('[Daily Experiment] Not yet implemented');
-}
-
-// ============ Main ============
 
 function setupCronJobs(): void {
   console.log('Setting up cron jobs...');
 
-  // Decision engine - every hour at :00
-  cron.schedule('0 * * * *', handleDecisionEngine);
-  console.log('  ✓ Decision Engine: hourly at :00');
-
-  // Tweet scheduler - every 4 hours
-  cron.schedule('0 */4 * * *', handleTweetScheduler);
-  console.log('  ✓ Tweet Scheduler: every 4 hours');
-
-  // Daily experiment - 10 AM UTC
-  cron.schedule('0 10 * * *', handleDailyExperiment);
-  console.log('  ✓ Daily Experiment: 10 AM UTC');
+  // Check for scheduled tweets every 5 minutes
+  cron.schedule('*/5 * * * *', handleTweetExecutor);
+  console.log('  ✓ Tweet Executor: every 5 minutes');
 }
+
+// ============ Main ============
 
 async function main(): Promise<void> {
   console.log(BANNER);
@@ -79,14 +171,22 @@ async function main(): Promise<void> {
   // Set up cron schedules
   setupCronJobs();
 
+  // Start HTTP server
+  const server = createServer((req, res) => {
+    handleRequest(req, res).catch((error) => {
+      console.error('[HTTP] Error:', error);
+      sendJson(res, 500, { error: 'Internal server error' });
+    });
+  });
+
+  server.listen(PORT, () => {
+    console.log(`✓ HTTP server running on port ${PORT}`);
+  });
+
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Central Brain is now running');
-  console.log('  Waiting for scheduled jobs...');
+  console.log(`  Trigger a cycle: curl -X POST http://localhost:${PORT}/go`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-  // Run initial decision engine pass
-  console.log('Running initial decision engine pass...');
-  await handleDecisionEngine();
 }
 
 // Graceful shutdown
