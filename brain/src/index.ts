@@ -4,6 +4,7 @@
  * No Docker. No Redis. Just SQLite + node-cron.
  */
 
+import 'dotenv/config';
 import cron from 'node-cron';
 import { db } from './db.js';
 import { runDecisionEngine } from './decision.js';
