@@ -18,9 +18,10 @@ import { buildEvents } from './builder.js';
 
 const execAsync = promisify(exec);
 
-// Output directories (relative to brain/)
+// Output directories
 const FRAMES_DIR = '/tmp/cc-brain-frames';
-const OUTPUT_DIR = '/Users/aklo/dev/ccwtf/brain/recordings';
+const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
+const OUTPUT_DIR = path.join(projectRoot, 'brain/recordings');
 
 fs.mkdirSync(FRAMES_DIR, { recursive: true });
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });

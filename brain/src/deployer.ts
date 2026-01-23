@@ -29,16 +29,19 @@ function log(message: string): void {
 
 export async function deployToCloudflare(): Promise<DeployResult> {
   const logs: string[] = [];
+  const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
 
   try {
     log('🚀 Starting deployment to Cloudflare Pages...');
+    log(`📁 Project root: ${projectRoot}`);
 
     // Step 1: Build the Next.js static export
     log('📦 Building Next.js static export...');
     try {
       const buildResult = await execAsync('npm run build', {
-        cwd: '/Users/aklo/dev/ccwtf',
+        cwd: projectRoot,
         timeout: 300000, // 5 minutes
+        env: process.env as NodeJS.ProcessEnv,
       });
       logs.push(buildResult.stdout);
       log('✅ Build complete');
@@ -58,8 +61,9 @@ export async function deployToCloudflare(): Promise<DeployResult> {
       const deployResult = await execAsync(
         'npx wrangler pages deploy out --project-name=ccwtf --commit-dirty=true',
         {
-          cwd: '/Users/aklo/dev/ccwtf',
+          cwd: projectRoot,
           timeout: 300000, // 5 minutes
+          env: process.env as NodeJS.ProcessEnv,
         }
       );
       logs.push(deployResult.stdout);
