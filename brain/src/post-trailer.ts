@@ -9,6 +9,7 @@
  *   npx tsx src/post-trailer.ts recordings/poetry_123.mp4 "just shipped code poetry generator\n\nturns your code into haikus fr\n\nclaudecode.wtf/poetry"
  */
 
+import 'dotenv/config';
 import { postTweetWithVideo, getTwitterCredentials, CC_COMMUNITY_ID } from './twitter.js';
 import fs from 'fs';
 import path from 'path';

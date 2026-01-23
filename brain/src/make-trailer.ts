@@ -10,6 +10,7 @@
  *   npx tsx src/make-trailer.ts moon "StarClaude64" "3D endless runner game"
  */
 
+import 'dotenv/config';
 import { generateTrailer } from './trailer.js';
 import fs from 'fs';
 import path from 'path';
