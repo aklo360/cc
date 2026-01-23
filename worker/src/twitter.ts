@@ -45,19 +45,36 @@ export async function uploadMedia(
   return data.media_id_string;
 }
 
+// $CC Community ID
+export const CC_COMMUNITY_ID = '2014131779628618154';
+
 // Post a tweet using Twitter v2 API with OAuth 1.0a
 // (v2 is available on free tier, v1.1 statuses/update requires elevated access)
 export async function postTweet(
   text: string,
   credentials: OAuth1Credentials,
-  mediaId?: string
+  options: {
+    mediaId?: string;
+    communityId?: string;
+  } = {}
 ): Promise<{ id: string; text: string }> {
   const url = 'https://api.twitter.com/2/tweets';
 
   // Build JSON body
-  const body: { text: string; media?: { media_ids: string[] } } = { text };
-  if (mediaId) {
-    body.media = { media_ids: [mediaId] };
+  const body: {
+    text: string;
+    media?: { media_ids: string[] };
+    community_id?: string;
+    share_with_followers?: boolean;
+  } = { text };
+
+  if (options.mediaId) {
+    body.media = { media_ids: [options.mediaId] };
+  }
+
+  if (options.communityId) {
+    body.community_id = options.communityId;
+    body.share_with_followers = true; // Broadcast to followers too (like web UI)
   }
 
   // For v2 with JSON body, OAuth signature is calculated without body params
@@ -87,7 +104,8 @@ export async function postTweet(
 export async function postTweetWithImage(
   text: string,
   imageBase64: string,
-  credentials: OAuth1Credentials
+  credentials: OAuth1Credentials,
+  communityId?: string
 ): Promise<{ id: string; text: string }> {
   try {
     // Upload media first (v1.1 endpoint)
@@ -95,7 +113,7 @@ export async function postTweetWithImage(
     console.log('Media uploaded successfully, media_id:', mediaId);
 
     // Post tweet with media (v2 endpoint)
-    return postTweet(text, credentials, mediaId);
+    return postTweet(text, credentials, { mediaId, communityId });
   } catch (error) {
     console.error('Tweet with image failed:', error);
     throw error;
@@ -278,7 +296,8 @@ export async function uploadVideo(
 export async function postTweetWithVideo(
   text: string,
   videoBase64: string,
-  credentials: OAuth1Credentials
+  credentials: OAuth1Credentials,
+  communityId?: string
 ): Promise<{ id: string; text: string }> {
   try {
     // Upload video first (chunked upload)
@@ -286,7 +305,7 @@ export async function postTweetWithVideo(
     console.log('Video uploaded successfully, media_id:', mediaId);
 
     // Post tweet with media (v2 endpoint)
-    return postTweet(text, credentials, mediaId);
+    return postTweet(text, credentials, { mediaId, communityId });
   } catch (error) {
     console.error('Tweet with video failed:', error);
     throw error;

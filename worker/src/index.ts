@@ -1,5 +1,5 @@
 import { Env, BotState, GenerateTweetResult, TweetRecord } from './types';
-import { postTweetWithImage, postTweetWithVideo, postTweet, OAuth1Credentials } from './twitter';
+import { postTweetWithImage, postTweetWithVideo, postTweet, OAuth1Credentials, CC_COMMUNITY_ID } from './twitter';
 import { generateCaption, qualityGate, generateMemePrompt } from './claude';
 import { MEME_PROMPTS } from './prompts';
 import { getRequestToken, getAccessToken } from './oauth1';
@@ -209,8 +209,8 @@ async function generateAndPostTweet(env: Env, forcePost = false): Promise<Genera
         continue; // Try again
       }
 
-      // 5. Post to Twitter using OAuth 1.0a
-      const tweet = await postTweetWithImage(caption, imageBase64, twitterCredentials);
+      // 5. Post to Twitter using OAuth 1.0a (to community + everyone)
+      const tweet = await postTweetWithImage(caption, imageBase64, twitterCredentials, CC_COMMUNITY_ID);
 
       // 6. Update state
       const now = Date.now();
@@ -342,7 +342,7 @@ export default {
           accessTokenSecret: env.TWITTER_ACCESS_SECRET,
         };
 
-        const tweet = await postTweetWithVideo(body.text, body.video, twitterCredentials);
+        const tweet = await postTweetWithVideo(body.text, body.video, twitterCredentials, CC_COMMUNITY_ID);
 
         return jsonResponse({
           success: true,
@@ -378,7 +378,7 @@ export default {
           accessTokenSecret: env.TWITTER_ACCESS_SECRET,
         };
 
-        const tweet = await postTweet(body.text, twitterCredentials);
+        const tweet = await postTweet(body.text, twitterCredentials, { communityId: CC_COMMUNITY_ID });
 
         return jsonResponse({
           success: true,
