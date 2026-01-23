@@ -1,9 +1,142 @@
 'use client';
 
 import { useFrame, useThree } from '@react-three/fiber';
-import { useRef, useState, useEffect, useMemo } from 'react';
-import { Text } from '@react-three/drei';
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import { Text, useTexture, Environment } from '@react-three/drei';
 import * as THREE from 'three';
+
+// Audio manager for game sounds using Web Audio API for better performance
+class GameAudio {
+  private audioContext: AudioContext | null = null;
+  private sounds: Map<string, AudioBuffer> = new Map();
+  private musicBuffer: AudioBuffer | null = null;
+  private musicSource: AudioBufferSourceNode | null = null;
+  private musicGain: GainNode | null = null;
+  private sfxGain: GainNode | null = null;
+  private musicVolume = 0.4;
+  private sfxVolume = 0.5;
+  private initialized = false;
+  private warmedUp = false;
+  private musicMuted = false;
+  private musicPlaying = false;
+
+  async init() {
+    if (this.initialized || typeof window === 'undefined') return;
+    this.initialized = true;
+
+    // Create audio context
+    this.audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+
+    // Create gain nodes
+    this.musicGain = this.audioContext.createGain();
+    this.musicGain.gain.value = this.musicVolume;
+    this.musicGain.connect(this.audioContext.destination);
+
+    this.sfxGain = this.audioContext.createGain();
+    this.sfxGain.gain.value = this.sfxVolume;
+    this.sfxGain.connect(this.audioContext.destination);
+
+    // Preload sound effects
+    const sfxFiles: Record<string, string> = {
+      shoot: '/sounds/synth_laser_03.ogg',
+      bomb: '/sounds/shot_01.ogg',
+      explosion: '/sounds/retro_explosion_01.ogg',
+      coin: '/sounds/retro_coin_01.ogg',
+      death: '/sounds/retro_die_01.ogg',
+      barrelRoll: '/sounds/power_up_01.ogg',
+    };
+
+    // Load all audio files in parallel
+    const loadPromises = Object.entries(sfxFiles).map(async ([name, file]) => {
+      try {
+        const response = await fetch(file);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await this.audioContext!.decodeAudioData(arrayBuffer);
+        this.sounds.set(name, audioBuffer);
+      } catch (e) {
+        console.warn(`Failed to load sound: ${name}`, e);
+      }
+    });
+
+    // Load music
+    loadPromises.push((async () => {
+      try {
+        const response = await fetch('/sounds/bgm_level1.ogg');
+        const arrayBuffer = await response.arrayBuffer();
+        this.musicBuffer = await this.audioContext!.decodeAudioData(arrayBuffer);
+      } catch (e) {
+        console.warn('Failed to load music', e);
+      }
+    })());
+
+    await Promise.all(loadPromises);
+  }
+
+  // Warm up audio context on user interaction to prevent frame drops
+  warmup() {
+    if (this.warmedUp || !this.audioContext) return;
+    this.warmedUp = true;
+
+    // Resume audio context (required after user gesture)
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume();
+    }
+
+    // Play a silent buffer to fully initialize the audio pipeline
+    const silentBuffer = this.audioContext.createBuffer(1, 1, 22050);
+    const source = this.audioContext.createBufferSource();
+    source.buffer = silentBuffer;
+    source.connect(this.audioContext.destination);
+    source.start(0);
+  }
+
+  play(name: string) {
+    if (!this.audioContext || !this.sfxGain) return;
+    const buffer = this.sounds.get(name);
+    if (!buffer) return;
+
+    const source = this.audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.sfxGain);
+    source.start(0);
+  }
+
+  startMusic() {
+    if (!this.audioContext || !this.musicBuffer || !this.musicGain || this.musicPlaying) return;
+
+    this.musicSource = this.audioContext.createBufferSource();
+    this.musicSource.buffer = this.musicBuffer;
+    this.musicSource.loop = true;
+    this.musicSource.connect(this.musicGain);
+    this.musicSource.start(0);
+    this.musicPlaying = true;
+
+    // Apply mute state
+    this.musicGain.gain.value = this.musicMuted ? 0 : this.musicVolume;
+  }
+
+  stopMusic() {
+    if (this.musicSource) {
+      try {
+        this.musicSource.stop();
+      } catch (e) {
+        // Ignore if already stopped
+      }
+      this.musicSource = null;
+    }
+    this.musicPlaying = false;
+  }
+
+  setMusicMuted(muted: boolean) {
+    this.musicMuted = muted;
+    if (this.musicGain) {
+      this.musicGain.gain.value = muted ? 0 : this.musicVolume;
+    }
+  }
+}
+
+// Singleton audio instance
+const gameAudio = typeof window !== 'undefined' ? new GameAudio() : null;
 
 interface GameProps {
   gameState: 'start' | 'playing' | 'dead';
@@ -11,6 +144,8 @@ interface GameProps {
   onScoreUpdate: (score: number) => void;
   onDistanceUpdate: (distance: number) => void;
   onCoinsUpdate: (coins: number) => void;
+  musicMuted: boolean;
+  isWarmingUp: boolean;
 }
 
 interface Asteroid {
@@ -51,7 +186,21 @@ interface Explosion {
 // CC Character - 3D extruded version of the $CC mascot using actual SVG path
 function CCCharacter({ position, rotation }: { position: [number, number, number]; rotation: number }) {
   const groupRef = useRef<THREE.Group>(null);
-  const flameRef = useRef<THREE.Mesh>(null);
+
+  // Load optimized WebP PBR textures for copper look
+  const [copperColor, copperNormal, copperRough] = useTexture([
+    '/textures/copper_color.webp',
+    '/textures/copper_normal.webp',
+    '/textures/copper_rough.webp',
+  ]);
+
+  // Configure textures for tiling
+  useMemo(() => {
+    [copperColor, copperNormal, copperRough].forEach(tex => {
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(3, 3);
+    });
+  }, [copperColor, copperNormal, copperRough]);
 
   // Create the CC character shape from the actual SVG path data
   const geometry = useMemo(() => {
@@ -134,49 +283,25 @@ function CCCharacter({ position, rotation }: { position: [number, number, number
     return new THREE.ExtrudeGeometry(shape, extrudeSettings);
   }, []);
 
-  useFrame(() => {
-    if (flameRef.current) {
-      flameRef.current.scale.y = 0.8 + Math.sin(Date.now() * 0.02) * 0.3;
-    }
-  });
-
   return (
     <group ref={groupRef} position={position} rotation={[0, rotation, 0]}>
-      {/* CC Character body - metallic with emissive glow */}
+      {/* CC Character body - realistic copper PBR material */}
       <mesh geometry={geometry} rotation={[0, Math.PI, 0]} position={[0, 0, 0.15]}>
         <meshStandardMaterial
+          map={copperColor}
+          normalMap={copperNormal}
+          normalScale={new THREE.Vector2(1, 1)}
+          roughnessMap={copperRough}
           color="#da7756"
-          emissive="#da7756"
-          emissiveIntensity={0.7}
-          metalness={0.7}
-          roughness={0.2}
+          emissive="#b85a3a"
+          emissiveIntensity={0.3}
+          metalness={1}
+          roughness={0.9}
+          envMapIntensity={1.2}
         />
       </mesh>
 
-      {/* Engine glow behind character */}
-      <mesh ref={flameRef} position={[0, -0.65, 0.5]}>
-        <sphereGeometry args={[0.22, 16, 16]} />
-        <meshStandardMaterial
-          color="#00ffff"
-          emissive="#00ffff"
-          emissiveIntensity={2}
-          transparent
-          opacity={0.8}
-        />
-      </mesh>
-
-      {/* Trail particles */}
-      <mesh position={[0, -0.65, 0.75]}>
-        <sphereGeometry args={[0.12, 8, 8]} />
-        <meshStandardMaterial
-          color="#ff00ff"
-          emissive="#ff00ff"
-          emissiveIntensity={1}
-          transparent
-          opacity={0.6}
-        />
-      </mesh>
-    </group>
+      </group>
   );
 }
 
@@ -258,6 +383,13 @@ function ExplosionMesh({ explosion }: { explosion: Explosion }) {
 function AsteroidMesh({ asteroid, speed }: { asteroid: Asteroid; speed: number }) {
   const ref = useRef<THREE.Mesh>(null);
 
+  // Load optimized WebP rock PBR textures
+  const [rockColor, rockNormal, rockRough] = useTexture([
+    '/textures/rock_color.webp',
+    '/textures/rock_normal.webp',
+    '/textures/rock_rough.webp',
+  ]);
+
   useFrame((_, delta) => {
     if (ref.current) {
       ref.current.position.z += speed * delta;
@@ -266,18 +398,24 @@ function AsteroidMesh({ asteroid, speed }: { asteroid: Asteroid; speed: number }
     }
   });
 
-  // Color based on health - light grey moon, red tint when damaged
-  const color = asteroid.health > 1 ? '#cccccc' : '#ff8866';
-  const emissive = asteroid.health > 1 ? '#444444' : '#ff4422';
+  // Tint based on health - normal or red when damaged
+  const tint = asteroid.health > 1 ? '#ffffff' : '#ff6644';
+  const emissive = asteroid.health > 1 ? '#222222' : '#ff4422';
 
   return (
     <mesh ref={ref} position={asteroid.position} scale={asteroid.scale}>
-      <sphereGeometry args={[0.8, 16, 16]} />
+      <sphereGeometry args={[0.8, 32, 32]} />
       <meshStandardMaterial
-        color={color}
+        map={rockColor}
+        normalMap={rockNormal}
+        normalScale={new THREE.Vector2(2, 2)}
+        roughnessMap={rockRough}
+        color={tint}
         emissive={emissive}
-        emissiveIntensity={0.3}
-        roughness={0.7}
+        emissiveIntensity={0.15}
+        roughness={0.85}
+        metalness={0.05}
+        envMapIntensity={0.8}
       />
     </mesh>
   );
@@ -297,16 +435,23 @@ function CoinMesh({ coin, speed }: { coin: Coin; speed: number }) {
 
   return (
     <group ref={ref} position={coin.position}>
-      {/* Coin disc */}
+      {/* Coin disc - realistic gold material */}
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.5, 0.5, 0.1, 32]} />
-        <meshStandardMaterial color="#ffd700" emissive="#ffd700" emissiveIntensity={0.8} />
+        <meshStandardMaterial
+          color="#ffd700"
+          emissive="#ff9900"
+          emissiveIntensity={0.3}
+          metalness={1}
+          roughness={0.2}
+          envMapIntensity={2}
+        />
       </mesh>
       {/* CC text front */}
       <Text
         position={[0, 0, 0.06]}
         fontSize={0.35}
-        color="#b8860b"
+        color="#996515"
         anchorX="center"
         anchorY="middle"
         fontWeight="bold"
@@ -318,7 +463,7 @@ function CoinMesh({ coin, speed }: { coin: Coin; speed: number }) {
         position={[0, 0, -0.06]}
         rotation={[0, Math.PI, 0]}
         fontSize={0.35}
-        color="#b8860b"
+        color="#996515"
         anchorX="center"
         anchorY="middle"
         fontWeight="bold"
@@ -329,35 +474,31 @@ function CoinMesh({ coin, speed }: { coin: Coin; speed: number }) {
   );
 }
 
-function Starfield() {
-  const starsRef = useRef<THREE.Points>(null);
+function SpaceSkybox() {
+  const texture = useTexture('/textures/space_bg.webp');
+  const meshRef = useRef<THREE.Mesh>(null);
 
-  const geometry = useMemo(() => {
-    const geo = new THREE.BufferGeometry();
-    const positions = new Float32Array(2000 * 3);
-    for (let i = 0; i < 2000; i++) {
-      positions[i * 3] = (Math.random() - 0.5) * 100;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 100;
-      positions[i * 3 + 2] = (Math.random() - 0.5) * 200 - 50;
-    }
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    return geo;
-  }, []);
-
+  // Slow rotation for immersion
   useFrame((_, delta) => {
-    if (starsRef.current) {
-      starsRef.current.rotation.z += delta * 0.01;
+    if (meshRef.current) {
+      meshRef.current.rotation.y += delta * 0.01;
     }
   });
 
   return (
-    <points ref={starsRef} geometry={geometry}>
-      <pointsMaterial size={0.15} color="#ffffff" transparent opacity={0.8} />
-    </points>
+    <mesh ref={meshRef} scale={[-1, 1, 1]}>
+      <sphereGeometry args={[500, 64, 32]} />
+      <meshBasicMaterial
+        map={texture}
+        side={THREE.BackSide}
+        color="#ffffff"
+        toneMapped={false}
+      />
+    </mesh>
   );
 }
 
-export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpdate, onCoinsUpdate }: GameProps) {
+export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpdate, onCoinsUpdate, musicMuted, isWarmingUp }: GameProps) {
   const [rocketPos, setRocketPos] = useState<[number, number, number]>([0, 0, 0]);
   const [rocketRotation, setRocketRotation] = useState(0);
   const [asteroids, setAsteroids] = useState<Asteroid[]>([]);
@@ -394,21 +535,33 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     lastBombTime: 0,
   });
 
+  // Initialize audio on mount
+  useEffect(() => {
+    gameAudio?.init();
+  }, []);
+
+  // Handle music mute toggle
+  useEffect(() => {
+    gameAudio?.setMusicMuted(musicMuted);
+  }, [musicMuted]);
+
   // Keyboard input
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       gameDataRef.current.keys[e.code] = true;
 
       // Barrel roll on left/right arrows (only if not already rolling)
-      if (!gameDataRef.current.isBarrelRolling) {
+      if (!gameDataRef.current.isBarrelRolling && gameState === 'playing') {
         if (e.code === 'ArrowLeft') {
           gameDataRef.current.isBarrelRolling = true;
           gameDataRef.current.barrelRollDirection = 1;
           gameDataRef.current.barrelRollAngle = 0;
+          gameAudio?.play('barrelRoll');
         } else if (e.code === 'ArrowRight') {
           gameDataRef.current.isBarrelRolling = true;
           gameDataRef.current.barrelRollDirection = -1;
           gameDataRef.current.barrelRollAngle = 0;
+          gameAudio?.play('barrelRoll');
         }
       }
 
@@ -428,11 +581,14 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [gameState]);
 
   // Reset game on start
   useEffect(() => {
     if (gameState === 'playing') {
+      // Warm up audio on first play to prevent frame drops
+      gameAudio?.warmup();
+
       const g = gameDataRef.current;
       g.posX = 0;
       g.posY = 0;
@@ -463,6 +619,18 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       setExplosions([]);
       setRocketPos([0, 0, 0]);
       setRocketRotation(0);
+
+      // Small delay to let audio warm up, then start music
+      setTimeout(() => {
+        gameAudio?.startMusic();
+      }, 50);
+    } else if (gameState === 'dead') {
+      // Stop music on death
+      gameAudio?.stopMusic();
+      gameAudio?.play('death');
+    } else if (gameState === 'start') {
+      // Stop music on start screen
+      gameAudio?.stopMusic();
     }
   }, [gameState]);
 
@@ -518,6 +686,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       };
       setBullets(prev => [...prev.slice(-50), newBullet]);
       g.lastBulletTime = time;
+      gameAudio?.play('shoot');
     }
 
     // Shooting bombs (Shift) - slower, bigger damage
@@ -530,6 +699,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       };
       setBombs(prev => [...prev.slice(-10), newBomb]);
       g.lastBombTime = time;
+      gameAudio?.play('bomb');
     }
 
     // Update speed based on time
@@ -665,6 +835,8 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
     // Apply all state updates
     if (asteroidsToDestroy.size > 0) {
       setAsteroids(prev => prev.filter(a => !asteroidsToDestroy.has(a.id)));
+      // Play explosion sound for each destroyed asteroid
+      gameAudio?.play('explosion');
     }
     if (bulletsToRemove.size > 0) {
       setBullets(prev => prev.filter(b => !bulletsToRemove.has(b.id)));
@@ -676,8 +848,8 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       setExplosions(prev => [...prev, ...explosionsToAdd]);
     }
 
-    // Rocket collision with asteroids (only if not barrel rolling - invincibility frames!)
-    if (!g.isBarrelRolling) {
+    // Rocket collision with asteroids (only if not barrel rolling or warming up - invincibility!)
+    if (!g.isBarrelRolling && !isWarmingUp) {
       for (const asteroid of asteroids) {
         const dist = Math.sqrt(
           Math.pow(asteroid.position.x - g.posX, 2) +
@@ -702,6 +874,7 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
       if (dist < 1.2) {
         g.coinsCollected++;
         onCoinsUpdate(g.coinsCollected);
+        gameAudio?.play('coin');
         return { ...coin, collected: true };
       }
       return coin;
@@ -722,13 +895,20 @@ export default function Game({ gameState, onDeath, onScoreUpdate, onDistanceUpda
 
   return (
     <>
-      <color attach="background" args={['#0a0015']} />
-      <fog attach="fog" args={['#0a0015', 20, 60]} />
-      <ambientLight intensity={0.3} />
-      <pointLight position={[10, 10, 10]} intensity={1} color="#ff00ff" />
-      <pointLight position={[-10, -10, 10]} intensity={0.5} color="#00ffff" />
+      {/* No fog - let the space skybox shine through */}
 
-      <Starfield />
+      {/* Enhanced lighting for PBR materials */}
+      <ambientLight intensity={0.2} />
+      <directionalLight position={[5, 5, 5]} intensity={1.5} color="#ffffff" castShadow />
+      <pointLight position={[10, 10, 10]} intensity={2} color="#ff00ff" distance={50} />
+      <pointLight position={[-10, -10, 10]} intensity={1} color="#00ffff" distance={50} />
+      <pointLight position={[0, 0, 15]} intensity={0.8} color="#ffffff" distance={30} />
+
+
+      {/* Environment map for reflections */}
+      <Environment preset="night" background={false} />
+
+      <SpaceSkybox />
       <CCCharacter position={rocketPos} rotation={rocketRotation} />
 
       {bullets.map(bullet => (

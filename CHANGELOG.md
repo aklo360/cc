@@ -6,6 +6,59 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2025-01-22] - Moon Mission Audio, Visuals & Polish
+
+### Added
+- **Full Audio System:**
+  - Web Audio API for lag-free sound playback
+  - Sound effects: shoot, bomb, explosion, coin collect, death, barrel roll
+  - Looping chiptune background music (CC0 licensed)
+  - Music mute button (bottom right, persists to localStorage)
+  - Audio preloading and warmup to prevent frame drops
+
+- **Space Skybox:**
+  - NASA Tycho Skymap (4K equirectangular projection)
+  - Realistic star field with Milky Way band
+  - Slow rotation for immersion
+
+- **Launch Warmup Screen:**
+  - "LAUNCHING..." overlay with spinning $CC logo
+  - 1.5 second warmup period hides shader compilation flicker
+  - Player immune during warmup
+
+### Changed
+- **UI Rebranded to Anthropic Orange (#da7756):**
+  - All HUD text (distance, coins, score)
+  - Start screen title and controls
+  - Death screen and buttons
+  - Mute button styling
+
+- **HUD Layout:**
+  - All counters grouped on right side
+  - Mute button moved to bottom right (larger size)
+
+- **Character Material:**
+  - Roughness increased to 0.9 for softer reflections
+  - Removed jet propulsion effect
+
+### Technical
+- Switched from HTMLAudioElement to Web Audio API
+- Pre-decoded audio buffers for instant playback
+- Environment HDRI for realistic reflections
+- Optimized textures: WebP format, 4K max resolution
+
+### Assets Added
+- `/public/sounds/` - CC0 sound effects and music (~6.6MB)
+  - `bgm_level1.ogg` - Background music
+  - `synth_laser_03.ogg` - Shoot sound
+  - `retro_explosion_01.ogg` - Explosion sound
+  - `retro_coin_01.ogg` - Coin collect sound
+  - `retro_die_01.ogg` - Death sound
+  - `power_up_01.ogg` - Barrel roll sound
+- `/public/textures/space_bg.webp` - NASA Tycho Skymap (976KB)
+
+---
+
 ## [2025-01-22] - 3D CC Character Model
 
 ### Changed
