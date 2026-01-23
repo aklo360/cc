@@ -6,7 +6,103 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
-## [2025-01-22] - Moon Mission Audio, Visuals & Polish
+## [2025-01-22] - Video Trailer Generator + Twitter Video Support
+
+### Added
+- **Remotion Video Generator** (`/video`)
+  - Full Remotion project for cinematic trailer creation
+  - Frame-perfect 30fps capture via virtual time control
+  - Automated AI gameplay with center-biased character framing
+  - Smooth zoom transitions between shots
+  - Premium motion graphics (title cards, feature callouts, CTA)
+
+- **Trailer Generator Agent** (`video/agent/index.ts`)
+  - Puppeteer browser automation
+  - Virtual time injection (overrides `requestAnimationFrame` + `performance.now()`)
+  - Frame-by-frame screenshot capture → ffmpeg encoding
+  - AI gameplay: shooting, movement, barrel rolls
+  - Center-bias tracking to keep character in frame
+
+- **Remotion Scenes** (`video/src/scenes/`)
+  - `TitleCard.tsx` - Animated title with particles and glow
+  - `FeatureCallout.tsx` - Premium text overlays with scan line reveal
+  - `CallToAction.tsx` - End screen with expanding ring animation
+  - `Trailer.tsx` - 15-second composition with zoom transitions
+
+- **Twitter Video Upload** (`worker/src/twitter.ts`)
+  - Chunked media upload for videos (INIT → APPEND → FINALIZE → STATUS)
+  - OAuth 1.0a signing for all endpoints
+  - Proper base64 chunk boundary handling
+  - Video processing status polling
+
+- **New Worker Endpoints**
+  - `POST /bot/tweet-video` - Post tweet with video attachment
+  - `POST /bot/tweet-text` - Post text-only tweet
+
+- **Post Tweet Script** (`video/post-tweet.ts`)
+  - Node.js script to upload video and post to Twitter
+
+### Technical
+- Virtual time control allows frame-perfect game capture
+- 8 buffer frames (head/tail) prevent freeze-frames at cuts
+- Center-bias AI tracks X/Y position, returns to center when >40% drift
+- Smooth zoom transitions: 1.08→1 in, 1→1.05 out with easing
+- Videos processed as 5MB chunks (base64 boundary aligned)
+
+### First Tweet
+- **StarClaude64 launch announcement** with 15-second trailer
+- Tweet: https://twitter.com/ClaudeCodeWTF/status/2014530888210555331
+
+---
+
+## [2025-01-22] - Twitter Bot with Image Upload
+
+### Added
+- **Twitter Bot** (`@ClaudeCodeWTF`)
+  - Automated meme generation + posting
+  - Cron schedule: every 3 hours (8 times/day)
+  - Rate limiting: 16 tweets/day max, 85min minimum between posts
+
+- **OAuth 1.0a Support** (for everything)
+  - `worker/src/oauth1.ts` - HMAC-SHA1 signature generation
+  - Admin UI at `/auth/v1` for token setup
+  - Twitter v1.1 API for media upload
+  - Twitter v2 API for tweet posting (free tier compatible)
+
+- **Claude Opus 4.5 Integration**
+  - Caption generation with dev personality
+  - Quality gate scoring (6+/10 required to post)
+  - Meme concept generation
+
+- **Bot Personality System**
+  - Dev-focused identity ("just wanna code")
+  - Casual voice: lowercase, "fr", "nah", "lowkey"
+  - Quality gate rejects crypto slang (ser, ngmi, wagmi, etc.)
+  - 50+ dev-themed prompt templates
+
+- **Admin Endpoints**
+  - `GET /bot/status` - View posting status + recent tweets
+  - `POST /bot/tweet` - Manual trigger
+  - `GET /bot/health` - Health check
+  - `GET /auth/v1` - OAuth 1.0a setup
+
+### Files Added
+- `worker/src/oauth1.ts` - OAuth 1.0a implementation
+- `worker/src/claude.ts` - Caption generation + quality gate (Claude Opus 4.5)
+- `worker/src/prompts.ts` - Meme prompt templates
+- `worker/src/twitter.ts` - Twitter API wrapper
+- `worker/src/types.ts` - TypeScript types
+
+### Technical
+- OAuth 1.0a for everything (simplified from OAuth 2.0 + 1.0a hybrid)
+- v2 API for tweet posting, v1.1 API for media upload
+- KV storage for bot state + tweet history
+- Gemini API for image generation
+- Claude Opus 4.5 for caption + quality scoring
+
+---
+
+## [2025-01-22] - StarClaude64 Audio, Visuals & Polish
 
 ### Added
 - **Full Audio System:**
@@ -62,7 +158,7 @@ All notable changes to the $CC (claudecode.wtf) project.
 ## [2025-01-22] - 3D CC Character Model
 
 ### Changed
-- **Moon Mission player is now the actual $CC mascot:**
+- **StarClaude64 player is now the actual $CC mascot:**
   - Rocket ship replaced with 3D extruded $CC character
   - Uses exact SVG path from `public/claudecode.svg` (Adobe Illustrator export)
   - Perfect silhouette: body, arms, 4 legs, eye holes
@@ -80,10 +176,10 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ---
 
-## [2025-01-22] - Moon Mission Keyboard Controls + Combat
+## [2025-01-22] - StarClaude64 Keyboard Controls + Combat
 
 ### Changed
-- **Moon Mission controls completely overhauled:**
+- **StarClaude64 controls completely overhauled:**
   - WASD: Move up/down/left/right
   - Arrow Up/Down: Move forward/backward (z-axis)
   - Arrow Left/Right: Barrel roll (with invincibility frames!)
@@ -103,10 +199,10 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ---
 
-## [2025-01-22] - Moon Mission + Space Invaders
+## [2025-01-22] - StarClaude64 + Space Invaders
 
 ### Added
-- **Moon Mission 3D Game** (`/moon`)
+- **StarClaude64 3D Game** (`/moon`)
   - Three.js endless runner with @react-three/fiber
   - Synthwave aesthetic (purple/blue space, neon pink/cyan accents)
   - Rocket follows mouse/touch with smooth lerp
@@ -128,7 +224,7 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 - **Homepage updates**
   - Added "Space Invaders" button (orange)
-  - Added "Moon Mission" button (cyan)
+  - Added "StarClaude64" button (cyan)
 
 ### Dependencies Added
 - `three` ^0.182.0

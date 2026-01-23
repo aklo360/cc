@@ -1,0 +1,33 @@
+{
+  "name": "video",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts StarClaude64Trailer out/trailer.mp4",
+    "preview": "remotion preview src/index.ts",
+    "record": "npx tsx record-gameplay.ts",
+    "agent": "npx tsx agent/index.ts",
+    "trailer": "npx tsx agent/index.ts"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@remotion/bundler": "4.0.409",
+    "@remotion/cli": "4.0.409",
+    "@remotion/media-utils": "4.0.409",
+    "@remotion/player": "4.0.409",
+    "@remotion/renderer": "4.0.409",
+    "@types/react": "19.2.9",
+    "@types/react-dom": "19.2.3",
+    "puppeteer": "^24.36.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.409",
+    "timecut": "^0.3.3",
+    "typescript": "5.9.3"
+  }
+}

@@ -14,16 +14,16 @@ export default function MoonMission() {
   const [musicMuted, setMusicMuted] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('cc-moon-mission-highscore');
+    const saved = localStorage.getItem('cc-starclaude64-highscore');
     if (saved) setHighScore(parseInt(saved, 10));
-    const mutedSaved = localStorage.getItem('cc-moon-mission-music-muted');
+    const mutedSaved = localStorage.getItem('cc-starclaude64-music-muted');
     if (mutedSaved) setMusicMuted(mutedSaved === 'true');
   }, []);
 
   const toggleMusicMute = () => {
     const newMuted = !musicMuted;
     setMusicMuted(newMuted);
-    localStorage.setItem('cc-moon-mission-music-muted', String(newMuted));
+    localStorage.setItem('cc-starclaude64-music-muted', String(newMuted));
   };
 
   const handleDeath = (finalScore: number, finalDistance: number, finalCoins: number) => {
@@ -33,7 +33,7 @@ export default function MoonMission() {
     setGameState('dead');
     if (finalScore > highScore) {
       setHighScore(finalScore);
-      localStorage.setItem('cc-moon-mission-highscore', finalScore.toString());
+      localStorage.setItem('cc-starclaude64-highscore', finalScore.toString());
     }
   };
 
@@ -108,9 +108,9 @@ export default function MoonMission() {
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
           <img src="/cc.png" alt="$CC" className="w-20 h-20 mb-4 animate-bounce" />
           <h1 className="text-4xl font-bold text-[#da7756] mb-2 font-mono">
-            $CC MOON MISSION
+            STARCLAUDE64
           </h1>
-          <p className="text-[#da7756]/60 mb-8 font-mono">TO THE MOON</p>
+          <p className="text-[#da7756]/60 mb-8 font-mono text-center text-sm">DODGE THE ASTEROIDS, COLLECT THE CLAUDE COINS</p>
           <button
             onClick={handleStart}
             className="px-8 py-4 bg-[#da7756] text-white font-bold rounded-lg hover:scale-105 hover:bg-[#c56a4d] transition-all font-mono"
@@ -151,7 +151,7 @@ export default function MoonMission() {
             <button
               onClick={() => {
                 const text = encodeURIComponent(
-                  `I scored ${score} on $CC Moon Mission! 🚀🌙\n\nDistance: ${Math.floor(distance)}m\n$CC Collected: ${coins}\n\nCan you beat my score?\nclaudecode.wtf/moon\n\n$CC`
+                  `I scored ${score} on StarClaude64! 🚀✨\n\nDistance: ${Math.floor(distance)}m\n$CC Collected: ${coins}\n\nCan you beat my score?\nclaudecode.wtf/moon\n\n$CC`
                 );
                 window.open(`https://twitter.com/intent/tweet?text=${text}`, '_blank');
               }}

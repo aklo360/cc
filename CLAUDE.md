@@ -43,7 +43,9 @@ A memecoin website for $CC (Claude Code Coin) featuring:
 1. **Landing Page** (`/`) - Token info, community links, terminal animation
 2. **Meme Generator** (`/meme`) - AI-powered meme creation with Gemini
 3. **Space Invaders** (`/play`) - 2D Canvas game with CC mascot
-4. **Moon Mission** (`/moon`) - 3D endless runner with Three.js
+4. **StarClaude64** (`/moon`) - 3D endless runner with Three.js
+5. **Twitter Bot** (@ClaudeCodeWTF) - Automated tweet posting with AI-generated memes
+6. **Video Generator** (`/video`) - Remotion-based cinematic trailer generator
 
 ### Why It Exists
 $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% of fees go to @bcherny.
@@ -61,7 +63,7 @@ $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% 
 │   ├── / (landing page)                                      │
 │   ├── /meme (AI meme generator)                             │
 │   ├── /play (Space Invaders 2D)                             │
-│   └── /moon (Moon Mission 3D)                               │
+│   └── /moon (StarClaude64 3D)                               │
 └─────────────────────────────────────────────────────────────┘
                             │
                             │ HTTPS (fetch)
@@ -83,6 +85,20 @@ $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% 
 │                    GOOGLE GEMINI API                        │
 │         gemini-2.0-flash-exp-image-generation               │
 └─────────────────────────────────────────────────────────────┘
+                            │
+                            │ HTTPS
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   ANTHROPIC CLAUDE API                      │
+│              claude-opus-4-5 (text generation)              │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            │ HTTPS
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      TWITTER API                            │
+│     OAuth 1.0a (v2 tweets + v1.1 media upload)              │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 **Why this architecture?**
@@ -99,10 +115,12 @@ $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% 
 | React | React | 19.2.3 |
 | Styling | Tailwind CSS | 4 |
 | 3D Engine | Three.js + @react-three/fiber | 0.182.0 / 9.5.0 |
-| AI | Google Gemini API | gemini-2.0-flash-exp-image-generation |
+| AI (Images) | Google Gemini API | gemini-2.0-flash-exp-image-generation |
+| AI (Text) | Anthropic Claude API | claude-opus-4-5-20251101 |
 | Hosting | Cloudflare Pages | - |
 | API | Cloudflare Workers | - |
 | Font | JetBrains Mono | Google Fonts |
+| Video | Remotion | 4.x |
 
 ---
 
@@ -125,7 +143,7 @@ ccwtf/
 │   ├── meme/
 │   │   └── page.tsx              # Meme generator UI
 │   ├── moon/
-│   │   └── page.tsx              # Moon Mission 3D game page
+│   │   └── page.tsx              # StarClaude64 3D game page
 │   ├── play/
 │   │   └── page.tsx              # Space Invaders game page
 │   ├── globals.css               # Tailwind + CSS variables
@@ -136,11 +154,30 @@ ccwtf/
 │   ├── claudecode.svg            # Vector SVG for 3D extrusion (Adobe Illustrator)
 │   ├── claudecode.jpg            # 3D rendered mascot
 │   └── og.jpg                    # Social preview
-├── worker/                       # Cloudflare Worker (API)
+├── video/                        # Remotion video generator (separate project)
+│   ├── agent/
+│   │   └── index.ts              # Autonomous trailer capture agent
 │   ├── src/
-│   │   └── index.ts              # Gemini API handler
+│   │   ├── Root.tsx              # Remotion entry point
+│   │   ├── Trailer.tsx           # Main 15-second composition
+│   │   └── scenes/
+│   │       ├── TitleCard.tsx     # Animated title with particles
+│   │       ├── FeatureCallout.tsx # Premium text overlays
+│   │       └── CallToAction.tsx  # End screen with CTA
+│   ├── public/footage/           # Captured gameplay clips
+│   ├── out/                      # Rendered output (trailer.mp4)
+│   ├── post-tweet.ts             # Script to post video to Twitter
+│   └── package.json              # Remotion dependencies
+├── worker/                       # Cloudflare Worker (API + Bot)
+│   ├── src/
+│   │   ├── index.ts              # API routes + bot logic (~800 lines)
+│   │   ├── twitter.ts            # Twitter API (OAuth 1.0a + video upload)
+│   │   ├── claude.ts             # Caption generation + quality gate
+│   │   ├── prompts.ts            # 50+ dev-focused meme prompts
+│   │   ├── oauth1.ts             # OAuth 1.0a signature generation
+│   │   └── types.ts              # TypeScript interfaces
 │   ├── package.json
-│   └── wrangler.toml             # Worker config
+│   └── wrangler.toml             # Worker config + cron schedule
 ├── .env                          # Local secrets (GEMINI_API_KEY)
 ├── .env.example                  # Template
 ├── CHANGELOG.md                  # Version history (KEEP UPDATED!)
@@ -159,7 +196,7 @@ ccwtf/
 - Animated typewriter Q&A component
 - Token info cards (1B supply, 100% fees to @bcherny)
 - Contract address with copy button
-- Links: Meme Generator, Space Invaders, Moon Mission, Buy, Twitter, GitHub
+- Links: Meme Generator, Space Invaders, StarClaude64, Buy, Twitter, GitHub
 
 ### 2. Meme Generator (`/meme`)
 - Two-column layout: controls (left) | preview (right)
@@ -177,7 +214,7 @@ ccwtf/
 - 3 lives, high score persistence
 - Speed increases as aliens die
 
-### 4. Moon Mission (`/moon`)
+### 4. StarClaude64 (`/moon`)
 - Three.js 3D endless runner
 - Synthwave aesthetic (purple/cyan/pink)
 - **3D CC Character:** Player ship is the actual $CC mascot extruded from SVG
@@ -198,6 +235,40 @@ ccwtf/
 - Dodge asteroids, collect $CC coins (+10 pts)
 - Speed ramps: 8 → 10 → 14 → 20 over 60s
 - "REKT" death screen with share
+
+### 5. Twitter Bot (@ClaudeCodeWTF)
+- Automated tweet posting via cron (every 3 hours)
+- AI-generated memes using Gemini (image generation)
+- AI captions powered by Claude Opus 4.5 with dev personality ("just wanna code")
+- OAuth 1.0a for everything (v2 API for tweets, v1.1 API for media upload)
+- Quality gate (score 6+/10 required to post)
+- Rate limiting (16 tweets/day max, 85min between posts)
+- KV storage for bot state + tweet history
+- **Video upload support** (chunked media upload for videos)
+- Admin endpoints:
+  - `GET /bot/status` - View posting status and recent tweets
+  - `POST /bot/tweet` - Manual trigger (with `{"force": true}` option)
+  - `POST /bot/tweet-video` - Post tweet with video attachment
+  - `POST /bot/tweet-text` - Post text-only tweet
+  - `GET /bot/health` - Health check
+  - `GET /auth/v1` - OAuth 1.0a setup UI
+
+### 6. Video Generator (`/video`)
+- **Remotion-based** cinematic trailer generator
+- **Frame-perfect capture** at 30fps via virtual time control
+- **Autonomous AI agent** plays the game for recording
+- **Premium motion graphics:**
+  - Title card with particles and glow effects
+  - Feature callouts with scan-line reveal animation
+  - CTA with expanding ring animation
+  - Smooth zoom transitions between shots
+- **How it works:**
+  1. Puppeteer launches browser to `/moon`
+  2. Virtual time injected (overrides `requestAnimationFrame` + `performance.now()`)
+  3. AI plays game (shooting, movement, barrel rolls) with center-bias tracking
+  4. Frame-by-frame screenshots → ffmpeg encodes to MP4
+  5. Remotion assembles clips with motion graphics → final trailer
+- **Output:** `video/out/trailer.mp4` (15 seconds, 1080p, 30fps)
 
 ---
 
@@ -230,8 +301,8 @@ DOES NOT HAVE:
 --text-secondary: #a0a0a0   /* Muted text */
 --claude-orange: #da7756    /* Brand accent */
 --accent-green: #4ade80     /* Aliens, success */
---accent-cyan: #00ffff      /* Moon Mission */
---accent-fuchsia: #ff00ff   /* Moon Mission */
+--accent-cyan: #00ffff      /* StarClaude64 */
+--accent-fuchsia: #ff00ff   /* StarClaude64 */
 ```
 
 ---
@@ -246,7 +317,16 @@ GEMINI_API_KEY=your-key-here
 ### Cloudflare Worker Secrets
 ```bash
 cd worker
-npx wrangler secret put GEMINI_API_KEY
+
+# AI APIs
+npx wrangler secret put GEMINI_API_KEY      # Image generation
+npx wrangler secret put ANTHROPIC_API_KEY   # Caption generation (Claude Opus 4.5)
+
+# Twitter OAuth 1.0a (for everything)
+npx wrangler secret put TWITTER_API_KEY      # Consumer Key
+npx wrangler secret put TWITTER_API_SECRET   # Consumer Secret
+npx wrangler secret put TWITTER_ACCESS_TOKEN # Access Token
+npx wrangler secret put TWITTER_ACCESS_SECRET # Access Token Secret
 ```
 
 The worker also uses `BASE_IMAGE_URL` set in wrangler.toml:
@@ -289,7 +369,15 @@ npx wrangler deploy
 | `app/components/SpaceInvaders.tsx` | 2D Canvas game | ~346 |
 | `app/components/MoonMission/index.tsx` | 3D game wrapper | ~110 |
 | `app/components/MoonMission/Game.tsx` | 3D game logic | ~220 |
-| `worker/src/index.ts` | Cloudflare Worker API | ~187 |
+| `worker/src/index.ts` | API routes + bot logic | ~800 |
+| `worker/src/twitter.ts` | Twitter API + video upload | ~295 |
+| `worker/src/claude.ts` | Caption + quality gate | ~180 |
+| `worker/src/prompts.ts` | Meme prompt templates | ~100 |
+| `worker/src/oauth1.ts` | OAuth 1.0a signatures | ~130 |
+| `video/agent/index.ts` | Autonomous trailer capture | ~300 |
+| `video/src/Trailer.tsx` | Main 15s composition | ~200 |
+| `video/src/scenes/*.tsx` | Motion graphics scenes | ~230 |
+| `video/post-tweet.ts` | Twitter video posting | ~35 |
 
 ---
 
@@ -300,7 +388,6 @@ npx wrangler deploy
 - [ ] Voting system
 - [ ] Image storage (Vercel Blob) for persistence
 - [ ] Database (KV/D1) for leaderboard
-- [ ] Sound effects for games
 - [ ] Mobile game controls (virtual joystick)
 
 ---
@@ -319,6 +406,7 @@ npx wrangler deploy
 
 - **Site:** https://claudecode.wtf
 - **API:** https://ccwtf-api.aklo.workers.dev
+- **Twitter Bot:** https://twitter.com/ClaudeCodeWTF
 - **GitHub:** https://github.com/aklo360/cc
 - **Community:** https://x.com/i/communities/2014131779628618154
 - **Buy:** https://bags.fm/cc
