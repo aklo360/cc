@@ -27,7 +27,7 @@ import {
 import { postTweetToCommunity, postTweetWithVideo, getTwitterCredentials, CC_COMMUNITY_ID } from './twitter.js';
 import { buildProject, buildEvents, type BuildResult } from './builder.js';
 import { deployToCloudflare, verifyDeployment } from './deployer.js';
-import { recordFeature, type RecordResult } from './recorder.js';
+import { generateTrailer, type TrailerResult } from './trailer.js';
 
 interface CyclePlan {
   project: {
@@ -48,7 +48,7 @@ interface FullCycleResult {
   plan: CyclePlan;
   buildResult?: BuildResult;
   deployUrl?: string;
-  recordResult?: RecordResult;
+  trailerResult?: TrailerResult;
   announcementTweetId?: string;
 }
 
@@ -272,16 +272,23 @@ Return ONLY the JSON object, no other text.`;
     return { cycleId, plan, buildResult, deployUrl };
   }
 
-  // ============ PHASE 5: RECORD ============
-  log('\n▸ PHASE 5: RECORDING');
+  // ============ PHASE 5: CREATE TRAILER ============
+  log('\n▸ PHASE 5: CREATING TRAILER');
 
-  const recordResult = await recordFeature(deployUrl, plan.project.slug, 8);
+  const trailerResult = await generateTrailer(
+    {
+      name: plan.project.idea,
+      slug: plan.project.slug,
+      description: plan.project.description,
+    },
+    deployUrl
+  );
 
-  if (!recordResult.success) {
-    log(`⚠️ Recording failed: ${recordResult.error}`);
+  if (!trailerResult.success) {
+    log(`⚠️ Trailer generation failed: ${trailerResult.error}`);
     log('   Will post announcement without video');
   } else {
-    log(`✅ Video recorded: ${recordResult.durationSec}s`);
+    log(`✅ Trailer created: ${trailerResult.durationSec}s`);
   }
 
   // ============ PHASE 6: TWEET ANNOUNCEMENT ============
@@ -298,16 +305,16 @@ Return ONLY the JSON object, no other text.`;
         ? announcementTweet.content
         : `${announcementTweet.content}\n\n${deployUrl}`;
 
-      if (recordResult.success && recordResult.videoBase64) {
-        log('📹 Posting announcement with video...');
+      if (trailerResult.success && trailerResult.videoBase64) {
+        log('📹 Posting announcement with trailer...');
         const result = await postTweetWithVideo(
           tweetContent,
-          recordResult.videoBase64,
+          trailerResult.videoBase64,
           credentials,
           CC_COMMUNITY_ID
         );
         announcementTweetId = result.id;
-        log(`✅ Announcement posted with video: ${result.id}`);
+        log(`✅ Announcement posted with trailer: ${result.id}`);
       } else {
         log('📝 Posting announcement (no video)...');
         const result = await postTweetToCommunity(tweetContent, credentials);
@@ -341,7 +348,7 @@ Return ONLY the JSON object, no other text.`;
     plan,
     buildResult,
     deployUrl,
-    recordResult,
+    trailerResult,
     announcementTweetId,
   };
 }

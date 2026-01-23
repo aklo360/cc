@@ -163,7 +163,9 @@ ccwtf/
 │   │   └── index.ts              # Autonomous trailer capture agent
 │   ├── src/
 │   │   ├── Root.tsx              # Remotion entry point
-│   │   ├── Trailer.tsx           # Main 15-second composition
+│   │   ├── Trailer.tsx           # StarClaude64 15-second composition
+│   │   ├── compositions/
+│   │   │   └── FeatureTrailer.tsx # Dynamic feature trailer (10-12s)
 │   │   └── scenes/
 │   │       ├── TitleCard.tsx     # Animated title with particles
 │   │       ├── FeatureCallout.tsx # Premium text overlays
@@ -172,14 +174,18 @@ ccwtf/
 │   ├── out/                      # Rendered output (trailer.mp4)
 │   ├── post-tweet.ts             # Script to post video to Twitter
 │   └── package.json              # Remotion dependencies
-├── brain/                        # Central Brain orchestrator (ultra-lean)
+├── brain/                        # Central Brain v3.1 (full autonomous loop)
 │   ├── src/
-│   │   ├── index.ts              # Main entry + node-cron setup
-│   │   ├── db.ts                 # SQLite database + schema
-│   │   ├── decision.ts           # Strategic AI reasoning (Claude)
-│   │   └── twitter.ts            # Twitter API (ported from worker)
+│   │   ├── index.ts              # HTTP/WS server + cron (port 3001)
+│   │   ├── cycle.ts              # Full 7-phase cycle orchestration
+│   │   ├── builder.ts            # Claude Agent SDK integration
+│   │   ├── deployer.ts           # Cloudflare Pages deployment
+│   │   ├── trailer.ts            # Remotion trailer generation
+│   │   ├── recorder.ts           # Puppeteer video capture (fallback)
+│   │   ├── twitter.ts            # OAuth 1.0a + video upload
+│   │   └── db.ts                 # SQLite database + schema
 │   ├── brain.db                  # SQLite database file
-│   └── package.json              # Minimal dependencies (~30 packages)
+│   └── package.json              # Dependencies
 ├── worker/                       # Cloudflare Worker (API + Bot)
 │   ├── src/
 │   │   ├── index.ts              # API routes + bot logic (~800 lines)
@@ -319,12 +325,28 @@ Real-time build log viewer for the Central Brain:
 - `POST /cancel` - Cancel active cycle
 - `WS /ws` - Real-time log streaming
 
+**VPS Deployment (Production):**
+- **Server:** 5.161.107.128
+- **Public URL:** https://brain.claudecode.wtf (via Cloudflare tunnel)
+- **WebSocket:** wss://brain.claudecode.wtf/ws
+- **Process:** pm2 with name `cc-brain`
+- **Node:** v22.22.0 via nvm
+- **Claude CLI:** `~/.local/bin/claude`
+
 **Run locally:**
 ```bash
 cd brain
 npm install
 npm run dev   # Development with hot reload
 npm start     # Production
+```
+
+**On VPS:**
+```bash
+ssh root@5.161.107.128
+cd /root/ccwtf/brain
+pm2 start npm --name cc-brain -- run dev
+pm2 logs cc-brain  # View logs
 ```
 
 ---

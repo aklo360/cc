@@ -6,6 +6,128 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-23] - Central Brain v3.1 (Dynamic Trailer System)
+
+### Added - Remotion-Based Trailer Generation
+ALL trailers now generated with Remotion. Screen recordings are INTERCUT into the composition for complex features but never used alone.
+
+**Approach:**
+- Pure Remotion: Static/Interactive UIs recreated with animations
+- Remotion + Intercut: Games/3D get screen-recorded footage embedded in Remotion
+
+**New Files:**
+- `video/src/compositions/FeatureTrailer.tsx` - Dynamic trailer composition
+- `brain/src/trailer.ts` - Trailer orchestration + classification
+
+**Trailer Timeline (10 seconds for non-games):**
+1. 0:00-0:02 - TitleCard with feature name + particles
+2. 0:02-0:06 - UIShowcase (animated UI recreation)
+3. 0:06-0:08 - FeatureCallout ("HOW IT WORKS")
+4. 0:08-0:10 - CallToAction ("TRY IT NOW" + URL)
+
+**Game Trailer Timeline (12 seconds):**
+1. 0:00-0:02 - TitleCard
+2. 0:02-0:08 - GameplayFootage (screen recorded)
+3. 0:08-0:10 - FeatureCallout
+4. 0:10-0:12 - CallToAction ("PLAY NOW")
+
+### Changed
+- Renamed PHASE 5 from "RECORDING" to "CREATING TRAILER"
+- cycle.ts now calls `generateTrailer()` instead of `recordFeature()`
+- Trailers explain features instead of just showing them
+
+---
+
+## [2026-01-23] - Central Brain v3.0 (Full Autonomous Loop)
+
+### Added - Complete Autonomous Engineering Agent
+Built and deployed a fully autonomous 24-hour software engineering loop:
+
+**7-Phase Cycle:**
+1. **PLAN** - Claude plans project idea + tweet content
+2. **BUILD** - Claude Agent SDK autonomously writes code
+3. **DEPLOY** - Wrangler deploys to Cloudflare Pages
+4. **VERIFY** - Confirms deployment is live (3 retries)
+5. **RECORD** - Puppeteer captures video of deployed feature
+6. **TWEET** - Posts announcement with video to @ClaudeCodeWTF
+7. **SCHEDULE** - Queues follow-up tweets over 24 hours
+
+### Technical Implementation
+
+**Claude Agent SDK Integration** (`brain/src/builder.ts`)
+- `@anthropic-ai/claude-agent-sdk` query() function
+- `permissionMode: 'acceptEdits'` for autonomous operation
+- Tools: Read, Write, Edit, Glob, Grep, Bash
+- Max 3 retry attempts with debug loop
+- Model: Sonnet for builds, Haiku for verification
+
+**SQLite Database** (`brain/src/db.ts`)
+- 4 tables: cycles, scheduled_tweets, tweets, experiments
+- WAL mode for concurrent access
+- Tracks cycle state, tweet scheduling, history
+
+**HTTP/WebSocket Server** (`brain/src/index.ts`)
+- Port 3001 (tunneled via Cloudflare)
+- `GET /status` - Brain + cycle status
+- `POST /go` - Start new 24-hour cycle
+- `POST /cancel` - Cancel active cycle
+- `WS /ws` - Real-time log streaming
+- Cron: `*/5 * * * *` for scheduled tweets
+
+**Cloudflare Tunnel**
+- Public URL: `brain.claudecode.wtf`
+- WebSocket: `wss://brain.claudecode.wtf/ws`
+- Heartbeat ping every 30s to keep connections alive
+
+**Video Recording** (`brain/src/recorder.ts`)
+- Puppeteer headless browser
+- 30fps, 8 seconds default
+- ffmpeg encoding to MP4
+
+### VPS Deployment
+- Server: 5.161.107.128
+- Process: pm2 with `cc-brain` name
+- Node: v22.22.0 via nvm
+- Claude CLI: `~/.local/bin/claude`
+
+### First Successful Cycle
+- **Project:** Code Poetry Generator (`/poetry`)
+- **Build:** Claude Agent SDK autonomously created the feature
+- **Deploy:** https://claudecode.wtf/poetry
+- **Tweet:** Posted with video to @ClaudeCodeWTF community
+
+### Bug Fixes
+- Fixed `bypassPermissions` → `acceptEdits` for Claude Agent SDK
+- Fixed hardcoded paths in builder.ts, deployer.ts, recorder.ts
+- Added dynamic PATH for nvm installations
+- Added WebSocket heartbeat to prevent Cloudflare tunnel timeout
+- Client-side exponential backoff reconnection (max 30s delay)
+
+### Files
+- `brain/src/index.ts` - Main server + WebSocket (~340 lines)
+- `brain/src/cycle.ts` - Full cycle orchestration (~400 lines)
+- `brain/src/builder.ts` - Claude Agent SDK integration (~260 lines)
+- `brain/src/deployer.ts` - Cloudflare Pages deployment (~145 lines)
+- `brain/src/recorder.ts` - Puppeteer video capture (~120 lines)
+- `brain/src/twitter.ts` - OAuth 1.0a + video upload (~300 lines)
+- `brain/src/db.ts` - SQLite database (~240 lines)
+- `app/watch/page.tsx` - Real-time log viewer (~300 lines)
+
+### Run
+```bash
+# On VPS (5.161.107.128)
+cd /root/ccwtf/brain
+pm2 start npm --name cc-brain -- run dev
+
+# Trigger cycle
+curl -X POST https://brain.claudecode.wtf/go
+
+# Watch logs
+https://claudecode.wtf/watch
+```
+
+---
+
 ## [2025-01-22] - Central Brain v2.0 (Ultra-Lean)
 
 ### Changed - Complete Rewrite for Minimal Footprint
