@@ -393,6 +393,7 @@ export interface DailyStats {
 }
 
 const DAILY_LIMIT = 5; // Maximum features per day
+const HOURS_BETWEEN_CYCLES = 4.5; // Spread 5 features across ~22.5 hours (leaving buffer)
 
 export function getTodayStats(): DailyStats {
   const today = new Date().toISOString().split('T')[0];
@@ -450,14 +451,19 @@ export function getTimeUntilNextAllowed(): number {
     return tomorrow.getTime() - now.getTime();
   }
 
-  // Otherwise, 30-minute cooldown from last cycle
+  // Stagger features across the day (4.5 hours between each)
+  // This spreads 5 features evenly across ~22.5 hours
   if (stats.last_cycle_end) {
     const lastEnd = new Date(stats.last_cycle_end).getTime();
-    const cooldown = 30 * 60 * 1000; // 30 minutes
+    const cooldown = HOURS_BETWEEN_CYCLES * 60 * 60 * 1000; // 4.5 hours in ms
     const nextAllowed = lastEnd + cooldown;
     const now = Date.now();
     return Math.max(0, nextAllowed - now);
   }
 
   return 0; // Can start immediately
+}
+
+export function getHoursBetweenCycles(): number {
+  return HOURS_BETWEEN_CYCLES;
 }
