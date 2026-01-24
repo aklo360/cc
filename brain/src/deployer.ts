@@ -84,6 +84,40 @@ export async function deployToCloudflare(): Promise<DeployResult> {
       };
     }
 
+    // Step 1.5: Commit and push to GitHub (keeps repo in sync)
+    log('📤 Pushing to GitHub...');
+    try {
+      // Add all new/modified files
+      await execAsync('git add -A', {
+        cwd: projectRoot,
+        timeout: 30000,
+        env: execEnv,
+      });
+
+      // Commit with descriptive message (use heredoc for multiline)
+      const commitResult = await execAsync(`git commit -m "Auto-deploy: New feature built by Central Brain
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>" || true`, {
+        cwd: projectRoot,
+        timeout: 30000,
+        env: execEnv,
+      });
+      logs.push(commitResult.stdout);
+
+      // Push to origin main
+      const pushResult = await execAsync('git push origin main', {
+        cwd: projectRoot,
+        timeout: 60000,
+        env: execEnv,
+      });
+      logs.push(pushResult.stdout);
+      log('✅ Pushed to GitHub');
+    } catch (error) {
+      const err = error as { stderr?: string; stdout?: string };
+      // Don't fail deploy if git push fails - log warning and continue
+      log(`⚠️ Git push warning: ${err.stderr || err.stdout || 'unknown'}`);
+    }
+
     // Step 2: Deploy to Cloudflare Pages
     log('☁️ Deploying to Cloudflare Pages...');
     try {
