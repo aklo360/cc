@@ -142,6 +142,96 @@ export default function Home() {
             </svg>
             Code Poetry Generator
           </a>
+          <a
+            href="/review"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-accent-purple text-accent-purple px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-accent-purple hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <line x1="10" y1="9" x2="8" y2="9"/>
+            </svg>
+            Code Review Bot
+          </a>
+          <a
+            href="/ide"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-indigo-500 text-indigo-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-indigo-500 hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="16 18 22 12 16 6"/>
+              <polyline points="8 6 2 12 8 18"/>
+            </svg>
+            Claude Code IDE
+          </a>
+          <a
+            href="/mood"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-rose-500 text-rose-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-rose-500 hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+              <line x1="9" y1="9" x2="9.01" y2="9"/>
+              <line x1="15" y1="9" x2="15.01" y2="9"/>
+            </svg>
+            Code Mood Ring
+          </a>
+          <a
+            href="/duck"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-yellow-500 text-yellow-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-yellow-500 hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="10" r="6"/>
+              <ellipse cx="12" cy="18" rx="8" ry="4"/>
+              <circle cx="10" cy="9" r="1" fill="currentColor"/>
+            </svg>
+            Rubber Duck Debugger
+          </a>
+          <a
+            href="/roast"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-orange-600 text-orange-500 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-orange-600 hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/>
+            </svg>
+            Code Roast
+          </a>
         </section>
 
         {/* Terminal */}

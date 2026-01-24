@@ -33,13 +33,58 @@ interface DailyStats {
   remaining: number;
   can_ship_more: boolean;
   last_cycle_end: string | null;
+  hours_between_cycles: number;
   next_allowed_in_ms: number;
-  next_allowed_in_mins: number;
+  next_allowed_in_hours: number;
+  next_allowed_at: string | null;
 }
 
-// Brain server URL - configurable via env
-const BRAIN_URL = process.env.NEXT_PUBLIC_BRAIN_URL || 'http://localhost:3001';
-const BRAIN_WS_URL = process.env.NEXT_PUBLIC_BRAIN_WS_URL || 'ws://localhost:3001/ws';
+// Brain server URL - production uses brain.claudecode.wtf
+const IS_PRODUCTION = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
+const BRAIN_URL = IS_PRODUCTION ? 'https://brain.claudecode.wtf' : 'http://localhost:3001';
+const BRAIN_WS_URL = IS_PRODUCTION ? 'wss://brain.claudecode.wtf/ws' : 'ws://localhost:3001/ws';
+
+// LocalStorage key for caching logs
+const LOGS_CACHE_KEY = 'cc-brain-logs';
+const LOGS_CACHE_DATE_KEY = 'cc-brain-logs-date';
+
+// Get today's date string for cache invalidation
+const getTodayDate = () => new Date().toISOString().split('T')[0];
+
+// Load cached logs from localStorage
+const loadCachedLogs = (): LogEntry[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const cachedDate = localStorage.getItem(LOGS_CACHE_DATE_KEY);
+    // Only use cache if it's from today
+    if (cachedDate === getTodayDate()) {
+      const cached = localStorage.getItem(LOGS_CACHE_KEY);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } else {
+      // Clear old cache
+      localStorage.removeItem(LOGS_CACHE_KEY);
+      localStorage.removeItem(LOGS_CACHE_DATE_KEY);
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+  return [];
+};
+
+// Save logs to localStorage
+const saveCachedLogs = (logs: LogEntry[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    // Keep only last 500 logs to prevent localStorage overflow
+    const logsToSave = logs.slice(-500);
+    localStorage.setItem(LOGS_CACHE_KEY, JSON.stringify(logsToSave));
+    localStorage.setItem(LOGS_CACHE_DATE_KEY, getTodayDate());
+  } catch {
+    // Ignore localStorage errors (quota exceeded, etc.)
+  }
+};
 
 export default function WatchPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -50,6 +95,21 @@ export default function WatchPage() {
   const [loading, setLoading] = useState<string | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Load cached logs on mount
+  useEffect(() => {
+    const cached = loadCachedLogs();
+    if (cached.length > 0) {
+      setLogs(cached);
+    }
+  }, []);
+
+  // Save logs to cache whenever they change
+  useEffect(() => {
+    if (logs.length > 0) {
+      saveCachedLogs(logs);
+    }
+  }, [logs]);
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
@@ -81,48 +141,6 @@ export default function WatchPage() {
       }
     } catch {
       // Stats endpoint might not be available yet
-    }
-    setLoading(null);
-  };
-
-  const startCycle = async () => {
-    setLoading('go');
-    try {
-      const res = await fetch(`${BRAIN_URL}/go`, { method: 'POST' });
-      if (res.ok) {
-        setLogs(prev => [...prev, {
-          timestamp: Date.now(),
-          message: '--- Cycle started! ---'
-        }]);
-        fetchStatus();
-        fetchStats();
-      }
-    } catch {
-      setLogs(prev => [...prev, {
-        timestamp: Date.now(),
-        message: '--- Failed to start cycle ---'
-      }]);
-    }
-    setLoading(null);
-  };
-
-  const cancelCycle = async () => {
-    setLoading('cancel');
-    try {
-      const res = await fetch(`${BRAIN_URL}/cancel`, { method: 'POST' });
-      if (res.ok) {
-        setLogs(prev => [...prev, {
-          timestamp: Date.now(),
-          message: '--- Cycle cancelled ---'
-        }]);
-        fetchStatus();
-        fetchStats();
-      }
-    } catch {
-      setLogs(prev => [...prev, {
-        timestamp: Date.now(),
-        message: '--- Failed to cancel cycle ---'
-      }]);
     }
     setLoading(null);
   };
@@ -331,8 +349,15 @@ export default function WatchPage() {
                 </div>
                 <div className="text-xs text-[#666] mt-2">
                   {stats.can_ship_more ? (
-                    stats.next_allowed_in_mins > 0 ? (
-                      <span className="text-amber-400">Next in {stats.next_allowed_in_mins}m</span>
+                    stats.next_allowed_in_hours > 0 ? (
+                      <span className="text-amber-400">
+                        Next in {stats.next_allowed_in_hours.toFixed(1)}h
+                        {stats.next_allowed_at && (
+                          <span className="text-[#555] ml-1">
+                            ({new Date(stats.next_allowed_at).toLocaleTimeString()})
+                          </span>
+                        )}
+                      </span>
                     ) : (
                       <span className="text-green-400">Ready to ship!</span>
                     )
@@ -340,36 +365,25 @@ export default function WatchPage() {
                     <span className="text-red-400">Daily limit reached</span>
                   )}
                 </div>
+                <div className="text-xs text-[#555] mt-1">
+                  Staggered: {stats.hours_between_cycles}h between features
+                </div>
               </div>
             ) : (
               <div className="text-[#666] text-sm">Loading...</div>
             )}
           </div>
 
-          {/* Actions */}
+          {/* Refresh Actions */}
           <div className="bg-[#1a1a1a] border border-[#262626] rounded-lg p-4">
-            <h2 className="text-sm text-[#a0a0a0] mb-3">ACTIONS</h2>
+            <h2 className="text-sm text-[#a0a0a0] mb-3">REFRESH</h2>
             <div className="space-y-2">
               <button
-                onClick={startCycle}
-                disabled={loading === 'go' || !!status?.cycle}
-                className="w-full px-4 py-2 bg-green-500/20 border border-green-500/40 text-green-400 rounded text-sm font-semibold hover:bg-green-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => { fetchStatus(); fetchStats(); }}
+                disabled={loading === 'status' || loading === 'stats'}
+                className="w-full px-4 py-2 bg-[#262626] border border-[#333] text-[#a0a0a0] rounded text-sm hover:bg-[#333] hover:text-[#e0e0e0] transition disabled:opacity-50"
               >
-                {loading === 'go' ? 'Starting...' : status?.cycle ? 'Cycle Active' : 'START CYCLE'}
-              </button>
-              <button
-                onClick={cancelCycle}
-                disabled={loading === 'cancel' || !status?.cycle}
-                className="w-full px-4 py-2 bg-red-500/20 border border-red-500/40 text-red-400 rounded text-sm font-semibold hover:bg-red-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading === 'cancel' ? 'Cancelling...' : 'CANCEL CYCLE'}
-              </button>
-              <button
-                onClick={fetchStatus}
-                disabled={loading === 'status'}
-                className="w-full px-4 py-2 bg-[#262626] border border-[#333] text-[#a0a0a0] rounded text-sm hover:bg-[#333] transition disabled:opacity-50"
-              >
-                {loading === 'status' ? 'Loading...' : 'REFRESH STATUS'}
+                {loading === 'status' || loading === 'stats' ? 'Loading...' : 'REFRESH STATUS & STATS'}
               </button>
             </div>
           </div>
@@ -394,7 +408,14 @@ export default function WatchPage() {
             <div className="flex items-center justify-between px-4 py-2 border-b border-[#262626]">
               <h2 className="text-sm text-[#a0a0a0]">BUILD LOGS</h2>
               <button
-                onClick={() => setLogs([])}
+                onClick={() => {
+                  setLogs([]);
+                  // Also clear cache
+                  if (typeof window !== 'undefined') {
+                    localStorage.removeItem(LOGS_CACHE_KEY);
+                    localStorage.removeItem(LOGS_CACHE_DATE_KEY);
+                  }
+                }}
                 className="text-xs text-[#666] hover:text-[#a0a0a0] transition"
               >
                 Clear
@@ -413,7 +434,7 @@ export default function WatchPage() {
                 <div className="text-[#666] text-sm">
                   Waiting for logs...
                   <div className="text-xs mt-1">
-                    Click &quot;START CYCLE&quot; to begin an autonomous build cycle
+                    Logs will appear when the Central Brain is building
                   </div>
                 </div>
               )}
