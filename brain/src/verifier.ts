@@ -379,6 +379,150 @@ async function verifyGame(page: Page, config: VerificationConfig): Promise<Verif
 }
 
 /**
+ * BRAND VERIFICATION - CRITICAL QUALITY GATE
+ * Checks that the deployed feature follows claudecode.wtf design system
+ * - Terminal header with traffic light dots
+ * - Dark theme colors (bg-bg-primary, not white/light)
+ * - Standard footer with "claudecode.wtf · 100% of fees to @bcherny"
+ * - Claude orange accent color
+ */
+async function verifyBrand(page: Page, config: VerificationConfig): Promise<VerificationResult> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  log(`   → Brand verification: checking design system compliance...`);
+
+  try {
+    // Navigate to the page
+    const response = await page.goto(config.deployUrl, {
+      waitUntil: 'networkidle0',
+      timeout: 30000,
+    });
+
+    if (!response || response.status() !== 200) {
+      errors.push(`Page returned status ${response?.status() || 'unknown'}`);
+      return { success: false, errors, warnings };
+    }
+
+    await sleep(1000);
+
+    // Run brand compliance checks
+    const brandCheck = await page.evaluate(() => {
+      const issues: string[] = [];
+
+      // CHECK 1: Terminal header with traffic light dots
+      const trafficLightDots = document.querySelectorAll('.rounded-full');
+      const hasRedDot = Array.from(trafficLightDots).some(el => {
+        const bg = window.getComputedStyle(el).backgroundColor;
+        return bg.includes('255, 95, 87') || bg.includes('ff5f57');
+      });
+      const hasYellowDot = Array.from(trafficLightDots).some(el => {
+        const bg = window.getComputedStyle(el).backgroundColor;
+        return bg.includes('254, 188, 46') || bg.includes('febc2e');
+      });
+      const hasGreenDot = Array.from(trafficLightDots).some(el => {
+        const bg = window.getComputedStyle(el).backgroundColor;
+        return bg.includes('40, 200, 64') || bg.includes('28c840');
+      });
+
+      if (!hasRedDot || !hasYellowDot || !hasGreenDot) {
+        issues.push('MISSING TERMINAL HEADER: Page must have traffic light dots (red/yellow/green circles)');
+      }
+
+      // CHECK 2: Dark background (NOT white/light)
+      const bodyBg = window.getComputedStyle(document.body).backgroundColor;
+      const html = document.documentElement;
+      const htmlBg = window.getComputedStyle(html).backgroundColor;
+
+      // Parse RGB values
+      const parseRGB = (color: string) => {
+        const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (match) {
+          return { r: parseInt(match[1]), g: parseInt(match[2]), b: parseInt(match[3]) };
+        }
+        return null;
+      };
+
+      const bgColor = parseRGB(bodyBg) || parseRGB(htmlBg);
+      if (bgColor && (bgColor.r > 100 || bgColor.g > 100 || bgColor.b > 100)) {
+        issues.push(`WRONG BACKGROUND COLOR: Page has light/white background (rgb: ${bgColor.r},${bgColor.g},${bgColor.b}). Must use dark theme (bg-bg-primary).`);
+      }
+
+      // CHECK 3: Standard footer
+      const footerText = document.body.innerText.toLowerCase();
+      const hasFooterLink = footerText.includes('claudecode.wtf');
+      const hasFooterFees = footerText.includes('100% of fees') || footerText.includes('bcherny');
+
+      if (!hasFooterLink || !hasFooterFees) {
+        issues.push('MISSING STANDARD FOOTER: Must include "claudecode.wtf · 100% of fees to @bcherny"');
+      }
+
+      // CHECK 4: CC Logo
+      const ccLogo = document.querySelector('img[src*="cc.png"]');
+      if (!ccLogo) {
+        issues.push('MISSING CC LOGO: Page must include the $CC mascot logo (/cc.png)');
+      }
+
+      // CHECK 5: Claude orange accent (spot check)
+      const hasClaudeOrange = document.body.innerHTML.includes('claude-orange') ||
+                              document.body.innerHTML.includes('da7756') ||
+                              document.body.innerHTML.includes('218, 119, 86');
+      if (!hasClaudeOrange) {
+        issues.push('MISSING CLAUDE ORANGE: Page should use text-claude-orange or bg-claude-orange for accents');
+      }
+
+      // CHECK 6: Look for forbidden colors/patterns in HTML
+      // NOTE: Only check visible elements, not <script> tags or Next.js flight data
+      // Next.js embeds 404 fallback styles in script tags which we need to ignore
+      const visibleElements = Array.from(document.querySelectorAll('body *:not(script)'));
+      const visibleClassNames = visibleElements.map(el => el.className).join(' ');
+
+      // Check for forbidden Tailwind classes in visible elements
+      const forbiddenTailwindPatterns = [
+        'bg-white',
+        'bg-gray-50',
+        'bg-gray-100',
+        'bg-gray-200',
+        'bg-slate-50',
+        'bg-slate-100',
+        'bg-slate-200',
+      ];
+
+      for (const pattern of forbiddenTailwindPatterns) {
+        if (visibleClassNames.includes(pattern)) {
+          issues.push(`FORBIDDEN LIGHT BACKGROUND: Found class "${pattern}" in visible elements`);
+          break;
+        }
+      }
+
+      // Check for gradient text (not part of our brand)
+      if (visibleClassNames.includes('bg-gradient-to') && visibleClassNames.includes('bg-clip-text')) {
+        issues.push('FORBIDDEN GRADIENT TEXT: Gradient text is not part of the brand. Use solid colors.');
+      }
+
+      return issues;
+    });
+
+    if (brandCheck.length > 0) {
+      errors.push(...brandCheck);
+      log(`   ❌ Brand verification FAILED: ${brandCheck.length} issues found`);
+      for (const issue of brandCheck) {
+        log(`      - ${issue}`);
+      }
+      return { success: false, errors, warnings };
+    }
+
+    log(`   ✓ Brand verification passed - design system compliance confirmed`);
+    return { success: true, errors, warnings };
+
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    errors.push(`Brand verification failed: ${errMsg}`);
+    return { success: false, errors, warnings };
+  }
+}
+
+/**
  * Main verification entry point
  * Runs the appropriate verification based on feature type
  */
@@ -407,6 +551,16 @@ export async function verifyFeature(config: VerificationConfig): Promise<Verific
 
     let result: VerificationResult;
 
+    // FIRST: Run brand verification (CRITICAL - must pass before functional tests)
+    log(`   → Running brand verification FIRST...`);
+    const brandResult = await verifyBrand(page, config);
+    if (!brandResult.success) {
+      log(`❌ BRAND VERIFICATION FAILED - Feature does not match claudecode.wtf design system`);
+      log(`   This feature will be REJECTED until it follows brand guidelines.`);
+      return brandResult;
+    }
+
+    // THEN: Run functional verification based on type
     switch (verificationType) {
       case 'game':
         result = await verifyGame(page, config);

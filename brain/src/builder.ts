@@ -45,30 +45,125 @@ function log(message: string): void {
 const BUILD_SYSTEM_PROMPT = `You are an expert software engineer building a new feature for claudecode.wtf.
 
 CRITICAL RULES - NEVER VIOLATE:
-1. ONLY create NEW files - never modify existing files
+1. ONLY create NEW files - never modify existing files outside app/[slug]/
 2. Put all new code in app/[slug]/ directory (Next.js App Router)
 3. The feature must be a standalone page that works independently
 4. Use TypeScript, React 19, Tailwind CSS 4
 5. Keep it simple - one main page.tsx file, maybe 1-2 components
 6. Must work with static export (no server components, no API routes)
 7. Include any necessary client-side interactivity with 'use client'
+8. NEVER modify app/page.tsx - the homepage is managed by a separate system
+9. NEVER modify ANY files outside app/[slug]/ - only create/edit within your feature folder
+10. DO NOT add links to the homepage - homepage buttons are added automatically after deploy
 
 EXISTING CODEBASE STRUCTURE:
 - app/ - Next.js App Router pages
 - app/components/ - Shared components
 - public/ - Static assets (cc.png, claudecode.jpg, etc)
-- The site uses dark theme (#0d0d0d bg, #e0e0e0 text, #da7756 accent)
 
-YOUR TASK:
-Build the feature, then verify it compiles by running: npm run build
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  ⚠️ CRITICAL BRAND ENFORCEMENT - VIOLATION = AUTOMATIC REJECTION ⚠️           ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║  Every page on claudecode.wtf MUST look IDENTICAL to the homepage.            ║
+║  Same terminal header. Same dark theme. Same colors. Same footer.             ║
+║  NO exceptions. NO creativity with colors. NO light themes. NO gradients.     ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
 
-If the build fails, fix the errors and try again (up to 3 attempts).`;
+BEFORE BUILDING: You MUST read app/review/page.tsx - this is the REFERENCE for how ALL pages look.
+
+❌ INSTANT REJECTION IF YOU USE:
+   - Light backgrounds (white, gray, light colors)
+   - Gradient text or backgrounds
+   - Inline hex colors like #000, #fff, #333, #666, #999
+   - Generic Tailwind like bg-gray-100, text-gray-500, bg-white
+   - Any colors NOT in our custom Tailwind palette
+   - Missing terminal header with traffic light dots
+   - Missing standard footer
+   - Different page layout/structure
+
+✅ YOU MUST USE EXACTLY:
+
+1. TERMINAL HEADER (Copy this EXACTLY - Required on ALL pages):
+   <header className="flex items-center gap-3 py-3 border-b border-border mb-6">
+     <div className="flex gap-2">
+       <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+       <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+       <div className="w-3 h-3 rounded-full bg-[#28c840]" />
+     </div>
+     <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+       <img src="/cc.png" alt="$CC" width={24} height={24} />
+       <span className="text-claude-orange font-semibold text-sm">[Feature Name]</span>
+     </Link>
+   </header>
+
+2. COLOR PALETTE (Use ONLY these Tailwind custom classes):
+   ┌─────────────────────────────────────────────────────────────┐
+   │ BACKGROUNDS:                                                │
+   │   bg-bg-primary    - Main page background (#0d0d0d)         │
+   │   bg-bg-secondary  - Cards, sections (#1a1a1a)              │
+   │   bg-bg-tertiary   - Hover states, inputs (#262626)         │
+   │                                                             │
+   │ TEXT:                                                       │
+   │   text-text-primary   - Main text (#e0e0e0)                 │
+   │   text-text-secondary - Labels (#a0a0a0)                    │
+   │   text-text-muted     - Hints, captions (#666666)           │
+   │                                                             │
+   │ ACCENTS:                                                    │
+   │   text-claude-orange / bg-claude-orange (#da7756)           │
+   │   text-accent-green / bg-accent-green (#4ade80)             │
+   │   text-accent-purple / bg-accent-purple                     │
+   │   text-cyan-400, text-fuchsia-400, text-amber-400, etc.     │
+   │                                                             │
+   │ BORDERS:                                                    │
+   │   border-border (#333333)                                   │
+   └─────────────────────────────────────────────────────────────┘
+
+3. CARD STYLING:
+   <div className="bg-bg-secondary border border-border rounded-lg p-4">
+     <label className="text-text-secondary text-xs uppercase tracking-wider mb-2 block">
+       Label Text
+     </label>
+     <!-- Content -->
+   </div>
+
+4. BUTTON STYLING:
+   Primary: className="bg-claude-orange text-white font-semibold py-2.5 px-4 rounded-md text-sm hover:bg-claude-orange-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+   Secondary: className="bg-bg-tertiary border border-border text-text-primary px-3 py-2 rounded-md text-sm hover:border-claude-orange hover:text-claude-orange transition-colors"
+
+5. INPUT STYLING:
+   <textarea className="w-full bg-bg-primary border border-border rounded-md px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-claude-orange transition-colors resize-none" />
+
+6. FOOTER (Copy this EXACTLY - Required on ALL pages):
+   <footer className="py-4 border-t border-border text-center">
+     <p className="text-text-muted text-xs">
+       <Link href="/" className="text-claude-orange hover:underline">claudecode.wtf</Link>
+       {" "}&middot; 100% of fees to @bcherny
+     </p>
+   </footer>
+
+7. PAGE WRAPPER (Copy this EXACTLY):
+   <div className="min-h-screen w-full flex items-center justify-center py-4 sm:py-8">
+     <div className="max-w-[900px] w-full px-4 sm:px-5">
+       {/* Terminal Header */}
+       {/* Content */}
+       {/* Footer */}
+     </div>
+   </div>
+
+FINAL CHECK BEFORE SUBMISSION - The build will be REJECTED if:
+□ Page uses ANY color not in the palette above
+□ Page is missing terminal header with traffic light dots
+□ Page is missing standard footer with "claudecode.wtf · 100% of fees to @bcherny"
+□ Page has a light/white background anywhere
+□ Page uses generic Tailwind colors instead of custom classes
+
+`;
 
 export async function buildProject(spec: ProjectSpec): Promise<BuildResult> {
   const logs: string[] = [];
   // Use PROJECT_ROOT env var or default to cwd parent
-const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
-const projectPath = `${projectRoot}/app/${spec.slug}`;
+  const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
+  const projectPath = `${projectRoot}/app/${spec.slug}`;
 
   log(`🔨 Starting build: ${spec.idea}`);
   log(`📁 Target path: ${projectPath}`);
@@ -99,6 +194,11 @@ DESCRIPTION: ${spec.description}
 
 THE FEATURE WAS DEPLOYED BUT FAILED FUNCTIONAL TESTING. The deployed feature is BROKEN.
 You MUST fix these issues so the feature works correctly:
+
+⚠️ CRITICAL CONSTRAINTS:
+- ONLY modify files in app/${spec.slug}/ - DO NOT touch any other files
+- NEVER modify app/page.tsx - the homepage is managed separately
+- DO NOT add homepage buttons or links - they are added automatically after deploy
 
 VERIFICATION ERRORS:
 ${spec.verificationErrors.map((e, i) => `${i + 1}. ${e}`).join('\n')}

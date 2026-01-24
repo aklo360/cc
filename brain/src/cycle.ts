@@ -43,7 +43,7 @@ import { deployToCloudflare, verifyDeployment } from './deployer.js';
 import { generateTrailer, type TrailerResult } from './trailer.js';
 import { addFeatureToHomepage, type HomepageUpdateResult } from './homepage.js';
 import { extractFeatureManifest, type FeatureManifest } from './manifest.js';
-import { incrementFeaturesShipped, canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit, getHoursBetweenCycles } from './db.js';
+import { incrementFeaturesShipped, canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit, getHoursBetweenCycles, getAllShippedFeatures, recordShippedFeature } from './db.js';
 import { verifyFeature, type VerificationResult } from './verifier.js';
 
 interface CyclePlan {
@@ -108,6 +108,18 @@ EXISTING FEATURES (DO NOT BREAK):
 - Code Review Bot (/review)
 - Watch Brain (/watch)
 - All existing components and APIs
+
+═══════════════════════════════════════════════════════════════════════════════
+⛔ ALREADY SHIPPED - DO NOT REPEAT SIMILAR IDEAS
+═══════════════════════════════════════════════════════════════════════════════
+
+{{SHIPPED_FEATURES}}
+
+CRITICAL: You MUST pick something DIFFERENT from the above. Similar ideas are BANNED:
+- "Code Review" and "Code Roast" are the SAME concept (both critique code) - DON'T REPEAT
+- "Battle Arena" and "Code Duel" are the SAME concept (both competitive coding) - DON'T REPEAT
+- "Poetry Generator" and "Haiku Generator" are the SAME concept (both poetry from code) - DON'T REPEAT
+- Think about the CORE MECHANIC - if it's the same mechanic with different words, it's a DUPLICATE
 
 ═══════════════════════════════════════════════════════════════════════════════
 MANDATORY DESIGN CONSISTENCY - ALL NEW FEATURES MUST MATCH EXISTING SITE STYLE
@@ -242,6 +254,17 @@ export async function startNewCycle(): Promise<FullCycleResult | null> {
   const client = new Anthropic({ apiKey });
   const now = new Date();
 
+  // Get all previously shipped features for duplicate prevention
+  const shippedFeatures = getAllShippedFeatures();
+  const shippedFeaturesText = shippedFeatures.length > 0
+    ? shippedFeatures.map(f => `- /${f.slug}: ${f.name} - ${f.description}`).join('\n')
+    : '(No features shipped yet - you have free reign!)';
+
+  log(`   📋 ${shippedFeatures.length} features already shipped (will avoid duplicates)`);
+
+  // Replace the placeholder in system prompt with actual shipped features
+  const dynamicSystemPrompt = SYSTEM_PROMPT.replace('{{SHIPPED_FEATURES}}', shippedFeaturesText);
+
   const userPrompt = `Current time: ${now.toISOString()}
 
 Plan a complete 24-hour cycle starting now. Pick an exciting project and plan the tweets.
@@ -260,7 +283,7 @@ Return ONLY the JSON object, no other text.`;
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2000,
-      system: SYSTEM_PROMPT,
+      system: dynamicSystemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
 
@@ -632,6 +655,10 @@ Return ONLY the JSON object, no other text.`;
   // Increment daily stats
   const stats = incrementFeaturesShipped();
   log(`   ✓ Features shipped today: ${stats.features_shipped}/${getDailyLimit()}`);
+
+  // Record this feature to prevent similar ideas in the future
+  recordShippedFeature(plan.project.slug, plan.project.idea, plan.project.description);
+  log(`   ✓ Recorded feature to avoid duplicates: ${plan.project.idea}`);
 
   // ============ COMPLETE ============
   log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

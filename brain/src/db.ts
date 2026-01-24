@@ -87,6 +87,15 @@ db.exec(`
     features_shipped INTEGER DEFAULT 0,
     last_cycle_end TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS shipped_features (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    keywords TEXT,
+    shipped_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 console.log('✓ SQLite database initialized');
@@ -466,4 +475,86 @@ export function getTimeUntilNextAllowed(): number {
 
 export function getHoursBetweenCycles(): number {
   return HOURS_BETWEEN_CYCLES;
+}
+
+// ============ Shipped Features Helpers ============
+
+export interface ShippedFeature {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+  keywords: string | null;
+  shipped_at: string;
+}
+
+/**
+ * Record a successfully shipped feature to prevent similar ideas
+ */
+export function recordShippedFeature(
+  slug: string,
+  name: string,
+  description: string,
+  keywords?: string[]
+): number {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO shipped_features (slug, name, description, keywords, shipped_at)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `);
+  const result = stmt.run(slug, name, description, keywords ? keywords.join(',') : null);
+  return result.lastInsertRowid as number;
+}
+
+/**
+ * Get all shipped features for duplicate prevention
+ */
+export function getAllShippedFeatures(): ShippedFeature[] {
+  const stmt = db.prepare(`
+    SELECT * FROM shipped_features ORDER BY shipped_at DESC
+  `);
+  return stmt.all() as ShippedFeature[];
+}
+
+/**
+ * Check if a similar feature was already shipped
+ * Returns the matching feature if found
+ */
+export function findSimilarFeature(slug: string): ShippedFeature | null {
+  const stmt = db.prepare(`
+    SELECT * FROM shipped_features WHERE slug = ?
+  `);
+  return (stmt.get(slug) as ShippedFeature) || null;
+}
+
+/**
+ * Seed initial features that already exist on the site
+ * Called once on startup to ensure the brain knows about existing features
+ */
+export function seedInitialFeatures(): number {
+  const initialFeatures = [
+    { slug: 'meme', name: 'Meme Generator', description: 'AI-powered meme creation with Gemini' },
+    { slug: 'play', name: 'Space Invaders', description: '2D Canvas game with CC mascot shooting aliens' },
+    { slug: 'moon', name: 'StarClaude64', description: '3D endless runner with Three.js, dodge asteroids and collect coins' },
+    { slug: 'poetry', name: 'Code Poetry Generator', description: 'Transform code into haiku and poetry' },
+    { slug: 'battle', name: 'Code Battle Arena', description: 'Competitive coding duels between players' },
+    { slug: 'review', name: 'Code Review Bot', description: 'AI roasts and critiques your code snippets' },
+    { slug: 'watch', name: 'Watch Brain', description: 'Real-time log viewer for the Central Brain' },
+    { slug: 'ide', name: 'IDE Mode', description: 'Fake IDE that turns all code into console.log' },
+    { slug: 'mood', name: 'Dev Mood Ring', description: 'Analyze code sentiment and developer mood' },
+    { slug: 'duck', name: 'Rubber Duck Debugger', description: 'Talk to an AI rubber duck about your code problems' },
+    { slug: 'roast', name: 'Code Roast', description: 'Brutal AI roasting of your code (similar to review)' },
+  ];
+
+  let seeded = 0;
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO shipped_features (slug, name, description)
+    VALUES (?, ?, ?)
+  `);
+
+  for (const feature of initialFeatures) {
+    const result = stmt.run(feature.slug, feature.name, feature.description);
+    if (result.changes > 0) seeded++;
+  }
+
+  return seeded;
 }
