@@ -42,7 +42,8 @@ import { buildProject, buildEvents, type BuildResult } from './builder.js';
 import { deployToCloudflare, verifyDeployment } from './deployer.js';
 import { generateTrailer, type TrailerResult } from './trailer.js';
 import { addFeatureToHomepage, type HomepageUpdateResult } from './homepage.js';
-import { incrementFeaturesShipped, canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit } from './db.js';
+import { extractFeatureManifest, type FeatureManifest } from './manifest.js';
+import { incrementFeaturesShipped, canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit, getHoursBetweenCycles } from './db.js';
 import { verifyFeature, type VerificationResult } from './verifier.js';
 
 interface CyclePlan {
@@ -102,7 +103,26 @@ EXISTING FEATURES (DO NOT BREAK):
 - Meme Generator (/meme)
 - Space Invaders (/play)
 - StarClaude64 3D game (/moon)
+- Code Poetry Generator (/poetry)
+- Code Battle Arena (/battle)
+- Code Review Bot (/review)
+- Watch Brain (/watch)
 - All existing components and APIs
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY DESIGN CONSISTENCY - ALL NEW FEATURES MUST MATCH EXISTING SITE STYLE
+═══════════════════════════════════════════════════════════════════════════════
+
+EVERY new page MUST follow the site's design system exactly:
+1. Terminal header with traffic light dots (red/yellow/green circles) at top
+2. Use ONLY Tailwind custom colors: bg-bg-primary, bg-bg-secondary, bg-bg-tertiary,
+   text-text-primary, text-text-secondary, text-text-muted, text-claude-orange,
+   border-border, text-accent-green, text-accent-purple, etc.
+3. NEVER use inline hex colors like #000, #fff, #333 - the site has a dark theme design system
+4. Include the standard footer with "claudecode.wtf · 100% of fees to @bcherny"
+5. Match the aesthetic of /meme and /play pages EXACTLY
+
+If a feature doesn't match the site's visual style, IT WILL BE REJECTED.
 
 TWEET STRATEGY (spread across 24 hours, mix feature + meme content):
 - Tweet 1 (hour 0): Teaser - hint at what's coming, build hype
@@ -277,6 +297,7 @@ Return ONLY the JSON object, no other text.`;
   let verificationResult: VerificationResult | undefined;
   let verified = false;
   let verificationErrors: string[] = [];
+  let featureManifest: FeatureManifest | undefined;
 
   while (buildAttempt < MAX_BUILD_RETRIES) {
     buildAttempt++;
@@ -473,17 +494,53 @@ Return ONLY the JSON object, no other text.`;
         log(`     - ${warning}`);
       }
     }
+
+    // ============ PHASE 5.5: EXTRACT FEATURE MANIFEST (GROUND TRUTH) ============
+    // This captures what the feature ACTUALLY does from the deployed page
+    // Prevents trailer from hallucinating non-existent features
+    log('\n▸ PHASE 5.5: EXTRACTING FEATURE MANIFEST');
+
+    // Wait for CDN propagation before extracting manifest
+    // This ensures we get the actual deployed content, not stale cache
+    log('   ⏳ Waiting 15s for CDN propagation...');
+    await new Promise(r => setTimeout(r, 15000));
+
+    log('   📋 Capturing ground truth from deployed page...');
+
+    try {
+      // Add cache-busting to URL to ensure fresh content
+      const cacheBustUrl = `${deployUrl}?_cb=${Date.now()}`;
+      featureManifest = await extractFeatureManifest(
+        cacheBustUrl,
+        plan.project.idea,
+        plan.project.slug
+      );
+      log('   ✅ Manifest extracted successfully');
+      log(`      Page title: "${featureManifest.pageTitle}"`);
+      log(`      Interaction type: ${featureManifest.interactionType}`);
+      log(`      Buttons found: ${featureManifest.buttons.length}`);
+    } catch (manifestError) {
+      log(`   ⚠️ Manifest extraction failed: ${manifestError}`);
+      log('   → Trailer will use fallback content (may be less accurate)');
+    }
+
     break; // Success! Exit retry loop
   }
 
   // ============ PHASE 6: CREATE TRAILER ============
   log('\n▸ PHASE 6: CREATING TRAILER');
+  if (featureManifest) {
+    log('   📋 Using manifest for ground truth (no hallucination)');
+  } else {
+    log('   ⚠️ No manifest available - using fallback content');
+  }
 
   const trailerResult = await generateTrailer(
     {
       name: plan.project.idea,
       slug: plan.project.slug,
       description: plan.project.description,
+      manifest: featureManifest,  // Ground truth from deployed page
     },
     deployUrl
   );
@@ -584,16 +641,18 @@ Return ONLY the JSON object, no other text.`;
   log(`   Tweets scheduled: ${plan.tweets.length - 1}`);
   log(`   Features today: ${stats.features_shipped}/${getDailyLimit()}`);
 
-  // Check for continuous shipping
+  // Check for continuous shipping (staggered across 24 hours)
   if (canShipMore()) {
     const cooldownMs = getTimeUntilNextAllowed();
-    const cooldownMins = Math.ceil(cooldownMs / 60000);
-    log(`\n   🔄 Continuous shipping: Next cycle in ${cooldownMins} minutes`);
+    const cooldownHours = (cooldownMs / 3600000).toFixed(1);
+    const nextTime = new Date(Date.now() + cooldownMs).toISOString();
+    log(`\n   🔄 Staggered shipping: Next cycle in ${cooldownHours} hours (~${getHoursBetweenCycles()}h spacing)`);
+    log(`   ⏰ Next cycle scheduled for: ${nextTime}`);
     log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-    // Schedule next cycle after cooldown
+    // Schedule next cycle after cooldown (staggered ~4.5h apart)
     setTimeout(() => {
-      log('\n🔄 AUTO-CONTINUING: Starting next cycle...');
+      log('\n🔄 STAGGERED CYCLE: Starting next feature build...');
       startNewCycle().catch((error) => {
         log(`❌ Auto-continue failed: ${error}`);
       });
