@@ -1,13 +1,10 @@
 /**
- * Trailer Generator - Creates dynamic trailers for features
+ * Trailer Generator - Creates 20-second trailers for features
  *
- * ALWAYS uses Remotion for all trailers.
- * For games/complex UIs, screen recordings are INTERCUT into the Remotion composition.
- * There is NEVER a trailer that is 100% screen recording.
- *
- * CRITICAL: Trailers use GROUND TRUTH from FeatureManifest.
- * The manifest is extracted from the ACTUAL deployed page, ensuring
- * we never claim features that don't exist (no multiplayer, no token rewards, etc.)
+ * SIMPLIFIED ARCHITECTURE:
+ * - ALL trailers are 20 seconds (universal format)
+ * - Screen recording ONLY for WebGL/Three.js (detected from manifest)
+ * - Uses manifest ground truth for content
  */
 
 import { exec } from 'child_process';
@@ -26,6 +23,9 @@ const VIDEO_DIR = path.join(projectRoot, 'video');
 const OUTPUT_DIR = path.join(projectRoot, 'brain/recordings');
 
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+// Universal trailer duration: 20 seconds
+const TRAILER_DURATION_SEC = 20;
 
 /**
  * Scene content interface - matches FeatureTrailer.tsx TrailerSceneContent
@@ -68,92 +68,13 @@ function log(message: string): void {
 }
 
 /**
- * Classify a feature to determine if screen recording footage should be intercut
- * ALL trailers use Remotion - this just determines if we capture footage to include
+ * Check if feature needs screen recording based on manifest's renderingType.
+ * Only WebGL features (Three.js, etc.) need recording because they can't be
+ * recreated in Remotion.
  */
-export function needsScreenRecording(slug: string, description: string): boolean {
-  // Keywords that indicate we need intercut screen recordings
-  const recordingKeywords = [
-    '3d',
-    'three.js',
-    'canvas',
-    'webgl',
-    'physics',
-    'real-time',
-    'interactive game',
-    'arcade',
-    'shooter',
-    'runner',
-    'invaders',
-    'animation',
-  ];
-
-  const descLower = description.toLowerCase();
-  const slugLower = slug.toLowerCase();
-
-  // Check description and slug for complex UI keywords
-  for (const keyword of recordingKeywords) {
-    if (descLower.includes(keyword) || slugLower.includes(keyword)) {
-      log(`[Trailer] Feature "${slug}" needs intercut footage (keyword: ${keyword})`);
-      return true;
-    }
-  }
-
-  // Known game/complex routes that need screen recording
-  const complexRoutes = ['moon', 'play'];
-  if (complexRoutes.some((r) => slugLower.includes(r))) {
-    log(`[Trailer] Feature "${slug}" needs intercut footage (known complex route)`);
-    return true;
-  }
-
-  log(`[Trailer] Feature "${slug}" - pure Remotion (no screen recording needed)`);
-  return false;
-}
-
-/**
- * Determine if a feature needs a longer (30s) trailer for better explanation
- * Used for code-heavy, complex, or conceptually dense features
- */
-export function needsLongTrailer(slug: string, description: string): boolean {
-  const descLower = description.toLowerCase();
-  const slugLower = slug.toLowerCase();
-
-  // Keywords that indicate complexity needing more explanation time
-  const complexKeywords = [
-    'battle',
-    'arena',
-    'algorithm',
-    'code challenge',
-    'code battle',
-    'ai vs',
-    'versus',
-    'competition',
-    'tournament',
-    'multiplayer',
-    'real-time',
-    'simulation',
-    'engine',
-    'compiler',
-    'interpreter',
-    'debugger',
-    'analyzer',
-  ];
-
-  for (const keyword of complexKeywords) {
-    if (descLower.includes(keyword) || slugLower.includes(keyword)) {
-      log(`[Trailer] Feature "${slug}" needs 30s trailer (complex/code-heavy: ${keyword})`);
-      return true;
-    }
-  }
-
-  // Known code-heavy/complex routes
-  const complexRoutes = ['battle', 'arena', 'challenge', 'tournament'];
-  if (complexRoutes.some((r) => slugLower.includes(r))) {
-    log(`[Trailer] Feature "${slug}" needs 30s trailer (known complex route)`);
-    return true;
-  }
-
-  return false;
+function needsWebGLFootage(manifest?: FeatureManifest): boolean {
+  if (!manifest) return false;
+  return manifest.renderingType === 'webgl';
 }
 
 /**
@@ -166,6 +87,7 @@ function generateSceneContentFromManifest(config: TrailerConfig): TrailerSceneCo
     log(`🎭 Generating trailer script from MANIFEST (ground truth)`);
     log(`   Page title: "${config.manifest.pageTitle}"`);
     log(`   Interaction type: ${config.manifest.interactionType}`);
+    log(`   Rendering type: ${config.manifest.renderingType}`);
     log(`   Buttons found: ${config.manifest.buttons.join(', ') || 'none'}`);
 
     // Use manifest to generate truthful content
@@ -184,7 +106,7 @@ function generateSceneContentFromManifest(config: TrailerConfig): TrailerSceneCo
 }
 
 /**
- * Generate fallback content when Claude API fails
+ * Generate fallback content when manifest is not available
  * Still tries to be feature-specific based on keywords
  */
 function generateFallbackContent(config: TrailerConfig): TrailerSceneContent {
@@ -255,14 +177,14 @@ function generateFallbackContent(config: TrailerConfig): TrailerSceneContent {
 }
 
 /**
- * Capture intercut footage for complex features (games, 3D, etc.)
+ * Capture intercut footage for WebGL features
  * This footage will be embedded into the Remotion composition
  */
 async function captureIntercutFootage(
   config: TrailerConfig,
   deployUrl: string
 ): Promise<string | null> {
-  log(`📹 Capturing intercut footage at ${deployUrl}...`);
+  log(`📹 Capturing WebGL footage at ${deployUrl}...`);
 
   const recordResult = await recordFeature(deployUrl, config.slug, 6); // 6 seconds
 
@@ -286,120 +208,41 @@ async function captureIntercutFootage(
 }
 
 /**
- * Check if this feature has dedicated trailer components for exact UI recreation
- * These are created by the builder alongside the feature code
- */
-function hasFeatureComponents(slug: string): string | null {
-  // Map slugs to their component folder names
-  // The builder creates folders like video/src/components/[FeatureName]/
-  // These mappings are for features that have dedicated trailer compositions
-  const componentMappings: Record<string, string> = {
-    battle: 'BattleArena',
-    arena: 'BattleArena',
-    review: 'CodeReview',
-    'code-review': 'CodeReview',
-    // New features added by the builder will auto-detect based on folder naming
-  };
-
-  // Check known mappings first
-  const slugLower = slug.toLowerCase();
-  for (const [key, folder] of Object.entries(componentMappings)) {
-    if (slugLower.includes(key)) {
-      const componentPath = path.join(VIDEO_DIR, 'src/components', folder);
-      if (fs.existsSync(componentPath)) {
-        return folder;
-      }
-    }
-  }
-
-  // Check for auto-generated component folder based on slug
-  // Convert slug like "code-review" to "CodeReview"
-  const folderName = slug
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
-
-  const autoPath = path.join(VIDEO_DIR, 'src/components', folderName);
-  if (fs.existsSync(autoPath)) {
-    return folderName;
-  }
-
-  return null;
-}
-
-/**
- * Check if this feature should use the specialized BattleTrailer composition
- * BattleTrailer has exact UI recreation from /battle page
- */
-function isBattleFeature(slug: string): boolean {
-  const slugLower = slug.toLowerCase();
-  return slugLower.includes('battle') || slugLower.includes('arena') || slugLower === 'battle';
-}
-
-/**
- * Main entry point - ALWAYS generates a Remotion trailer
- * For complex features, captures intercut footage first
- * For features with dedicated components, uses exact UI recreation
- * For battle features, uses dedicated BattleTrailer composition with exact UI
+ * Main entry point - generates a 20-second Remotion trailer
+ *
+ * Flow:
+ * 1. Check if manifest indicates WebGL (needs screen recording)
+ * 2. If WebGL: capture 6s footage first
+ * 3. Generate scene content from manifest (ground truth)
+ * 4. Render with Remotion (always 20 seconds)
  */
 export async function generateTrailer(
   config: TrailerConfig,
   deployUrl?: string
 ): Promise<TrailerResult> {
-  log(`🎬 Generating Remotion trailer for: ${config.name}`);
+  log(`🎬 Generating ${TRAILER_DURATION_SEC}s trailer for: ${config.name}`);
 
-  // Check if this feature has dedicated trailer components for exact UI recreation
-  const featureComponents = hasFeatureComponents(config.slug);
-  if (featureComponents) {
-    log(`🎨 Found exact UI components: ${featureComponents}`);
-    log(`   This trailer will use EXACT UI recreation from the feature`);
-  }
-
-  // Check if this is a battle feature - use dedicated BattleTrailer composition
-  const useBattleTrailer = isBattleFeature(config.slug);
-
-  if (useBattleTrailer) {
-    log(`⚔️ Using BattleTrailer composition (exact UI recreation)`);
-    return generateBattleTrailer(config);
-  }
-
-  // Check for other feature-specific compositions
-  // These use the exact UI components created by the builder
-  if (featureComponents && featureComponents !== 'BattleArena') {
-    log(`🎭 Using feature-specific composition: ${featureComponents}Trailer`);
-    return generateFeatureSpecificTrailer(config, featureComponents);
-  }
-
-  // CRITICAL: Generate scene content from MANIFEST (ground truth)
-  // This ensures we NEVER claim features that don't exist
-  const sceneContent = generateSceneContentFromManifest(config);
-
-  // Determine if we need to capture intercut footage
-  const needsFootage = needsScreenRecording(config.slug, config.description);
+  // Check if this needs WebGL footage (based on manifest detection)
+  const needsFootage = needsWebGLFootage(config.manifest);
   let footagePath: string | undefined;
 
-  if (needsFootage && deployUrl) {
-    footagePath = (await captureIntercutFootage(config, deployUrl)) || undefined;
+  if (needsFootage) {
+    log(`   🎮 WebGL detected - will capture intercut footage`);
+    if (deployUrl) {
+      footagePath = (await captureIntercutFootage(config, deployUrl)) || undefined;
+    }
+  } else {
+    log(`   📄 Static/Canvas2D - pure Remotion (no screen recording)`);
   }
 
-  // Determine if this needs a longer trailer (30s vs 15s)
-  const needsLong = needsLongTrailer(config.slug, config.description);
+  // Generate scene content from MANIFEST (ground truth)
+  const sceneContent = generateSceneContentFromManifest(config);
 
-  // Always render with Remotion
+  // Render with Remotion
   const outputPath = path.join(OUTPUT_DIR, `${config.slug}_${Date.now()}.mp4`);
 
-  // Determine feature type for Remotion:
-  // - 'game' = has screen recording footage, 30s
-  // - 'complex' = code-heavy/dense, needs 30s for explanation
-  // - 'static' = simple feature, 15s
-  let featureType: string;
-  if (footagePath) {
-    featureType = 'game';
-  } else if (needsLong) {
-    featureType = 'complex'; // New type for code-heavy features
-  } else {
-    featureType = 'static';
-  }
+  // Feature type: 'game' if we have footage, 'static' otherwise
+  const featureType = footagePath ? 'game' : 'static';
 
   const props = {
     featureName: config.name,
@@ -408,7 +251,6 @@ export async function generateTrailer(
     featureType,
     tagline: config.tagline || config.description,
     footagePath: footagePath,
-    // CRITICAL: Include the dynamically generated scene content
     sceneContent,
   };
 
@@ -424,7 +266,8 @@ export async function generateTrailer(
 
     log(`📹 Rendering with Remotion...`);
     log(`   Composition: FeatureTrailer`);
-    log(`   Intercut footage: ${footagePath || 'none'}`);
+    log(`   Duration: ${TRAILER_DURATION_SEC} seconds`);
+    log(`   WebGL footage: ${footagePath || 'none'}`);
     log(`   Output: ${path.basename(outputPath)}`);
 
     const command = `cd "${VIDEO_DIR}" && npx remotion render FeatureTrailer "${outputPath}" --props='${propsJson}' --log=error`;
@@ -451,171 +294,17 @@ export async function generateTrailer(
     const stats = fs.statSync(outputPath);
     const sizeMb = (stats.size / 1024 / 1024).toFixed(1);
 
-    // Duration: games and complex features get 30s, standard features get 15s
-    const durationSec = (footagePath || needsLong) ? 30 : 15;
-    log(`✅ Trailer generated: ${sizeMb} MB (${durationSec}s)`);
+    log(`✅ Trailer generated: ${sizeMb} MB (${TRAILER_DURATION_SEC}s)`);
 
     return {
       success: true,
       videoPath: outputPath,
       videoBase64,
-      durationSec,
+      durationSec: TRAILER_DURATION_SEC,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log(`❌ Remotion render failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
-  }
-}
-
-/**
- * Generate trailer using the dedicated BattleTrailer composition
- * This composition has exact UI recreation from the /battle page with audio
- */
-async function generateBattleTrailer(config: TrailerConfig): Promise<TrailerResult> {
-  const outputPath = path.join(OUTPUT_DIR, `${config.slug}_${Date.now()}.mp4`);
-
-  try {
-    // Check if Remotion is installed
-    const packageJsonPath = path.join(VIDEO_DIR, 'package.json');
-    if (!fs.existsSync(packageJsonPath)) {
-      log(`❌ Remotion not set up at ${VIDEO_DIR}`);
-      return { success: false, error: 'Remotion not installed' };
-    }
-
-    log(`📹 Rendering BattleTrailer...`);
-    log(`   Composition: BattleTrailer (exact UI recreation)`);
-    log(`   Duration: 30 seconds`);
-    log(`   Audio: trailer-music.mp3 + SFX`);
-    log(`   Output: ${path.basename(outputPath)}`);
-
-    // BattleTrailer doesn't need props - it uses hardcoded exact UI
-    const command = `cd "${VIDEO_DIR}" && npx remotion render BattleTrailer "${outputPath}" --log=error`;
-
-    const { stdout, stderr } = await execAsync(command, {
-      timeout: 300000, // 5 minute timeout for 30s video with audio
-      maxBuffer: 10 * 1024 * 1024,
-    });
-
-    if (stderr && !stderr.includes('Rendered')) {
-      log(`⚠️ Remotion stderr: ${stderr}`);
-    }
-
-    // Verify output exists
-    if (!fs.existsSync(outputPath)) {
-      log(`❌ BattleTrailer output not found at ${outputPath}`);
-      return { success: false, error: 'BattleTrailer render produced no output' };
-    }
-
-    // Read video as base64 for Twitter
-    const videoBuffer = fs.readFileSync(outputPath);
-    const videoBase64 = videoBuffer.toString('base64');
-
-    const stats = fs.statSync(outputPath);
-    const sizeMb = (stats.size / 1024 / 1024).toFixed(1);
-
-    log(`✅ BattleTrailer generated: ${sizeMb} MB (30s with audio)`);
-
-    return {
-      success: true,
-      videoPath: outputPath,
-      videoBase64,
-      durationSec: 30,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    log(`❌ BattleTrailer render failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
-  }
-}
-
-/**
- * Generate trailer using feature-specific components for exact UI recreation
- * Falls back to generic FeatureTrailer if the specific composition doesn't exist
- */
-async function generateFeatureSpecificTrailer(
-  config: TrailerConfig,
-  componentFolder: string
-): Promise<TrailerResult> {
-  const outputPath = path.join(OUTPUT_DIR, `${config.slug}_${Date.now()}.mp4`);
-  const compositionName = `${componentFolder}Trailer`;
-
-  try {
-    // Check if Remotion is installed
-    const packageJsonPath = path.join(VIDEO_DIR, 'package.json');
-    if (!fs.existsSync(packageJsonPath)) {
-      log(`❌ Remotion not set up at ${VIDEO_DIR}`);
-      return { success: false, error: 'Remotion not installed' };
-    }
-
-    // Check if the specific composition exists in Root.tsx
-    const rootPath = path.join(VIDEO_DIR, 'src/Root.tsx');
-    const rootContent = fs.readFileSync(rootPath, 'utf-8');
-    const hasComposition = rootContent.includes(compositionName);
-
-    if (!hasComposition) {
-      log(`⚠️ Composition "${compositionName}" not found in Root.tsx`);
-      log(`   Falling back to FeatureTrailer with exact UI components`);
-      // Fall through to use FeatureTrailer but with a note
-    }
-
-    const actualComposition = hasComposition ? compositionName : 'FeatureTrailer';
-    const needsLong = needsLongTrailer(config.slug, config.description);
-
-    log(`📹 Rendering ${actualComposition}...`);
-    log(`   Using exact UI components from: ${componentFolder}`);
-    log(`   Duration: ${needsLong ? '30' : '15'} seconds`);
-    log(`   Output: ${path.basename(outputPath)}`);
-
-    // Build props for the composition
-    const sceneContent = generateSceneContentFromManifest(config);
-    const props = {
-      featureName: config.name,
-      featureSlug: config.slug,
-      description: config.description,
-      featureType: needsLong ? 'complex' : 'static',
-      tagline: config.tagline || config.description,
-      sceneContent,
-      componentFolder, // Pass the component folder name for dynamic loading
-    };
-
-    const propsJson = JSON.stringify(props).replace(/'/g, "'\\''");
-    const command = `cd "${VIDEO_DIR}" && npx remotion render ${actualComposition} "${outputPath}" --props='${propsJson}' --log=error`;
-
-    const { stdout, stderr } = await execAsync(command, {
-      timeout: 300000, // 5 minute timeout
-      maxBuffer: 10 * 1024 * 1024,
-    });
-
-    if (stderr && !stderr.includes('Rendered')) {
-      log(`⚠️ Remotion stderr: ${stderr}`);
-    }
-
-    // Verify output exists
-    if (!fs.existsSync(outputPath)) {
-      log(`❌ ${actualComposition} output not found at ${outputPath}`);
-      return { success: false, error: `${actualComposition} render produced no output` };
-    }
-
-    // Read video as base64 for Twitter
-    const videoBuffer = fs.readFileSync(outputPath);
-    const videoBase64 = videoBuffer.toString('base64');
-
-    const stats = fs.statSync(outputPath);
-    const sizeMb = (stats.size / 1024 / 1024).toFixed(1);
-    const durationSec = needsLong ? 30 : 15;
-
-    log(`✅ ${actualComposition} generated: ${sizeMb} MB (${durationSec}s with exact UI)`);
-
-    return {
-      success: true,
-      videoPath: outputPath,
-      videoBase64,
-      durationSec,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    log(`❌ Feature-specific trailer render failed: ${errorMessage}`);
     return { success: false, error: errorMessage };
   }
 }

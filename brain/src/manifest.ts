@@ -54,6 +54,9 @@ export interface FeatureManifest {
 
   // CRITICAL: Captured output from actually clicking the feature
   capturedOutputLines?: string[];  // Actual output content for trailer
+
+  // Rendering technology - determines if screen recording is needed
+  renderingType: 'static' | 'canvas2d' | 'webgl' | 'unknown';
 }
 
 /**
@@ -249,6 +252,31 @@ export async function extractFeatureManifest(
       };
     });
 
+    // Detect rendering technology (WebGL/Canvas2D/Static)
+    const renderingType = await page.evaluate(() => {
+      const canvas = document.querySelector('canvas');
+      if (!canvas) return 'static';
+
+      // Check for WebGL context
+      try {
+        const gl = canvas.getContext('webgl') || canvas.getContext('webgl2');
+        if (gl) return 'webgl';
+      } catch {}
+
+      // Check for Three.js data attribute
+      if (canvas.getAttribute('data-engine')?.toLowerCase().includes('three')) return 'webgl';
+
+      // Check for 2D canvas
+      try {
+        const ctx2d = canvas.getContext('2d');
+        if (ctx2d) return 'canvas2d';
+      } catch {}
+
+      return 'unknown';
+    }) as 'static' | 'canvas2d' | 'webgl' | 'unknown';
+
+    log(`   → Rendering type: ${renderingType}`);
+
     await browser.close();
 
     // Classify the interaction type based on what we found
@@ -272,6 +300,7 @@ export async function extractFeatureManifest(
       exampleInput: extracted.exampleInput || undefined,
       exampleOutput: extracted.exampleOutput || undefined,
       capturedOutputLines: capturedOutputLines.length > 0 ? capturedOutputLines : undefined,
+      renderingType,
     };
 
     log(`✅ Manifest extracted:`);
@@ -306,6 +335,7 @@ export async function extractFeatureManifest(
         hasLeaderboard: false,
         hasUserAccounts: false,
       },
+      renderingType: 'unknown',
     };
   }
 }
