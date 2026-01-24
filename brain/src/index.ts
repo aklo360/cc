@@ -23,7 +23,7 @@ import 'dotenv/config';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cron from 'node-cron';
-import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed } from './db.js';
+import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed, getHoursBetweenCycles, seedInitialFeatures, getAllShippedFeatures } from './db.js';
 import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
 
 const PORT = process.env.PORT || 3001;
@@ -144,6 +144,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     const stats = getTodayStats();
     const limit = getDailyLimit();
     const cooldownMs = getTimeUntilNextAllowed();
+    const nextAllowedAt = cooldownMs > 0 ? new Date(Date.now() + cooldownMs).toISOString() : null;
 
     sendJson(res, 200, {
       date: stats.date,
@@ -152,8 +153,10 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       remaining: limit - stats.features_shipped,
       can_ship_more: canShipMore(),
       last_cycle_end: stats.last_cycle_end,
+      hours_between_cycles: getHoursBetweenCycles(),
       next_allowed_in_ms: cooldownMs,
-      next_allowed_in_mins: Math.ceil(cooldownMs / 60000),
+      next_allowed_in_hours: Number((cooldownMs / 3600000).toFixed(2)),
+      next_allowed_at: nextAllowedAt,
     });
     return;
   }
@@ -265,6 +268,15 @@ async function main(): Promise<void> {
   const cleanup = cleanupOnStartup();
   if (cleanup.cancelled > 0 || cleanup.expired > 0) {
     console.log(`✓ Cleanup: ${cleanup.cancelled} cancelled, ${cleanup.expired} expired cycles cleaned`);
+  }
+
+  // Seed initial features to prevent duplicates
+  const seeded = seedInitialFeatures();
+  const totalFeatures = getAllShippedFeatures().length;
+  if (seeded > 0) {
+    console.log(`✓ Seeded ${seeded} initial features (${totalFeatures} total in database)`);
+  } else {
+    console.log(`✓ Features database ready (${totalFeatures} features tracked)`);
   }
 
   // Set up cron schedules
