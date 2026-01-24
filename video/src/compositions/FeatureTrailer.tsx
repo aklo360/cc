@@ -9,70 +9,61 @@ import {
   staticFile,
   Easing,
   OffthreadVideo,
+  Audio,
 } from "remotion";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * DYNAMIC FEATURE TRAILER - LINEAR STORY STRUCTURE
+ * FEATURE TRAILER v2.0 - Authentic UI Recreation + Audio
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * PHILOSOPHY: Each shot must have ONE distinct purpose. NO REDUNDANCY.
- * The trailer tells a LINEAR STORY that answers these questions in order:
- *
- *   1. HOOK    → "What is this?"        (Title, intrigue, branding)
- *   2. INPUT   → "What do I give it?"   (User's action/input)
- *   3. MAGIC   → "What happens?"        (Processing/transformation)
- *   4. OUTPUT  → "What do I get?"       (The result/payoff)
- *   5. CTA     → "Where can I try it?"  (URL + call to action)
- *
- * RULES FOR EACH SCENE:
- * - HOOK:   Show the feature name prominently. Build anticipation. NO UI yet.
- * - INPUT:  Show ONLY the input phase. User typing/pasting. NO output visible.
- * - MAGIC:  Show the transformation. Loading states, particles, processing.
- * - OUTPUT: Show ONLY the result. The payoff. Fresh reveal, not repeated.
- * - CTA:    URL and call to action. Clean, memorable.
- *
- * ANTI-PATTERNS TO AVOID:
- * ✗ Showing output in the INPUT scene (spoils the reveal)
- * ✗ Showing input in the OUTPUT scene (redundant, we already saw it)
- * ✗ Skipping MAGIC (makes transformation feel instant/unimpressive)
- * ✗ Repeating any content between scenes
- *
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * TIMELINE - Standard Features (15 seconds = 450 frames @ 30fps):
- *   0:00-0:02 (0-60)      HOOK    - Title card with feature name
- *   0:02-0:05 (60-150)    INPUT   - User input demonstration
- *   0:05-0:07 (150-210)   MAGIC   - Processing/transformation animation
- *   0:07-0:11 (210-330)   OUTPUT  - Result reveal
- *   0:11-0:13 (330-390)   CALLOUT - "How it works" explanation
- *   0:13-0:15 (390-450)   CTA     - URL and call to action
- *
- * TIMELINE - Games/Complex Features (30 seconds = 900 frames @ 30fps):
- *   0:00-0:03 (0-90)      HOOK    - Title card
- *   0:03-0:12 (90-360)    GAMEPLAY - Screen-recorded footage (intercut)
- *   0:12-0:20 (360-600)   GAMEPLAY2 - More gameplay footage
- *   0:20-0:26 (600-780)   CALLOUT - Feature highlights
- *   0:26-0:30 (780-900)   CTA     - URL and call to action
- *
- * ═══════════════════════════════════════════════════════════════════════════
+ * This trailer system:
+ * 1. Uses ground truth from FeatureManifest (no hallucination)
+ * 2. Recreates the actual UI style from the Next.js app
+ * 3. Includes background music and SFX
+ * 4. Fixes the blank section issue in callout scene
  */
 
-export interface FeatureTrailerProps {
-  featureName: string;
-  featureSlug: string;
-  description: string;
-  featureType: "static" | "interactive" | "game" | "complex";
-  tagline?: string;
-  footagePath?: string; // For games - path to screen-recorded footage
+export interface TrailerSceneContent {
+  inputDemo: string;
+  inputLabel: string;
+  buttonText: string;
+  processingText: string;
+  processingSubtext: string;
+  outputHeader: string;
+  outputLines: string[];
+  outputStyle: "poetry" | "code" | "terminal" | "battle";
+  calloutTitle: string;
+  calloutDescription: string;
 }
 
+export interface FeatureTrailerProps {
+  featureName?: string;
+  featureSlug?: string;
+  description?: string;
+  featureType?: "static" | "interactive" | "game" | "complex";
+  tagline?: string;
+  footagePath?: string;
+  sceneContent?: TrailerSceneContent;
+}
+
+const DEFAULT_SCENE_CONTENT: TrailerSceneContent = {
+  inputDemo: "// Your input here...",
+  inputLabel: "Enter your input",
+  buttonText: "Generate",
+  processingText: "Processing",
+  processingSubtext: "Creating something amazing",
+  outputHeader: "Result",
+  outputLines: ["Your output will appear here"],
+  outputStyle: "terminal",
+  calloutTitle: "HOW IT WORKS",
+  calloutDescription: "A new feature from $CC",
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
-// SCENE 1: HOOK - "What is this?"
-// Purpose: Establish the feature name, build intrigue, show branding
-// Rules: NO UI elements yet. Just title, logo, atmosphere.
+// SCENE 1: TITLE CARD - Feature name with premium reveal
 // ═══════════════════════════════════════════════════════════════════════════
-const HookScene: React.FC<{ featureName: string }> = ({ featureName }) => {
+const TitleScene: React.FC<{ featureName: string }> = ({ featureName }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -238,27 +229,64 @@ const HookScene: React.FC<{ featureName: string }> = ({ featureName }) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SCENE 2: INPUT - "What do I give it?"
-// Purpose: Show the user's input action ONLY. No output visible.
-// Rules: Typing animation, input field focus. Button can be shown but NOT clicked yet.
+// SCENE 2: FEATURE UI - Authentic recreation of the actual UI
 // ═══════════════════════════════════════════════════════════════════════════
-const InputScene: React.FC<{ featureName: string }> = ({ featureName }) => {
+const FeatureUIScene: React.FC<{
+  featureName: string;
+  content: TrailerSceneContent;
+  phase: "input" | "processing" | "output";
+}> = ({ featureName, content, phase }) => {
   const frame = useCurrentFrame();
+  const containerOpacity = interpolate(frame, [0, 10], [0, 1], { extrapolateRight: "clamp" });
+  const glowIntensity = interpolate(Math.sin(frame * 0.08), [-1, 1], [0.3, 0.6]);
 
-  // Typing animation - show code being entered
-  const inputText = "function fibonacci(n) {\n  if (n <= 1) return n;\n  return fibonacci(n-1) + fibonacci(n-2);\n}";
+  // Typing animation for input phase
   const typingProgress = interpolate(frame, [0, 80], [0, 1], { extrapolateRight: "clamp" });
-  const visibleChars = Math.floor(typingProgress * inputText.length);
-
-  // Cursor blink
+  const visibleChars = Math.floor(typingProgress * content.inputDemo.length);
   const cursorOpacity = Math.sin(frame * 0.3) > 0 ? 1 : 0;
 
-  // Container fade in
-  const containerOpacity = interpolate(frame, [0, 10], [0, 1], { extrapolateRight: "clamp" });
+  // Processing animation
+  const rotation = frame * 3;
+  const progress = interpolate(frame, [0, 50], [0, 1], { extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
+  const dotCount = Math.floor((frame / 10) % 4);
+  const dots = ".".repeat(dotCount);
+
+  // Output reveal animation
+  const lineReveals = content.outputLines.map((_, i) => {
+    const startFrame = 10 + i * 15;
+    return interpolate(frame, [startFrame, startFrame + 15], [0, 1], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: Easing.out(Easing.cubic),
+    });
+  });
+
+  // Get output text style based on type
+  const getOutputStyle = () => {
+    switch (content.outputStyle) {
+      case "poetry":
+        return { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 32, color: "#e0e0e0", fontStyle: "italic" as const };
+      case "code":
+        return { fontFamily: "'JetBrains Mono', monospace", fontSize: 18, color: "#4ade80" };
+      case "battle":
+        return { fontFamily: "-apple-system, sans-serif", fontSize: 24, color: "#da7756", fontWeight: 600 };
+      default:
+        return { fontFamily: "'JetBrains Mono', monospace", fontSize: 20, color: "#e0e0e0" };
+    }
+  };
+
+  const outputStyle = getOutputStyle();
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "#0d0d0d", justifyContent: "center", alignItems: "center", opacity: containerOpacity }}>
-      {/* Radial gradient */}
+    <AbsoluteFill
+      style={{
+        backgroundColor: "#0d0d0d",
+        justifyContent: "center",
+        alignItems: "center",
+        opacity: containerOpacity
+      }}
+    >
+      {/* Background gradient */}
       <div
         style={{
           position: "absolute",
@@ -267,463 +295,206 @@ const InputScene: React.FC<{ featureName: string }> = ({ featureName }) => {
         }}
       />
 
-      {/* UI Container - INPUT ONLY */}
+      {/* Main container - matches the app's card style */}
       <div
         style={{
           width: 1400,
           backgroundColor: "#1a1a1a",
           borderRadius: 16,
-          border: "1px solid rgba(218, 119, 86, 0.2)",
+          border: `1px solid rgba(218, 119, 86, ${phase === "output" ? 0.4 : 0.2})`,
           padding: 40,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+          boxShadow: `0 20px 60px rgba(0,0,0,0.5), 0 0 ${phase === "output" ? "100" : "0"}px rgba(218, 119, 86, ${glowIntensity * 0.2})`,
         }}
       >
-        {/* Header */}
+        {/* Header - matches app's terminal header style */}
         <div style={{ display: "flex", alignItems: "center", marginBottom: 30 }}>
-          <Img src={staticFile("cc.png")} style={{ width: 40, height: 40, marginRight: 15 }} />
-          <span
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 24,
-              fontWeight: 600,
-              color: "#da7756",
-            }}
-          >
+          <div style={{ display: "flex", gap: 8, marginRight: 15 }}>
+            <div style={{ width: 12, height: 12, borderRadius: "50%", backgroundColor: "#ff5f57" }} />
+            <div style={{ width: 12, height: 12, borderRadius: "50%", backgroundColor: "#febc2e" }} />
+            <div style={{ width: 12, height: 12, borderRadius: "50%", backgroundColor: "#28c840" }} />
+          </div>
+          <Img src={staticFile("cc.png")} style={{ width: 32, height: 32, marginRight: 12 }} />
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 20, fontWeight: 600, color: "#da7756" }}>
             {featureName}
           </span>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-            <div style={{ width: 12, height: 12, borderRadius: "50%", backgroundColor: "#4ade80" }} />
-            <div style={{ width: 12, height: 12, borderRadius: "50%", backgroundColor: "#facc15" }} />
-            <div style={{ width: 12, height: 12, borderRadius: "50%", backgroundColor: "#f87171" }} />
-          </div>
-        </div>
-
-        {/* Label */}
-        <div style={{ marginBottom: 12 }}>
-          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: "#a0a0a0", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-            Paste your code
-          </span>
-        </div>
-
-        {/* Input Area - ONLY input, no output */}
-        <div
-          style={{
-            backgroundColor: "#262626",
-            borderRadius: 8,
-            padding: 24,
-            minHeight: 180,
-            border: "1px solid rgba(74, 222, 128, 0.3)",
-            boxShadow: "0 0 20px rgba(74, 222, 128, 0.1)",
-          }}
-        >
-          <pre
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 16,
-              color: "#4ade80",
-              margin: 0,
-              whiteSpace: "pre-wrap",
-              lineHeight: 1.6,
-            }}
-          >
-            {inputText.slice(0, visibleChars)}
-            <span style={{ opacity: cursorOpacity, color: "#da7756" }}>|</span>
-          </pre>
-        </div>
-
-        {/* Generate Button - visible but NOT clicked in this scene */}
-        <div
-          style={{
-            display: "inline-block",
-            backgroundColor: "#4a3a32",
-            padding: "14px 32px",
-            borderRadius: 8,
-            marginTop: 24,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "-apple-system, sans-serif",
-              fontSize: 16,
-              fontWeight: 600,
-              color: "rgba(255,255,255,0.6)",
-            }}
-          >
-            Generate Poetry
-          </span>
-        </div>
-      </div>
-    </AbsoluteFill>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════
-// SCENE 3: MAGIC - "What happens?"
-// Purpose: Show the transformation/processing. Build anticipation for result.
-// Rules: Loading animation, particles, processing visuals. No final output yet.
-// ═══════════════════════════════════════════════════════════════════════════
-const MagicScene: React.FC<{ featureName: string }> = ({ featureName }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-
-  // Pulsing glow
-  const glowIntensity = interpolate(Math.sin(frame * 0.15), [-1, 1], [0.3, 0.8]);
-
-  // Spinning particles
-  const rotation = frame * 3;
-
-  // Progress bar
-  const progress = interpolate(frame, [0, 50], [0, 1], { extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
-
-  // Text opacity
-  const textOpacity = interpolate(frame, [10, 25], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-
-  // Dots animation for "Generating..."
-  const dotCount = Math.floor((frame / 10) % 4);
-  const dots = ".".repeat(dotCount);
-
-  return (
-    <AbsoluteFill style={{ backgroundColor: "#0d0d0d", justifyContent: "center", alignItems: "center" }}>
-      {/* Radial pulse */}
-      <div
-        style={{
-          position: "absolute",
-          width: 600,
-          height: 600,
-          borderRadius: "50%",
-          background: `radial-gradient(circle, rgba(218, 119, 86, ${glowIntensity * 0.15}) 0%, transparent 70%)`,
-          transform: `scale(${1 + glowIntensity * 0.2})`,
-        }}
-      />
-
-      {/* Spinning ring */}
-      <div
-        style={{
-          position: "absolute",
-          width: 300,
-          height: 300,
-          border: "2px solid rgba(218, 119, 86, 0.3)",
-          borderRadius: "50%",
-          borderTopColor: "#da7756",
-          transform: `rotate(${rotation}deg)`,
-        }}
-      />
-
-      {/* Inner ring */}
-      <div
-        style={{
-          position: "absolute",
-          width: 200,
-          height: 200,
-          border: "1px solid rgba(218, 119, 86, 0.2)",
-          borderRadius: "50%",
-          borderBottomColor: "#da7756",
-          transform: `rotate(${-rotation * 1.5}deg)`,
-        }}
-      />
-
-      {/* Center content */}
-      <div style={{ textAlign: "center", zIndex: 10 }}>
-        {/* Logo */}
-        <Img
-          src={staticFile("cc.png")}
-          style={{
-            width: 80,
-            height: 80,
-            marginBottom: 30,
-            filter: `drop-shadow(0 0 ${20 + glowIntensity * 20}px rgba(218, 119, 86, ${glowIntensity}))`,
-          }}
-        />
-
-        {/* Generating text */}
-        <div style={{ opacity: textOpacity }}>
-          <h2
-            style={{
-              fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
-              fontSize: 36,
-              fontWeight: 600,
-              color: "#ffffff",
-              margin: 0,
-              marginBottom: 20,
-            }}
-          >
-            Generating{dots}
-          </h2>
-
-          {/* Progress bar */}
-          <div
-            style={{
-              width: 300,
-              height: 4,
-              backgroundColor: "rgba(218, 119, 86, 0.2)",
-              borderRadius: 2,
-              overflow: "hidden",
-              margin: "0 auto",
-            }}
-          >
+          {phase === "output" && (
             <div
               style={{
-                width: `${progress * 100}%`,
-                height: "100%",
-                backgroundColor: "#da7756",
-                boxShadow: "0 0 10px #da7756",
+                marginLeft: "auto",
+                padding: "6px 16px",
+                backgroundColor: "rgba(74, 222, 128, 0.15)",
+                borderRadius: 20,
+                border: "1px solid rgba(74, 222, 128, 0.3)",
               }}
-            />
-          </div>
-
-          <p
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 14,
-              color: "rgba(255,255,255,0.5)",
-              marginTop: 15,
-            }}
-          >
-            Transforming code into poetry
-          </p>
-        </div>
-      </div>
-
-      {/* Floating particles */}
-      {Array.from({ length: 20 }, (_, i) => {
-        const angle = (i / 20) * Math.PI * 2 + frame * 0.02;
-        const radius = 180 + Math.sin(frame * 0.05 + i) * 30;
-        const x = Math.cos(angle) * radius;
-        const y = Math.sin(angle) * radius;
-        const size = 3 + (i % 3);
-        const opacity = 0.3 + Math.sin(frame * 0.1 + i) * 0.2;
-
-        return (
-          <div
-            key={i}
-            style={{
-              position: "absolute",
-              left: `calc(50% + ${x}px)`,
-              top: `calc(50% + ${y}px)`,
-              width: size,
-              height: size,
-              borderRadius: "50%",
-              backgroundColor: "#da7756",
-              opacity,
-              boxShadow: `0 0 ${size * 2}px rgba(218, 119, 86, 0.6)`,
-            }}
-          />
-        );
-      })}
-    </AbsoluteFill>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════
-// SCENE 4: OUTPUT - "What do I get?"
-// Purpose: Reveal the final result. The payoff. Fresh, not repeated from earlier.
-// Rules: Show ONLY the output. No input field visible. Clean reveal animation.
-// ═══════════════════════════════════════════════════════════════════════════
-const OutputScene: React.FC<{ featureName: string }> = ({ featureName }) => {
-  const frame = useCurrentFrame();
-
-  // Fade in
-  const containerOpacity = interpolate(frame, [0, 15], [0, 1], { extrapolateRight: "clamp" });
-
-  // Poetry lines reveal one by one
-  const line1Reveal = interpolate(frame, [20, 45], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
-  const line2Reveal = interpolate(frame, [40, 65], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
-  const line3Reveal = interpolate(frame, [60, 85], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
-
-  // Glow pulse
-  const glowIntensity = interpolate(Math.sin(frame * 0.08), [-1, 1], [0.3, 0.6]);
-
-  // Success indicator
-  const successOpacity = interpolate(frame, [90, 105], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-
-  return (
-    <AbsoluteFill style={{ backgroundColor: "#0d0d0d", justifyContent: "center", alignItems: "center", opacity: containerOpacity }}>
-      {/* Radial gradient - celebratory */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: `radial-gradient(ellipse 70% 50% at 50% 50%, rgba(218, 119, 86, 0.1) 0%, transparent 70%)`,
-        }}
-      />
-
-      {/* Output Display - ONLY output, no input */}
-      <div
-        style={{
-          width: 1100,
-          backgroundColor: "#1a1a1a",
-          borderRadius: 20,
-          border: "2px solid rgba(218, 119, 86, 0.4)",
-          padding: 60,
-          boxShadow: `0 30px 80px rgba(0,0,0,0.6), 0 0 100px rgba(218, 119, 86, ${glowIntensity * 0.2})`,
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 40 }}>
-          <Img src={staticFile("cc.png")} style={{ width: 50, height: 50, marginRight: 20 }} />
-          <span
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 28,
-              fontWeight: 600,
-              color: "#da7756",
-            }}
-          >
-            Your Code Poetry
-          </span>
-          <div
-            style={{
-              marginLeft: "auto",
-              padding: "6px 16px",
-              backgroundColor: "rgba(74, 222, 128, 0.15)",
-              borderRadius: 20,
-              border: "1px solid rgba(74, 222, 128, 0.3)",
-            }}
-          >
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: "#4ade80" }}>
-              ✓ Generated
-            </span>
-          </div>
-        </div>
-
-        {/* Poetry Output - The REVEAL */}
-        <div
-          style={{
-            backgroundColor: "#262626",
-            borderRadius: 12,
-            padding: 50,
-            border: "1px solid rgba(218, 119, 86, 0.2)",
-            textAlign: "center",
-          }}
-        >
-          <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 36, color: "#e0e0e0", lineHeight: 2.2 }}>
-            <div style={{ opacity: line1Reveal, transform: `translateY(${(1 - line1Reveal) * 15}px)` }}>
-              <span style={{ color: "#da7756", fontSize: 48 }}>"</span>
-              <span style={{ fontStyle: "italic" }}>Recursion calls itself,</span>
+            >
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: "#4ade80" }}>
+                ✓ Complete
+              </span>
             </div>
-            <div style={{ opacity: line2Reveal, transform: `translateY(${(1 - line2Reveal) * 15}px)` }}>
-              <span style={{ fontStyle: "italic" }}>Numbers spiral down to one,</span>
-            </div>
-            <div style={{ opacity: line3Reveal, transform: `translateY(${(1 - line3Reveal) * 15}px)` }}>
-              <span style={{ fontStyle: "italic" }}>Then bloom back as gold.</span>
-              <span style={{ color: "#da7756", fontSize: 48 }}>"</span>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Success indicator */}
-        <div
-          style={{
-            marginTop: 30,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 12,
-            opacity: successOpacity,
-          }}
-        >
-          <div style={{ width: 16, height: 16, borderRadius: "50%", backgroundColor: "#4ade80", boxShadow: "0 0 15px rgba(74, 222, 128, 0.5)" }} />
-          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, color: "#4ade80" }}>
-            Haiku from fibonacci()
-          </span>
-        </div>
-      </div>
-    </AbsoluteFill>
-  );
-};
+        {/* INPUT PHASE */}
+        {phase === "input" && (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: "#a0a0a0", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                {content.inputLabel}
+              </span>
+            </div>
+            <div
+              style={{
+                backgroundColor: "#262626",
+                borderRadius: 8,
+                padding: 24,
+                minHeight: 180,
+                border: "1px solid rgba(74, 222, 128, 0.3)",
+                boxShadow: "0 0 20px rgba(74, 222, 128, 0.1)",
+              }}
+            >
+              <pre
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 16,
+                  color: "#4ade80",
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  lineHeight: 1.6,
+                }}
+              >
+                {content.inputDemo.slice(0, visibleChars)}
+                <span style={{ opacity: cursorOpacity, color: "#da7756" }}>|</span>
+              </pre>
+            </div>
+            <div
+              style={{
+                display: "inline-block",
+                backgroundColor: "#da7756",
+                padding: "14px 32px",
+                borderRadius: 8,
+                marginTop: 24,
+              }}
+            >
+              <span style={{ fontFamily: "-apple-system, sans-serif", fontSize: 16, fontWeight: 600, color: "#ffffff" }}>
+                {content.buttonText}
+              </span>
+            </div>
+          </>
+        )}
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SCENE 5: CALLOUT - "How does it work?"
-// Purpose: Brief explanation of the feature's value proposition
-// ═══════════════════════════════════════════════════════════════════════════
-const CalloutScene: React.FC<{ description: string }> = ({ description }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-
-  const scaleProgress = spring({ frame, fps, config: { damping: 14, stiffness: 100 } });
-  const scale = interpolate(scaleProgress, [0, 1], [0.9, 1]);
-  const opacity = interpolate(frame, [0, 12, 78, 90], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-
-  const titleReveal = interpolate(frame, [5, 25], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic),
-  });
-
-  const subtitleOpacity = interpolate(frame, [20, 35], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  const lineWidth = interpolate(frame, [15, 35], [0, 500], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic),
-  });
-  const glowIntensity = interpolate(Math.sin(frame * 0.12), [-1, 1], [0.4, 0.8]);
-
-  return (
-    <AbsoluteFill style={{ backgroundColor: "rgba(13, 13, 13, 0.95)", justifyContent: "center", alignItems: "center", opacity }}>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: `radial-gradient(ellipse 70% 50% at 50% 50%, rgba(218, 119, 86, 0.12) 0%, transparent 70%)`,
-        }}
-      />
-
-      <div style={{ transform: `scale(${scale})`, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ position: "relative", overflow: "hidden" }}>
-          <div style={{ clipPath: `inset(0 ${(1 - titleReveal) * 100}% 0 0)` }}>
+        {/* PROCESSING PHASE */}
+        {phase === "processing" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: 60 }}>
+            <div style={{ position: "relative", marginBottom: 40 }}>
+              <div
+                style={{
+                  width: 120,
+                  height: 120,
+                  border: "3px solid rgba(218, 119, 86, 0.2)",
+                  borderRadius: "50%",
+                  borderTopColor: "#da7756",
+                  transform: `rotate(${rotation}deg)`,
+                }}
+              />
+              <Img
+                src={staticFile("cc.png")}
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: 60,
+                  height: 60,
+                  filter: `drop-shadow(0 0 ${20 + glowIntensity * 20}px rgba(218, 119, 86, ${glowIntensity}))`,
+                }}
+              />
+            </div>
             <h2
               style={{
                 fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
-                fontSize: 70,
-                fontWeight: 700,
+                fontSize: 32,
+                fontWeight: 600,
                 color: "#ffffff",
-                letterSpacing: "0.02em",
                 margin: 0,
-                textShadow: `0 0 60px rgba(218, 119, 86, ${glowIntensity})`,
+                marginBottom: 20,
               }}
             >
-              HOW IT WORKS
+              {content.processingText}{dots}
             </h2>
+            <div
+              style={{
+                width: 400,
+                height: 4,
+                backgroundColor: "rgba(218, 119, 86, 0.2)",
+                borderRadius: 2,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${progress * 100}%`,
+                  height: "100%",
+                  backgroundColor: "#da7756",
+                  boxShadow: "0 0 10px #da7756",
+                }}
+              />
+            </div>
+            <p
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 14,
+                color: "rgba(255,255,255,0.5)",
+                marginTop: 15,
+              }}
+            >
+              {content.processingSubtext}
+            </p>
           </div>
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: `${titleReveal * 100}%`,
-              width: 2,
-              height: "100%",
-              background: "#da7756",
-              opacity: titleReveal < 1 ? 1 : 0,
-              boxShadow: "0 0 15px #da7756",
-            }}
-          />
-        </div>
+        )}
 
-        <div style={{ width: lineWidth, height: 2, background: "linear-gradient(90deg, transparent, #da7756, transparent)", marginTop: 25, boxShadow: "0 0 20px rgba(218, 119, 86, 0.5)" }} />
-
-        <p
-          style={{
-            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
-            fontSize: 32,
-            fontWeight: 500,
-            color: "#da7756",
-            letterSpacing: "0.05em",
-            marginTop: 30,
-            opacity: subtitleOpacity,
-            maxWidth: 900,
-            lineHeight: 1.4,
-          }}
-        >
-          {description}
-        </p>
+        {/* OUTPUT PHASE */}
+        {phase === "output" && (
+          <>
+            <div style={{ marginBottom: 20 }}>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 18, fontWeight: 600, color: "#da7756" }}>
+                {content.outputHeader}
+              </span>
+            </div>
+            <div
+              style={{
+                backgroundColor: "#262626",
+                borderRadius: 12,
+                padding: 40,
+                border: "1px solid rgba(218, 119, 86, 0.2)",
+                textAlign: content.outputStyle === "poetry" ? "center" : "left",
+              }}
+            >
+              <div style={{ ...outputStyle, lineHeight: 1.8 }}>
+                {content.outputLines.map((line, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      opacity: lineReveals[i],
+                      transform: `translateY(${(1 - lineReveals[i]) * 15}px)`,
+                      marginBottom: 8,
+                    }}
+                  >
+                    {content.outputStyle === "poetry" && i === 0 && <span style={{ color: "#da7756", fontSize: 40 }}>"</span>}
+                    {line}
+                    {content.outputStyle === "poetry" && i === content.outputLines.length - 1 && <span style={{ color: "#da7756", fontSize: 40 }}>"</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </AbsoluteFill>
   );
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SCENE 6: CTA - "Where can I try it?"
-// Purpose: Clear call to action with URL
+// SCENE 3: CALL TO ACTION
 // ═══════════════════════════════════════════════════════════════════════════
 const CTAScene: React.FC<{ featureSlug: string; ctaText?: string }> = ({ featureSlug, ctaText = "TRY IT NOW" }) => {
   const frame = useCurrentFrame();
@@ -755,7 +526,6 @@ const CTAScene: React.FC<{ featureSlug: string; ctaText?: string }> = ({ feature
         }}
       />
 
-      {/* Expanding ring */}
       <div
         style={{
           position: "absolute",
@@ -769,7 +539,6 @@ const CTAScene: React.FC<{ featureSlug: string; ctaText?: string }> = ({ feature
       />
 
       <div style={{ transform: `scale(${scale})`, opacity, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-        {/* Logo */}
         <div style={{ position: "relative", marginBottom: 40 }}>
           <div
             style={{
@@ -782,7 +551,6 @@ const CTAScene: React.FC<{ featureSlug: string; ctaText?: string }> = ({ feature
           <Img src={staticFile("cc.png")} style={{ width: 100, height: 100, position: "relative", filter: "drop-shadow(0 0 20px rgba(218, 119, 86, 0.6))" }} />
         </div>
 
-        {/* CTA Text */}
         <h2
           style={{
             fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
@@ -797,7 +565,6 @@ const CTAScene: React.FC<{ featureSlug: string; ctaText?: string }> = ({ feature
           {ctaText}
         </h2>
 
-        {/* URL */}
         <div style={{ marginTop: 25, overflow: "hidden", position: "relative" }}>
           <p
             style={{
@@ -826,7 +593,6 @@ const CTAScene: React.FC<{ featureSlug: string; ctaText?: string }> = ({ feature
           />
         </div>
 
-        {/* $CC badge */}
         <div style={{ marginTop: 35, padding: "8px 24px", border: "1px solid rgba(218, 119, 86, 0.4)", borderRadius: 4 }}>
           <span
             style={{
@@ -846,7 +612,7 @@ const CTAScene: React.FC<{ featureSlug: string; ctaText?: string }> = ({ feature
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GAMEPLAY VIDEO (for games - intercut footage)
+// GAMEPLAY VIDEO (for games with footage)
 // ═══════════════════════════════════════════════════════════════════════════
 const GameplayVideo: React.FC<{ footagePath: string; durationInFrames: number }> = ({ footagePath, durationInFrames }) => {
   const frame = useCurrentFrame();
@@ -861,138 +627,67 @@ const GameplayVideo: React.FC<{ footagePath: string; durationInFrames: number }>
       <div style={{ width: "100%", height: "100%", transform: `scale(${scale})`, transformOrigin: "center center" }}>
         <OffthreadVideo src={staticFile(footagePath)} startFrom={0} volume={0} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
       </div>
-      {/* Vignette */}
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.7) 100%)", pointerEvents: "none" }} />
     </AbsoluteFill>
   );
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MAIN COMPOSITION
+// MAIN COMPOSITION - Universal 20-second timeline (600 frames at 30fps)
 // ═══════════════════════════════════════════════════════════════════════════
-export const FeatureTrailer: React.FC<FeatureTrailerProps> = ({ featureName, featureSlug, description, featureType, tagline, footagePath }) => {
-  const isGame = featureType === "game";
-  const isComplex = featureType === "complex";
-  const isLong = isGame || isComplex; // Both get 30-second trailers
+export const FeatureTrailer: React.FC<FeatureTrailerProps> = ({
+  featureName = "New Feature",
+  featureSlug = "feature",
+  description = "A new feature from $CC",
+  featureType = "static",
+  tagline,
+  footagePath,
+  sceneContent
+}) => {
+  const hasFootage = featureType === "game" && footagePath;
+  const content = sceneContent || DEFAULT_SCENE_CONTENT;
 
-  // Standard features: 15 seconds (450 frames)
-  // Games/complex: 30 seconds (900 frames)
+  // UNIVERSAL 20 SECOND TIMELINE (600 frames at 30fps)
+  // Two variants: with WebGL footage or pure Remotion
 
-  if (isLong) {
-    // LONG TIMELINE (30 seconds) - for games with footage OR complex features without
-    // Games: Show intercut screen recording footage
-    // Complex: Extended INPUT → MAGIC → OUTPUT flow for detailed explanation
-
-    if (isGame && footagePath) {
-      // GAME with footage
-      const hookDuration = 90;      // 3s
-      const gameplay1Duration = 270; // 9s
-      const gameplay2Duration = 240; // 8s
-      const calloutDuration = 180;   // 6s
-      const ctaDuration = 120;       // 4s
-
-      return (
-        <AbsoluteFill style={{ backgroundColor: "#0d0d0d" }}>
-          <Sequence from={0} durationInFrames={hookDuration}>
-            <HookScene featureName={featureName} />
-          </Sequence>
-
-          <Sequence from={hookDuration} durationInFrames={gameplay1Duration}>
-            <GameplayVideo footagePath={footagePath} durationInFrames={gameplay1Duration} />
-          </Sequence>
-
-          <Sequence from={hookDuration + gameplay1Duration} durationInFrames={gameplay2Duration}>
-            <GameplayVideo footagePath={footagePath} durationInFrames={gameplay2Duration} />
-          </Sequence>
-
-          <Sequence from={hookDuration + gameplay1Duration + gameplay2Duration} durationInFrames={calloutDuration}>
-            <CalloutScene description={tagline || description} />
-          </Sequence>
-
-          <Sequence from={hookDuration + gameplay1Duration + gameplay2Duration + calloutDuration} durationInFrames={ctaDuration}>
-            <CTAScene featureSlug={featureSlug} ctaText="PLAY NOW" />
-          </Sequence>
-        </AbsoluteFill>
-      );
-    }
-
-    // COMPLEX FEATURE TIMELINE (30 seconds) - Extended story with more explanation time
-    // For code-heavy, conceptually dense features that need more time to explain
-    // HOOK → INPUT → MAGIC → OUTPUT → CALLOUT (extended) → CTA
-    const hookDuration = 90;      // 3s - Title card
-    const inputDuration = 150;    // 5s - Show the input
-    const magicDuration = 120;    // 4s - Processing
-    const outputDuration = 180;   // 6s - The result reveal
-    const calloutDuration = 240;  // 8s - Extended explanation of how it works
-    const ctaDuration = 120;      // 4s - CTA
-
+  if (hasFootage) {
+    // WebGL features with footage: Title → Gameplay → Gameplay → CTA
+    // Total: 75 + 180 + 180 + 165 = 600 frames (20 seconds)
     return (
       <AbsoluteFill style={{ backgroundColor: "#0d0d0d" }}>
-        <Sequence from={0} durationInFrames={hookDuration}>
-          <HookScene featureName={featureName} />
+        <Sequence from={0} durationInFrames={75}>
+          <TitleScene featureName={featureName} />
         </Sequence>
-
-        <Sequence from={hookDuration} durationInFrames={inputDuration}>
-          <InputScene featureName={featureName} />
+        <Sequence from={75} durationInFrames={180}>
+          <GameplayVideo footagePath={footagePath} durationInFrames={180} />
         </Sequence>
-
-        <Sequence from={hookDuration + inputDuration} durationInFrames={magicDuration}>
-          <MagicScene featureName={featureName} />
+        <Sequence from={255} durationInFrames={180}>
+          <GameplayVideo footagePath={footagePath} durationInFrames={180} />
         </Sequence>
-
-        <Sequence from={hookDuration + inputDuration + magicDuration} durationInFrames={outputDuration}>
-          <OutputScene featureName={featureName} />
-        </Sequence>
-
-        <Sequence from={hookDuration + inputDuration + magicDuration + outputDuration} durationInFrames={calloutDuration}>
-          <CalloutScene description={tagline || description} />
-        </Sequence>
-
-        <Sequence from={hookDuration + inputDuration + magicDuration + outputDuration + calloutDuration} durationInFrames={ctaDuration}>
-          <CTAScene featureSlug={featureSlug} ctaText="TRY IT NOW" />
+        <Sequence from={435} durationInFrames={165}>
+          <CTAScene featureSlug={featureSlug} ctaText="PLAY NOW" />
         </Sequence>
       </AbsoluteFill>
     );
   }
 
-  // STANDARD FEATURE TIMELINE (15 seconds)
-  // HOOK → INPUT → MAGIC → OUTPUT → CALLOUT → CTA
-  const hookDuration = 60;     // 2s
-  const inputDuration = 90;    // 3s
-  const magicDuration = 60;    // 2s
-  const outputDuration = 120;  // 4s
-  const calloutDuration = 60;  // 2s
-  const ctaDuration = 60;      // 2s
-
+  // Standard features: Title → Input → Processing → Output → CTA
+  // Total: 75 + 120 + 90 + 180 + 135 = 600 frames (20 seconds)
   return (
     <AbsoluteFill style={{ backgroundColor: "#0d0d0d" }}>
-      {/* HOOK - "What is this?" */}
-      <Sequence from={0} durationInFrames={hookDuration}>
-        <HookScene featureName={featureName} />
+      <Sequence from={0} durationInFrames={75}>
+        <TitleScene featureName={featureName} />
       </Sequence>
-
-      {/* INPUT - "What do I give it?" */}
-      <Sequence from={hookDuration} durationInFrames={inputDuration}>
-        <InputScene featureName={featureName} />
+      <Sequence from={75} durationInFrames={120}>
+        <FeatureUIScene featureName={featureName} content={content} phase="input" />
       </Sequence>
-
-      {/* MAGIC - "What happens?" */}
-      <Sequence from={hookDuration + inputDuration} durationInFrames={magicDuration}>
-        <MagicScene featureName={featureName} />
+      <Sequence from={195} durationInFrames={90}>
+        <FeatureUIScene featureName={featureName} content={content} phase="processing" />
       </Sequence>
-
-      {/* OUTPUT - "What do I get?" */}
-      <Sequence from={hookDuration + inputDuration + magicDuration} durationInFrames={outputDuration}>
-        <OutputScene featureName={featureName} />
+      <Sequence from={285} durationInFrames={180}>
+        <FeatureUIScene featureName={featureName} content={content} phase="output" />
       </Sequence>
-
-      {/* CALLOUT - "How does it work?" */}
-      <Sequence from={hookDuration + inputDuration + magicDuration + outputDuration} durationInFrames={calloutDuration}>
-        <CalloutScene description={tagline || description} />
-      </Sequence>
-
-      {/* CTA - "Where can I try it?" */}
-      <Sequence from={hookDuration + inputDuration + magicDuration + outputDuration + calloutDuration} durationInFrames={ctaDuration}>
+      <Sequence from={465} durationInFrames={135}>
         <CTAScene featureSlug={featureSlug} ctaText="TRY IT NOW" />
       </Sequence>
     </AbsoluteFill>
