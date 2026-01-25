@@ -174,20 +174,6 @@ export default function DuckPage() {
               </div>
             </div>
 
-            <div className="bg-bg-secondary border border-border rounded-lg p-4">
-              <div className="text-text-secondary text-xs uppercase tracking-wider mb-2">Common Problems</div>
-              <div className="flex flex-col gap-2">
-                {COMMON_PROBLEMS.map((p, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setProblem(p)}
-                    className="text-xs bg-bg-primary border border-border px-3 py-2 rounded text-left text-text-secondary hover:text-claude-orange hover:border-claude-orange transition-colors"
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
 
