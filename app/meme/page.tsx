@@ -175,13 +175,13 @@ export default function MemePage() {
                   className="max-w-full max-h-full object-contain"
                 />
               ) : (
-                <div className="text-text-muted text-center p-4">
+                <div className="text-text-muted flex flex-col items-center justify-center p-4">
                   <img
                     src="/cc.png"
                     alt="$CC"
-                    className="w-16 h-16 mx-auto mb-3 opacity-50"
+                    className="w-16 h-16 mb-3 opacity-50"
                   />
-                  <p className="text-xs text-center">Your meme will appear here</p>
+                  <p className="text-xs">Your meme will appear here</p>
                 </div>
               )}
             </div>
