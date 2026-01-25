@@ -128,8 +128,8 @@ export default function PoetryPage() {
   };
 
   return (
-    <div className="min-h-screen w-screen flex items-center justify-center p-4">
-      <div className="max-w-[1200px] w-full flex flex-col">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 px-[5%]">
+      <div className="max-w-[1200px] w-[90%] flex flex-col">
         {/* Header */}
         <header className="flex items-center gap-3 py-3 border-b border-border shrink-0">
           <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
