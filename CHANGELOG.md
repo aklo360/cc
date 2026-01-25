@@ -6,6 +6,32 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-25] - VPS Migration Complete
+
+### Changed - Claude Code Now Runs Directly on VPS
+The entire project has been migrated to run directly on the VPS (5.161.107.128):
+
+- **No more SSH required** - Claude Code sessions execute locally on the VPS
+- **Working directory:** `/root/ccwtf`
+- **All commands run directly** - no need to prefix with `ssh root@...`
+
+### Updated Documentation
+- Added "VPS ENVIRONMENT" section at top of CLAUDE.md
+- Updated all command examples to remove SSH prefixes
+- Clarified that Claude runs directly on the server
+
+### Changed - Homepage Layout
+- Moved "Watch Brain" button up next to "Join the Community" in hero section
+- Renamed button to "Watch Dev Cook"
+- Moved Contract Address inside Terminal component (below "claude ~ $CC" bar, above Q&A)
+- Standardized section spacing to consistent `my-6` and `gap-3`
+
+### Modified Files
+- `app/page.tsx` - Layout changes, removed standalone ContractAddress section
+- `app/components/Terminal.tsx` - Added ContractAddress inside terminal
+
+---
+
 ## [2026-01-25] - Source Code Sync + VPS Cleanup
 
 ### Added - Recovered Pages from Deployment
@@ -35,8 +61,8 @@ Cleaned up half-finished features from cancelled brain cycles:
 ### Fixed - Cancel Endpoint Subprocess Handling
 The brain's `/cancel` endpoint only marked the cycle as complete in SQLite but didn't kill the running Claude subprocess. The fix requires explicitly killing the process:
 ```bash
-# Kill orphaned Claude process after cancel
-ssh root@5.161.107.128 "pkill -f '/root/.local/bin/claude'"
+# Kill orphaned Claude process after cancel (run directly on VPS)
+pkill -f '/root/.local/bin/claude'
 ```
 
 ### Changed - Watch Page UI
@@ -362,7 +388,7 @@ Built and deployed a fully autonomous 24-hour software engineering loop:
 
 ### Run
 ```bash
-# On VPS (5.161.107.128)
+# Run brain (directly on VPS)
 cd /root/ccwtf/brain
 pm2 start npm --name cc-brain -- run dev
 

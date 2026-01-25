@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import ContractAddress from "./ContractAddress";
 
 interface TerminalLine {
   type: "prompt" | "command" | "output" | "typing";
@@ -129,6 +130,11 @@ export default function Terminal() {
           <div className="w-3 h-3 rounded-full bg-[#28c840]" />
         </div>
         <span className="text-text-muted text-xs ml-auto">claude ~ $CC</span>
+      </div>
+
+      {/* Contract Address */}
+      <div className="px-4 py-3 border-b border-border">
+        <ContractAddress />
       </div>
 
       {/* Terminal body */}

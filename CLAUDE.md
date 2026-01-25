@@ -4,6 +4,16 @@
 
 ---
 
+## IMPORTANT: VPS ENVIRONMENT
+
+**You are running directly on the VPS (5.161.107.128)!**
+- Working directory: `/root/ccwtf`
+- No SSH required - all commands execute locally
+- Claude CLI: `~/.local/bin/claude`
+- Node: v22.22.0 via nvm
+
+---
+
 ## RULE #1: ALWAYS KEEP THIS FILE UPDATED
 
 **After EVERY change to the codebase, you MUST update this file with:**
@@ -417,26 +427,26 @@ Continuous shipping agent - ships up to 5 features per day:
 - `POST /cancel` - Cancel active cycle
 - `WS /ws` - Real-time log streaming
 
-**VPS Deployment (Production):**
-- **Server:** 5.161.107.128
+**VPS Environment (Production):**
+- **Server:** 5.161.107.128 (Hetzner VPS)
+- **Working Directory:** `/root/ccwtf`
 - **Public URL:** https://brain.claudecode.wtf (via Cloudflare tunnel)
 - **WebSocket:** wss://brain.claudecode.wtf/ws
 - **Process:** pm2 with name `cc-brain`
 - **Node:** v22.22.0 via nvm
 - **Claude CLI:** `~/.local/bin/claude`
 
-**Run locally:**
+**IMPORTANT: You are already on the VPS!**
+Claude Code sessions run directly on the VPS. No SSH required - all commands execute locally.
+
+**Run Brain:**
 ```bash
-cd brain
+cd /root/ccwtf/brain
 npm install
 npm run dev   # Development with hot reload
 npm start     # Production
-```
 
-**On VPS:**
-```bash
-ssh root@5.161.107.128
-cd /root/ccwtf/brain
+# Using pm2
 pm2 start npm --name cc-brain -- run dev
 pm2 logs cc-brain  # View logs
 ```
@@ -447,8 +457,8 @@ The `/cancel` endpoint only marks the cycle as complete in SQLite - it does NOT 
 # 1. Cancel via API
 curl -X POST https://brain.claudecode.wtf/cancel
 
-# 2. Kill the orphaned Claude process
-ssh root@5.161.107.128 "pkill -f '/root/.local/bin/claude'"
+# 2. Kill the orphaned Claude process (run directly, no SSH needed)
+pkill -f '/root/.local/bin/claude'
 ```
 
 ---
@@ -490,9 +500,10 @@ DOES NOT HAVE:
 
 ## Secrets & Environment
 
-### Local Development (.env)
+### VPS Environment (.env)
 ```
 GEMINI_API_KEY=your-key-here
+CLOUDFLARE_API_TOKEN=your-token-here   # Required for wrangler deploys
 ```
 
 ### Cloudflare Worker Secrets
@@ -530,8 +541,8 @@ npm run dev
 # Build for production
 npm run build
 
-# Deploy to Cloudflare Pages
-npx wrangler pages deploy out --project-name=ccwtf
+# Deploy to Cloudflare Pages (uses CLOUDFLARE_API_TOKEN from .env)
+source .env && npx wrangler pages deploy out --project-name=ccwtf
 
 # Deploy API Worker
 cd worker
