@@ -153,8 +153,8 @@ export default function IDEPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-[5%]">
-      <div className="h-[90vh] w-[90%] max-w-[1400px] flex flex-col overflow-hidden border border-border rounded-lg bg-[#0d0d0d]">
+    <div className="min-h-screen w-full flex flex-col items-center justify-center p-[5%]">
+      <div className="h-[80vh] w-[90%] max-w-[1400px] flex flex-col overflow-hidden border border-border rounded-lg bg-[#0d0d0d]">
       {/* Header */}
       <header className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
         <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
@@ -278,17 +278,17 @@ export default function IDEPage() {
           />
         )}
       </div>
-
-        {/* Footer */}
-        <footer className="px-4 py-2 border-t border-border text-center shrink-0 bg-bg-secondary rounded-b-lg">
-          <Link href="/" className="text-claude-orange hover:underline text-sm">
-            ← back
-          </Link>
-          <p className="text-text-muted text-xs mt-1">
-            claudecode.wtf · Built with ❤️ for the Claude Code community
-          </p>
-        </footer>
       </div>
+
+      {/* Footer */}
+      <footer className="py-4 mt-4 text-center w-[90%] max-w-[1400px]">
+        <Link href="/" className="text-claude-orange hover:underline text-sm">
+          ← back
+        </Link>
+        <p className="text-text-muted text-xs mt-2">
+          claudecode.wtf · Built with ❤️ for the Claude Code community
+        </p>
+      </footer>
     </div>
   );
 }
