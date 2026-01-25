@@ -11,7 +11,7 @@ export default function MoonPage() {
       <MoonMission />
 
       {/* Navigation overlay */}
-      <div className="absolute top-4 left-4 z-10">
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
         <Link
           href="/"
           className="text-claude-orange hover:underline text-sm font-mono"
