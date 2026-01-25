@@ -134,6 +134,18 @@ export default function Home() {
         <section className="flex flex-wrap gap-2 justify-center">
           <BuyButton />
           <a
+            href="https://gmgn.ai/r/UOJLtKlB"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-border text-text-primary px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm transition-colors hover:bg-bg-tertiary hover:border-claude-orange hover:text-claude-orange"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+              <polyline points="16 7 22 7 22 13" />
+            </svg>
+            Buy on GMGN
+          </a>
+          <a
             href="https://x.com/ClaudeCodeWTF"
             target="_blank"
             rel="noopener noreferrer"
