@@ -154,7 +154,7 @@ export default function IDEPage() {
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center p-[5%]">
-      <div className="h-[80vh] w-[90%] max-w-[1400px] flex flex-col overflow-hidden border border-border rounded-lg bg-[#0d0d0d]">
+      <div className="h-[80vh] w-[90%] max-w-[1400px] flex flex-col overflow-hidden border border-border rounded-lg bg-bg-primary">
       {/* Header */}
       <header className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
         <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">

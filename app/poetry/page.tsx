@@ -131,7 +131,7 @@ export default function PoetryPage() {
     <div className="min-h-screen w-full flex items-center justify-center p-4 px-[5%]">
       <div className="max-w-[1200px] w-[90%] flex flex-col">
         {/* Header */}
-        <header className="flex items-center gap-3 py-3 border-b border-border shrink-0">
+        <header className="flex items-center gap-3 py-3 mb-6 shrink-0">
           <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
             <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
             <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
@@ -277,7 +277,7 @@ export default function PoetryPage() {
         </div>
 
         {/* Footer */}
-        <footer className="py-3 border-t border-border text-center shrink-0 mt-4">
+        <footer className="py-4 mt-6 text-center shrink-0">
           <Link href="/" className="text-claude-orange hover:underline text-sm">
             ← back
           </Link>

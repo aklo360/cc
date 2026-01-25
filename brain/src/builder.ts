@@ -69,7 +69,7 @@ EXISTING CODEBASE STRUCTURE:
 ║  NO exceptions. NO creativity with colors. NO light themes. NO gradients.     ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 
-BEFORE BUILDING: You MUST read app/review/page.tsx - this is the REFERENCE for how ALL pages look.
+BEFORE BUILDING: You MUST read app/_template/page.tsx - this is the REFERENCE for how ALL pages look.
 
 ❌ INSTANT REJECTION IF YOU USE:
    - Light backgrounds (white, gray, light colors)
@@ -78,23 +78,36 @@ BEFORE BUILDING: You MUST read app/review/page.tsx - this is the REFERENCE for h
    - Generic Tailwind like bg-gray-100, text-gray-500, bg-white
    - Any colors NOT in our custom Tailwind palette
    - Missing terminal header with traffic light dots
-   - Missing standard footer
+   - Missing "← back" link in footer (REQUIRED)
+   - Page title wrapped in a Link (must be plain text)
+   - border-b on header or border-t on footer (neither should have borders)
+   - max-width over 1200px (use max-w-[900px] default)
+   - Emojis in headings or body paragraphs (only in buttons)
+   - Flowery copy like "Transform your..." or "Where X meets Y..."
    - Different page layout/structure
 
 ✅ YOU MUST USE EXACTLY:
 
 1. TERMINAL HEADER (Copy this EXACTLY - Required on ALL pages):
-   <header className="flex items-center gap-3 py-3 border-b border-border mb-6">
-     <div className="flex gap-2">
+   <header className="flex items-center gap-3 py-3 mb-6">
+     {/* Traffic lights - Link to homepage */}
+     <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
        <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
        <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
        <div className="w-3 h-3 rounded-full bg-[#28c840]" />
-     </div>
-     <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-       <img src="/cc.png" alt="$CC" width={24} height={24} />
-       <span className="text-claude-orange font-semibold text-sm">[Feature Name]</span>
      </Link>
+     {/* CC Icon - Link to homepage */}
+     <Link href="/" className="hover:opacity-80 transition-opacity">
+       <img src="/cc.png" alt="$CC" width={24} height={24} />
+     </Link>
+     {/* Title - PLAIN TEXT, NOT a link */}
+     <span className="text-claude-orange font-semibold text-sm">[Feature Name]</span>
    </header>
+
+   IMPORTANT HEADER RULES:
+   - Traffic lights and CC icon are LINKS to homepage
+   - Title is PLAIN TEXT (span), NOT wrapped in a Link
+   - NO border-b on the header (clean look)
 
 2. COLOR PALETTE (Use ONLY these Tailwind custom classes):
    ┌─────────────────────────────────────────────────────────────┐
@@ -134,12 +147,19 @@ BEFORE BUILDING: You MUST read app/review/page.tsx - this is the REFERENCE for h
    <textarea className="w-full bg-bg-primary border border-border rounded-md px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-claude-orange transition-colors resize-none" />
 
 6. FOOTER (Copy this EXACTLY - Required on ALL pages):
-   <footer className="py-4 border-t border-border text-center">
-     <p className="text-text-muted text-xs">
-       <Link href="/" className="text-claude-orange hover:underline">claudecode.wtf</Link>
-       {" "}&middot; 100% of fees to @bcherny
+   <footer className="py-4 mt-6 text-center">
+     <Link href="/" className="text-claude-orange hover:underline text-sm">
+       ← back
+     </Link>
+     <p className="text-text-muted text-xs mt-2">
+       claudecode.wtf · 100% of fees to @bcherny
      </p>
    </footer>
+
+   IMPORTANT FOOTER RULES:
+   - MUST include "← back" link to homepage (REQUIRED)
+   - NO border-t on footer (clean look)
+   - Back link on first line, attribution on second line
 
 7. PAGE WRAPPER (Copy this EXACTLY):
    <div className="min-h-screen w-full flex items-center justify-center py-4 sm:py-8">
@@ -153,9 +173,14 @@ BEFORE BUILDING: You MUST read app/review/page.tsx - this is the REFERENCE for h
 FINAL CHECK BEFORE SUBMISSION - The build will be REJECTED if:
 □ Page uses ANY color not in the palette above
 □ Page is missing terminal header with traffic light dots
-□ Page is missing standard footer with "claudecode.wtf · 100% of fees to @bcherny"
+□ Page title is wrapped in a Link (must be plain span text)
+□ Header has border-b (should NOT have border)
+□ Footer has border-t (should NOT have border)
+□ Footer is missing "← back" link (REQUIRED)
+□ Footer is missing "claudecode.wtf · 100% of fees to @bcherny" attribution
 □ Page has a light/white background anywhere
 □ Page uses generic Tailwind colors instead of custom classes
+□ Page uses max-width over 1200px
 
 `;
 
