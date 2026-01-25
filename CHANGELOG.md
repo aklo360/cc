@@ -6,6 +6,35 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-25] - WebappTrailer System
+
+### Added - Exact UI Recreation Trailers
+Complete overhaul of trailer generation to look EXACTLY like the real webapp:
+
+**New Files:**
+- `video/src/compositions/WebappTrailer.tsx` - Remotion composition matching webapp UI
+- `brain/src/trailer-webapp.ts` - Generator using manifest content
+- `brain/src/capture.ts` - Page capture utilities (alternative approach)
+
+**WebappTrailer Features:**
+- Uses exact design tokens from webapp (colors, fonts, spacing)
+- Components match real UI: terminal header, cards, buttons, footer
+- Manifest-driven: extracts REAL content from deployed pages
+- 20-second timeline: Input (5s) → Processing (1.5s) → Output (8s) → CTA (5.5s)
+- Processing scene is snappy (1.5s) not slow
+
+**Manifest Integration:**
+- Extracts real button text from deployed page
+- Captures actual input placeholder
+- Records REAL output after clicking action button
+- Passes all content to Remotion for authentic recreation
+
+### Changed - manifest.ts
+- Added more action keywords: refactor, roast, review, debug, convert
+- Better button detection for features like "🪄 Refactor Code"
+
+---
+
 ## [2026-01-25] - Brain Brand Enforcement Update
 
 ### Added
