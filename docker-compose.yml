@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  brain:
+    build:
+      context: ./brain
+      dockerfile: Dockerfile
+    container_name: ccwtf-brain
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"
+    env_file:
+      - ./brain/.env
+    volumes:
+      # Persist SQLite database
+      - ./brain/brain.db:/app/brain.db
+      # Persist recordings
+      - ./brain/recordings:/app/recordings
+      # Mount Claude Code CLI
+      - /root/.local/bin:/root/.local/bin:ro
+      - /root/.local/share/claude:/root/.local/share/claude:ro
+      # Mount ccwtf project for Claude to modify
+      - /root/ccwtf:/root/ccwtf
+    networks:
+      - llphant
+    # Health check (using wget since curl not installed)
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/status', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  llphant:
+    external: true

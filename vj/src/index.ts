@@ -10,9 +10,9 @@ import {
   stopCapture,
   isSystemAudioSupported,
   type AudioCapture,
-} from './audio/capture.js';
-import { analyze, type AudioFeatures } from './audio/analyzer.js';
-import { initBeatDetection, updateBeat, resetBeatState, type BeatState } from './audio/beat.js';
+} from './audio/capture';
+import { analyze, type AudioFeatures } from './audio/analyzer';
+import { initBeatDetection, updateBeat, resetBeatState, type BeatState } from './audio/beat';
 import {
   type IVisualEngine,
   type VisualParams,
@@ -20,7 +20,7 @@ import {
   ThreeJSEngine,
   HydraEngine,
   RemotionEngine,
-} from './engines/index.js';
+} from './engines/index';
 
 export type EngineType = 'threejs' | 'hydra' | 'remotion';
 
@@ -342,5 +342,5 @@ export class VJ {
 }
 
 // Export all modules
-export * from './audio/index.js';
-export * from './engines/index.js';
+export * from './audio/index';
+export * from './engines/index';

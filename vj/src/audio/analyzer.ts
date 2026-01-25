@@ -3,7 +3,7 @@
  * Processes FFT data into usable frequency bands and audio features
  */
 
-import type { AudioCapture } from './capture.js';
+import type { AudioCapture } from './capture';
 
 export interface FrequencyBands {
   bass: number; // 20-250 Hz (kick drums, bass)

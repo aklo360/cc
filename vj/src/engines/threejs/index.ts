@@ -7,8 +7,8 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import type { IVisualEngine, VisualParams, VisualStyle } from '../types.js';
-import { STYLE_PALETTES, hexToRgb } from '../types.js';
+import type { IVisualEngine, VisualParams, VisualStyle } from '../types';
+import { STYLE_PALETTES, hexToRgb } from '../types';
 
 export class ThreeJSEngine implements IVisualEngine {
   readonly name = 'Three.js';
