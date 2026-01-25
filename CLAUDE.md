@@ -317,21 +317,26 @@ ccwtf/
   - `GET /auth/v1` - OAuth 1.0a setup UI
 
 ### 6. Video Generator (`/video`)
-- **Remotion-based** cinematic trailer generator
-- **Frame-perfect capture** at 30fps via virtual time control
-- **Autonomous AI agent** plays the game for recording
-- **Premium motion graphics:**
-  - Title card with particles and glow effects
-  - Feature callouts with scan-line reveal animation
-  - CTA with expanding ring animation
-  - Smooth zoom transitions between shots
+- **Remotion-based** trailer generator with EXACT webapp UI recreation
+- **WebappTrailer composition** - looks identical to the real claudecode.wtf
+- **Manifest-driven content** - extracts real buttons, inputs, outputs from deployed pages
 - **How it works:**
-  1. Puppeteer launches browser to `/moon`
-  2. Virtual time injected (overrides `requestAnimationFrame` + `performance.now()`)
-  3. AI plays game (shooting, movement, barrel rolls) with center-bias tracking
-  4. Frame-by-frame screenshots → ffmpeg encodes to MP4
-  5. Remotion assembles clips with motion graphics → final trailer
-- **Output:** `video/out/trailer.mp4` (15 seconds, 1080p, 30fps)
+  1. Extract manifest from deployed feature (buttons, placeholders, real output)
+  2. Pass content to WebappTrailer Remotion composition
+  3. Render 20-second trailer that recreates the exact user journey
+- **Timeline (20 seconds):**
+  - Input scene (5s) - Typing animation with real placeholder
+  - Processing scene (1.5s) - Snappy spinner + progress bar
+  - Output scene (8s) - Reveals REAL generated content
+  - CTA scene (5.5s) - "Try it now" + feature URL
+- **Design tokens match webapp exactly:**
+  - Colors: #0d0d0d, #1a1a1a, #da7756, etc.
+  - Components: Terminal header, cards, buttons, footer
+  - Typography: JetBrains Mono + system fonts
+- **Key files:**
+  - `video/src/compositions/WebappTrailer.tsx` - Main composition
+  - `brain/src/trailer-webapp.ts` - Generator using manifest
+  - `brain/src/manifest.ts` - Extracts real content from pages
 
 ### 7. Watch Brain (`/watch`)
 Real-time build log viewer for the Central Brain:

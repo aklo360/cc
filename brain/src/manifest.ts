@@ -118,7 +118,7 @@ export async function extractFeatureManifest(
       // Look for primary action button with common action text
       const actionButton = await page.evaluateHandle(() => {
         const buttons = Array.from(document.querySelectorAll('button:not([disabled]), [role="button"]:not([disabled])'));
-        const actionKeywords = ['generate', 'create', 'start', 'play', 'submit', 'run', 'build', 'analyze', 'roast', 'review', 'get', 'check'];
+        const actionKeywords = ['generate', 'create', 'start', 'play', 'submit', 'run', 'build', 'analyze', 'roast', 'review', 'get', 'check', 'refactor', 'debug', 'convert'];
 
         // Find button with action keyword
         for (const btn of buttons) {
@@ -394,7 +394,7 @@ export function manifestToTrailerContent(manifest: FeatureManifest): {
   calloutDescription: string;
 } {
   // Find the primary ACTION button (prefer "Generate", "Create", "Start", etc.)
-  const actionKeywords = ['generate', 'create', 'start', 'play', 'submit', 'run', 'build', 'convert', 'analyze'];
+  const actionKeywords = ['generate', 'create', 'start', 'play', 'submit', 'run', 'build', 'convert', 'analyze', 'refactor', 'roast', 'review', 'debug'];
   const primaryButton = manifest.buttons.find(btn =>
     actionKeywords.some(keyword => btn.toLowerCase().includes(keyword))
   ) || manifest.buttons[0] || 'Try It';

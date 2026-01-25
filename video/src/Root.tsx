@@ -3,6 +3,8 @@ import { Trailer } from "./Trailer";
 import { FeatureTrailer } from "./compositions/FeatureTrailer";
 import { BattleTrailer } from "./compositions/BattleTrailer";
 import { CodeReviewTrailer } from "./compositions/CodeReviewTrailer";
+import { RealFootageTrailer } from "./compositions/RealFootageTrailer";
+import { WebappTrailer } from "./compositions/WebappTrailer";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -42,6 +44,26 @@ export const RemotionRoot: React.FC = () => {
         id="CodeReviewTrailer"
         component={CodeReviewTrailer}
         durationInFrames={15 * 30} // 15 seconds at 30fps
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+
+      {/* Real Footage Trailer - Uses actual page capture */}
+      <Composition
+        id="RealFootageTrailer"
+        component={RealFootageTrailer}
+        durationInFrames={20 * 30} // 20 seconds at 30fps
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+
+      {/* Webapp Trailer - Exact UI recreation from styleguide */}
+      <Composition
+        id="WebappTrailer"
+        component={WebappTrailer}
+        durationInFrames={20 * 30} // 20 seconds at 30fps
         fps={30}
         width={1920}
         height={1080}
