@@ -500,6 +500,34 @@ async function verifyBrand(page: Page, config: VerificationConfig): Promise<Veri
         issues.push('FORBIDDEN GRADIENT TEXT: Gradient text is not part of the brand. Use solid colors.');
       }
 
+      // CHECK 7: Back link in footer (REQUIRED)
+      const footer = document.querySelector('footer');
+      const hasBackLink = footer && (
+        footer.textContent?.includes('back') ||
+        footer.innerHTML.includes('←') ||
+        footer.innerHTML.includes('&larr;')
+      );
+      if (!hasBackLink) {
+        issues.push('MISSING BACK LINK: Footer must have "← back" link to homepage');
+      }
+
+      // CHECK 8: Layout width (flag overly wide containers)
+      const allClasses = Array.from(document.querySelectorAll('*')).map(el => el.className).join(' ');
+      if (allClasses.includes('max-w-[1400') || allClasses.includes('max-w-[1500')) {
+        issues.push('LAYOUT TOO WIDE: Use max-w-[900px] default or max-w-[1200px] max');
+      }
+
+      // CHECK 9: Header should NOT have border-b
+      const header = document.querySelector('header');
+      if (header && header.className.includes('border-b')) {
+        issues.push('HEADER BORDER: Header should NOT have border-b (clean look)');
+      }
+
+      // CHECK 10: Footer should NOT have border-t
+      if (footer && footer.className.includes('border-t')) {
+        issues.push('FOOTER BORDER: Footer should NOT have border-t (clean look)');
+      }
+
       return issues;
     });
 

@@ -6,6 +6,93 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-25] - Brain Brand Enforcement Update
+
+### Added
+- **app/_template/page.tsx** - Canonical reference template for brain/builder
+  - Well-commented file showing correct header/footer patterns
+  - Brain reads this before building any new page
+
+### Changed - brain/src/builder.ts
+- Fixed header template: traffic lights + icon as Links, title as plain text
+- Fixed footer template: added "← back" link, removed border-t
+- Changed reference from missing `app/review/page.tsx` to new `app/_template/page.tsx`
+- Added new rejection criteria:
+  - Missing "← back" link in footer
+  - Page title wrapped in Link (must be plain text)
+  - border-b on header or border-t on footer
+  - max-width over 1200px
+  - Emojis in headings/paragraphs
+  - Flowery copy
+
+### Changed - brain/src/verifier.ts
+- Added CHECK 7: Back link in footer (required)
+- Added CHECK 8: Layout width (flags max-w-[1400px]+)
+- Added CHECK 9: Header should NOT have border-b
+- Added CHECK 10: Footer should NOT have border-t
+
+### Fixed - Existing Pages
+- **app/ide/page.tsx**: Changed `bg-[#0d0d0d]` to `bg-bg-primary`
+- **app/poetry/page.tsx**: Removed border-b from header, border-t from footer
+- **app/mood/page.tsx**: Removed border-b from header, border-t from footer
+
+---
+
+## [2026-01-25] - UI Styleguide Locked In
+
+### Added - Official UI Styleguide
+Documented and locked in the consistent UI patterns across all pages:
+
+**Page Layout:**
+- All pages use `#0d0d0d` background (inherited from body)
+- Standard margins: `px-[5%]` outer, `w-[90%]` inner
+- Max widths: `max-w-[900px]` standard, `max-w-[1200px]` for wide pages
+
+**Header Pattern (All Pages):**
+- Traffic lights (red/yellow/green) → Link to homepage
+- CC icon (24x24) → Link to homepage
+- Page title as plain text (NOT a link)
+- Optional right-aligned tagline
+- No border on header
+
+**Footer Pattern (All Pages):**
+- `← back` link to homepage (required)
+- Optional site tagline
+- No border on footer
+
+**Homepage-Specific:**
+- Larger CC logo (64x64) with social links row
+- Social links top-right: @ClaudeCodeWTF, @bcherny, Claude Code GitHub
+- Terminal header with border (unique to homepage)
+
+**Buy Links:**
+- $CC on Bags (with Bags favicon)
+- Buy on GMGN (with referral)
+- Buy on Photon (with referral)
+- Buy on Axiom (with referral)
+
+### Changed - Homepage Layout
+- Moved social links (@ClaudeCodeWTF, @bcherny, GitHub) to top right
+- CC logo enlarged to 64x64, top-aligned with social links
+- Renamed Buy button to "$CC on Bags" with Bags logo
+
+### Standardized - All Pages
+Updated all pages to follow the styleguide:
+- `/watch` - Restyled with traffic light header, proper footer
+- `/meme` - Changed "Powered by Gemini" to "Powered by Nano Banana Pro"
+- `/play` - Removed borders, changed tagline to "Classic Arcade Style"
+- `/duck` - Removed common problems section, expanded textarea
+- `/poetry` - Added 10% margins
+- `/ide` - Footer moved outside container
+- `/moon` - Back button moved to bottom center
+
+### Documentation
+- Added comprehensive "UI Styleguide" section to CLAUDE.md
+- Includes code examples for headers, footers, buttons, forms
+- Lists DO NOT rules to prevent style drift
+
+---
+
 ## [2026-01-25] - VPS Migration Complete
 
 ### Changed - Claude Code Now Runs Directly on VPS
