@@ -177,11 +177,11 @@ export default function MemePage() {
               ) : (
                 <div className="text-text-muted text-center p-4">
                   <img
-                    src="/claudecode.jpg"
-                    alt="$CC character"
-                    className="w-24 h-24 mx-auto mb-2 opacity-40 rounded-lg"
+                    src="/cc.png"
+                    alt="$CC"
+                    className="w-16 h-16 mx-auto mb-3 opacity-50"
                   />
-                  <p className="text-xs">Your meme will appear here</p>
+                  <p className="text-xs text-center">Your meme will appear here</p>
                 </div>
               )}
             </div>
