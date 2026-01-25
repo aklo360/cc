@@ -73,9 +73,9 @@ const generateTranslations = (code: string) => {
         return n
     return fibonacci(n - 1) + fibonacci(n - 2)
 
-# Call the function
-result = fibonacci(10)
-print(f"Fibonacci(10) = {result}")`,
+if __name__ == "__main__":
+    result = fibonacci(10)
+    print(f"Fibonacci(10) = {result}")`,
 
     'ES6 JavaScript (2015)': `const fibonacci = (n) => {
   if (n <= 1) return n;
