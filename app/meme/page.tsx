@@ -82,7 +82,7 @@ export default function MemePage() {
           </Link>
           <span className="text-claude-orange font-semibold text-sm">$CC Meme Generator</span>
           <span className="text-text-muted text-xs ml-auto">
-            Powered by Gemini
+            Powered by Nano Banana Pro
           </span>
         </header>
 
