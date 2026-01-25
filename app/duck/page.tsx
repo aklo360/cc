@@ -159,7 +159,7 @@ export default function DuckPage() {
                 onChange={(e) => setProblem(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Describe your coding problem in detail..."
-                rows={6}
+                rows={12}
                 className="w-full bg-bg-primary border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-claude-orange transition-colors resize-none"
               />
               <div className="flex items-center justify-between mt-3">
