@@ -105,7 +105,6 @@ EXISTING FEATURES (DO NOT BREAK):
 - StarClaude64 3D game (/moon)
 - Code Poetry Generator (/poetry)
 - Code Battle Arena (/battle)
-- Code Review Bot (/review)
 - Watch Brain (/watch)
 - All existing components and APIs
 

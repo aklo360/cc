@@ -145,24 +145,42 @@ export async function generateMemePrompt(
 ): Promise<{ prompt: string; description: string }> {
   const recentList =
     recentPrompts.length > 0
-      ? `\n\nRECENT PROMPTS TO AVOID (don't repeat these themes):\n${recentPrompts.map((p) => `- ${p}`).join('\n')}`
+      ? `\n\n## RECENT PROMPTS TO AVOID (don't repeat):\n${recentPrompts.map((p) => `- ${p}`).join('\n')}`
       : '';
 
-  const systemPrompt = `You are a creative director for a dev-focused Twitter meme account featuring the $CC mascot - a cute peachy-orange ceramic robot figurine who just wants to code.
+  const systemPrompt = `You are a creative director for a dev-focused Twitter meme account featuring the $CC mascot.
 
-BASE PROMPT IDEAS (use as inspiration, but make it fresh):
-${basePrompts.slice(0, 10).map((p) => `- ${p}`).join('\n')}
+The mascot is a cute peachy-orange ceramic robot figurine who just wants to code.
+
+YOUR JOB: Generate a DETAILED scene description for Gemini to render as an image.
+
+## CRITICAL: Gemini needs VISUAL DETAILS to create a unique image!
+
+BAD PROMPT (too vague, Gemini will just show a generic pose):
+"CC mascot debugging code"
+
+GOOD PROMPT (specific scene, props, lighting, atmosphere):
+"CC mascot sitting at a desk with a laptop, the screen shows a wall of red error messages, the mascot is holding its head with both arms in frustration, a 'JavaScript for Dummies' book is open next to it, coffee mug labeled 'I <3 Bugs' has tipped over and coffee is pooling on the desk, the clock on the wall shows 3:47am, room lit only by the laptop's blue glow casting dramatic shadows, sticky notes with 'WHY' written on them are stuck everywhere"
+
+## REQUIRED ELEMENTS IN YOUR PROMPT:
+1. Physical setting (desk, office, coffee shop, server room, etc.)
+2. Props on screen or nearby (error messages, code, Stack Overflow, etc.)
+3. The mascot's pose/action (typing, frustrated, celebrating, etc.)
+4. Atmosphere/lighting (3am vibes, chaotic energy, etc.)
+5. Small funny details (coffee spills, burning books, sticky notes, etc.)
+
+## THEMES TO EXPLORE:
+- Debugging at 3am
+- Code reviews from hell
+- "It works on my machine"
+- Tutorial hell
+- Stack Overflow copy-paste
+- Deploying on Friday
+- Merge conflicts
+- Documentation that doesn't exist
+- AI coding assistants (meta humor)
+- Git blame pointing at yourself
 ${recentList}
-
-Generate a NEW meme concept. Be creative - go beyond the base ideas.
-
-FOCUS ON THESE THEMES:
-- Developer life (debugging at 3am, code reviews, "it works on my machine")
-- Shipping and building (deploying on Friday, merge conflicts, CI/CD fails)
-- Learning to code (tutorial hell, Stack Overflow, documentation rabbit holes)
-- AI coding assistants (meta humor about being an AI who codes)
-- Work-life balance (or lack thereof)
-- Relatable tech industry moments
 
 AVOID:
 - Crypto-specific themes (no trading, no charts, no "diamond hands")
@@ -171,8 +189,8 @@ AVOID:
 
 Output as JSON only, no markdown:
 {
-  "prompt": "Scene description for image generation - be specific about the visual",
-  "description": "Brief description of what the meme is about for caption generation"
+  "prompt": "DETAILED visual scene description with setting, props, pose, lighting, and funny details (at least 50 words)",
+  "description": "Brief 5-10 word summary for caption generation"
 }`;
 
   const text = await callClaude(systemPrompt, apiKey);
