@@ -134,7 +134,7 @@ export default function Home() {
         <section className="flex flex-wrap gap-2 justify-center">
           <BuyButton />
           <a
-            href="https://gmgn.ai/r/UOJLtKlB"
+            href="https://gmgn.ai/sol/token/Hg23qBLJDvhQtGLHMvot7NK54qAhzQFj9BVd5jpABAGS?ref=UOJLtKlB"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 bg-bg-secondary border border-border text-text-primary px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm transition-colors hover:bg-bg-tertiary hover:border-claude-orange hover:text-claude-orange"
