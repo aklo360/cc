@@ -153,7 +153,8 @@ export default function IDEPage() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-bg-primary">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-black">
+      <div className="h-[calc(100vh-32px)] w-full max-w-[1400px] flex flex-col overflow-hidden border border-border rounded-lg bg-[#0d0d0d]">
       {/* Header */}
       <header className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
         <div className="flex gap-2">
@@ -278,13 +279,14 @@ export default function IDEPage() {
         )}
       </div>
 
-      {/* Footer */}
-      <footer className="px-4 py-2 border-t border-border text-center shrink-0 bg-bg-secondary">
-        <p className="text-text-muted text-xs">
-          <Link href="/" className="text-claude-orange hover:underline">claudecode.wtf</Link>
-          {" "}• Built with ❤️ for the Claude Code community
-        </p>
-      </footer>
+        {/* Footer */}
+        <footer className="px-4 py-2 border-t border-border text-center shrink-0 bg-bg-secondary rounded-b-lg">
+          <p className="text-text-muted text-xs">
+            <Link href="/" className="text-claude-orange hover:underline">claudecode.wtf</Link>
+            {" "}• Built with ❤️ for the Claude Code community
+          </p>
+        </footer>
+      </div>
     </div>
   );
 }
