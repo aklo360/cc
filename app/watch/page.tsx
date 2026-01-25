@@ -250,8 +250,8 @@ export default function WatchPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center py-4 sm:py-8">
-      <div className="max-w-6xl w-full px-4 sm:px-5">
+    <div className="min-h-screen w-full flex items-center justify-center py-4 sm:py-8 px-[5%]">
+      <div className="max-w-6xl w-[90%]">
         {/* Header */}
         <header className="flex items-center gap-3 py-3 border-b border-border mb-6">
           <div className="flex gap-2">
