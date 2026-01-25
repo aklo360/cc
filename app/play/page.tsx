@@ -20,7 +20,7 @@ export default function PlayPage() {
             href="/meme"
             className="text-text-muted text-xs ml-auto hover:text-claude-orange transition-colors"
           >
-            Meme Generator →
+            Classic Arcade Style
           </Link>
         </header>
 
