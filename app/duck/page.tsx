@@ -65,7 +65,7 @@ export default function DuckPage() {
   };
 
   return (
-    <div className="min-h-screen w-screen flex items-center justify-center p-4 bg-gradient-to-br from-bg-primary via-bg-secondary to-bg-tertiary">
+    <div className="min-h-screen w-full flex items-center justify-center p-4">
       <div className="max-w-[900px] w-full flex flex-col gap-6">
         {/* Header */}
         <header className="flex items-center gap-3 py-3 border-b border-border">
