@@ -49,6 +49,8 @@ A memecoin website for $CC (Claude Code Coin) featuring:
 7. **Video Generator** (`/video`) - Remotion-based cinematic trailer generator
 8. **Central Brain** (`/brain`) - Full autonomous software engineering agent
 9. **VJ Agent** (`/vj`) - Claude-powered live audio-reactive visual generator
+10. **Rubber Duck Debugger** (`/duck`) - Interactive debugging companion
+11. **Code Roast** (`/roast`) - Humorous code critique with actual suggestions
 
 ### Why It Exists
 $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% of fees go to @bcherny.
@@ -145,9 +147,14 @@ ccwtf/
 │   │   ├── ContractAddress.tsx   # Copy-to-clipboard contract
 │   │   ├── SpaceInvaders.tsx     # Canvas 2D game (346 lines)
 │   │   └── Terminal.tsx          # Animated typewriter Q&A
+│   ├── duck/
+│   │   └── page.tsx              # Rubber Duck Debugger
 │   ├── meme/
 │   │   └── page.tsx              # Meme generator UI
 │   ├── moon/
+│   │   └── page.tsx              # StarClaude64 3D game page
+│   ├── roast/
+│   │   └── page.tsx              # Code Roast page
 │   │   └── page.tsx              # StarClaude64 3D game page
 │   ├── play/
 │   │   └── page.tsx              # Space Invaders game page
@@ -349,6 +356,24 @@ npm install
 # Then visit /vj in the main Next.js app
 ```
 
+### 10. Rubber Duck Debugger (`/duck`)
+Interactive debugging companion based on "The Pragmatic Programmer" technique:
+- Animated SVG duck with quacking animation
+- Problem input textarea with common examples
+- Pre-built problem templates for quick testing
+- API integration for AI-powered debugging advice
+- Occasionally gives intentionally bad advice (clearly marked)
+- Explains the rubber duck debugging methodology
+
+### 11. Code Roast (`/roast`)
+Humorous code critique with actual suggestions:
+- Code input with example snippets
+- Random example button for testing
+- AI-generated roasts with dev humor
+- Actual improvement suggestions alongside the roast
+- Feature cards (Brutally Honest, Actually Helpful, With Love)
+- List of common roast targets (using var in 2026, console.log debugging, etc.)
+
 ### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT v4.1
 Continuous shipping agent - ships up to 5 features per day:
 
@@ -364,7 +389,7 @@ Continuous shipping agent - ships up to 5 features per day:
   9. **HOMEPAGE** - Auto-adds button to homepage for new feature
   10. **CONTINUE** - After 30min cooldown, starts next cycle (up to 5/day)
 - **Continuous Shipping Mode:**
-  - 30-minute cooldown between cycles
+  - 4.5-hour cooldown between cycles (staggered for visibility)
   - Daily limit of 5 features (prevents runaway costs)
   - Auto-starts next cycle after cooldown
   - Resets at midnight UTC
@@ -414,6 +439,16 @@ ssh root@5.161.107.128
 cd /root/ccwtf/brain
 pm2 start npm --name cc-brain -- run dev
 pm2 logs cc-brain  # View logs
+```
+
+**⚠️ IMPORTANT: Cancel Endpoint Limitation**
+The `/cancel` endpoint only marks the cycle as complete in SQLite - it does NOT kill the running Claude subprocess. To fully cancel:
+```bash
+# 1. Cancel via API
+curl -X POST https://brain.claudecode.wtf/cancel
+
+# 2. Kill the orphaned Claude process
+ssh root@5.161.107.128 "pkill -f '/root/.local/bin/claude'"
 ```
 
 ---
@@ -511,6 +546,8 @@ npx wrangler deploy
 | File | Purpose | Lines |
 |------|---------|-------|
 | `app/page.tsx` | Homepage with all content | ~180 |
+| `app/duck/page.tsx` | Rubber Duck Debugger | ~225 |
+| `app/roast/page.tsx` | Code Roast page | ~215 |
 | `app/meme/page.tsx` | Meme generator UI | ~227 |
 | `app/components/SpaceInvaders.tsx` | 2D Canvas game | ~346 |
 | `app/components/MoonMission/index.tsx` | 3D game wrapper | ~110 |

@@ -6,6 +6,91 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-25] - Source Code Sync + VPS Cleanup
+
+### Added - Recovered Pages from Deployment
+Synced pages that existed in Cloudflare deployment but not in source repo:
+
+- **`/duck`** - Rubber Duck Debugger
+  - Interactive debugging companion
+  - Animated SVG duck with quacking animation
+  - Common problem templates
+  - API integration for AI-powered advice
+  - Based on "The Pragmatic Programmer" debugging technique
+
+- **`/roast`** - Code Roast (Claude's Code Critique Corner)
+  - Paste code for a humorous roast
+  - Example code snippets with random selector
+  - AI-generated roasts with actual suggestions
+  - Feature cards and roast targets list
+
+### Removed - Incomplete Features from VPS
+Cleaned up half-finished features from cancelled brain cycles:
+- `/commit` - Removed from VPS
+- `/confess` - Removed from VPS
+- `/review` - Removed from VPS and source
+- `/time` - Removed from VPS
+- `/translate` - Removed from VPS
+
+### Fixed - Cancel Endpoint Subprocess Handling
+The brain's `/cancel` endpoint only marked the cycle as complete in SQLite but didn't kill the running Claude subprocess. The fix requires explicitly killing the process:
+```bash
+# Kill orphaned Claude process after cancel
+ssh root@5.161.107.128 "pkill -f '/root/.local/bin/claude'"
+```
+
+### Changed - Watch Page UI
+- Centered the watch page UI both horizontally and vertically
+- Better visual balance for the brain monitor interface
+
+### New Files
+- `app/duck/page.tsx` - Rubber Duck Debugger (~225 lines)
+- `app/roast/page.tsx` - Code Roast page (~215 lines)
+
+---
+
+## [2026-01-24] - Trailer System Overhaul + Duplicate Prevention
+
+### Changed - Universal 20-Second Trailer Format
+ALL trailers now use the same 20-second format with WebGL detection:
+
+**Timeline:**
+1. 0:00-0:04 - TitleCard with particles and glow
+2. 0:04-0:14 - Feature content (static image OR WebGL live render)
+3. 0:14-0:18 - FeatureCallout with scan-line reveal
+4. 0:18-0:20 - CallToAction with URL
+
+**WebGL Detection:**
+- Features with WebGL (Three.js, canvas games) get live Puppeteer capture
+- Static features use screenshot with Ken Burns zoom effect
+- Automatic classification based on feature type
+
+### Added - Duplicate Feature Prevention System
+Brain now checks for existing features before building:
+
+```typescript
+const EXISTING_FEATURES = [
+  '/poetry', '/haiku', '/battle', '/type', '/duck', '/roast', ...
+];
+```
+
+- Planning phase explicitly excludes existing features
+- Prevents brain from rebuilding same feature twice
+- List updated in `brain/src/cycle.ts`
+
+### Fixed - Git Push Before Deploy
+Added `git push origin main` to deployment flow:
+- Code pushed to GitHub BEFORE Cloudflare deploy
+- Ensures source repo stays in sync with production
+- Modified `brain/src/deployer.ts`
+
+### Changed - Staggered Shipping Timing
+- Changed from 30min to 4.5h between feature cycles
+- Gives more time for each feature to get visibility
+- Daily limit remains at 5 features
+
+---
+
 ## [2026-01-23] - VJ Agent (Live Audio-Reactive Visuals)
 
 ### Added - VJ Agent (`/vj`)
