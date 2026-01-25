@@ -254,15 +254,15 @@ export default function WatchPage() {
       <div className="max-w-6xl w-[90%]">
         {/* Header */}
         <header className="flex items-center gap-3 py-3 mb-6">
-          <div className="flex gap-2">
+          <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
             <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
             <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
             <div className="w-3 h-3 rounded-full bg-[#28c840]" />
-          </div>
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <img src="/cc.png" alt="$CC" width={24} height={24} />
-            <span className="text-claude-orange font-semibold text-sm">Watch Dev Cook</span>
           </Link>
+          <Link href="/" className="hover:opacity-80 transition-opacity">
+            <img src="/cc.png" alt="$CC" width={24} height={24} />
+          </Link>
+          <span className="text-claude-orange font-semibold text-sm">Watch Dev Cook</span>
           <span className={`px-2 py-1 text-xs rounded ml-2 ${
             connected
               ? 'bg-green-500/20 text-green-400'
@@ -462,11 +462,11 @@ export default function WatchPage() {
 
         {/* Footer */}
         <footer className="py-4 mt-6 text-center">
-          <p className="text-text-muted text-xs">
-            <Link href="/" className="text-claude-orange hover:underline">
-              claudecode.wtf
-            </Link>{' '}
-            · 100% of fees to @bcherny
+          <Link href="/" className="text-claude-orange hover:underline text-sm">
+            ← back
+          </Link>
+          <p className="text-text-muted text-xs mt-2">
+            claudecode.wtf · 100% of fees to @bcherny
           </p>
         </footer>
       </div>

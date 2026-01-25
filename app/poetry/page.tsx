@@ -132,15 +132,15 @@ export default function PoetryPage() {
       <div className="max-w-[1200px] w-full flex flex-col">
         {/* Header */}
         <header className="flex items-center gap-3 py-3 border-b border-border shrink-0">
-          <div className="flex gap-2">
+          <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
             <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
             <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
             <div className="w-3 h-3 rounded-full bg-[#28c840]" />
-          </div>
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <img src="/cc.png" alt="$CC" width={24} height={24} />
-            <span className="text-claude-orange font-semibold text-sm">Code Poetry Generator</span>
           </Link>
+          <Link href="/" className="hover:opacity-80 transition-opacity">
+            <img src="/cc.png" alt="$CC" width={24} height={24} />
+          </Link>
+          <span className="text-claude-orange font-semibold text-sm">Code Poetry Generator</span>
           <span className="text-text-muted text-xs ml-auto hidden sm:block">
             Transform code into art
           </span>
@@ -278,11 +278,11 @@ export default function PoetryPage() {
 
         {/* Footer */}
         <footer className="py-3 border-t border-border text-center shrink-0 mt-4">
-          <p className="text-text-muted text-xs">
-            <Link href="/" className="text-claude-orange hover:underline">
-              claudecode.wtf
-            </Link>
-            {" "}&middot; Where code becomes poetry
+          <Link href="/" className="text-claude-orange hover:underline text-sm">
+            ← back
+          </Link>
+          <p className="text-text-muted text-xs mt-2">
+            claudecode.wtf · Where code becomes poetry
           </p>
         </footer>
       </div>
