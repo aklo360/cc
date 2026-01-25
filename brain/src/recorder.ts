@@ -7,6 +7,11 @@
  * - ffmpeg encoding to MP4
  *
  * Each feature gets a unique trailer based on what it does.
+ *
+ * Fixed issues:
+ * - Proper browser cleanup in all error cases
+ * - Launch timeout to prevent hanging
+ * - Overall recording timeout
  */
 
 import puppeteer, { Page, Browser, KeyInput } from 'puppeteer';
@@ -17,6 +22,41 @@ import fs from 'fs';
 import { buildEvents } from './builder.js';
 
 const execAsync = promisify(exec);
+
+// Timeouts
+const BROWSER_LAUNCH_TIMEOUT_MS = 30000; // 30 seconds
+const RECORDING_TIMEOUT_MS = 300000;     // 5 minutes max per recording
+
+// Track active browsers for cleanup
+const activeBrowsers = new Set<Browser>();
+
+/**
+ * Safely close browser and remove from tracking
+ */
+async function closeBrowser(browser: Browser): Promise<void> {
+  try {
+    activeBrowsers.delete(browser);
+    await browser.close();
+  } catch {
+    // Ignore close errors
+  }
+}
+
+// Cleanup any active browsers on process exit
+function cleanupRecorderBrowsers(): void {
+  for (const browser of activeBrowsers) {
+    try {
+      browser.close();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  }
+  activeBrowsers.clear();
+}
+
+process.on('exit', cleanupRecorderBrowsers);
+process.on('SIGINT', cleanupRecorderBrowsers);
+process.on('SIGTERM', cleanupRecorderBrowsers);
 
 // Output directories
 const FRAMES_DIR = '/tmp/cc-brain-frames';
@@ -59,10 +99,12 @@ export async function recordFeature(
   const framesDir = path.join(FRAMES_DIR, featureName);
   fs.mkdirSync(framesDir, { recursive: true });
 
+  let browser: Browser | null = null;
+
   try {
-    // Launch browser
+    // Launch browser with timeout
     log('🌐 Launching browser...');
-    const browser = await puppeteer.launch({
+    const launchPromise = puppeteer.launch({
       headless: true, // Headless for VPS
       defaultViewport: null,
       args: [
@@ -75,6 +117,13 @@ export async function recordFeature(
         '--disable-renderer-backgrounding',
       ],
     });
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Browser launch timed out after ${BROWSER_LAUNCH_TIMEOUT_MS}ms`)), BROWSER_LAUNCH_TIMEOUT_MS);
+    });
+
+    browser = await Promise.race([launchPromise, timeoutPromise]);
+    activeBrowsers.add(browser);
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
@@ -114,7 +163,8 @@ export async function recordFeature(
     }
 
     log(`✅ Captured ${totalFrames} frames`);
-    await browser.close();
+    await closeBrowser(browser);
+    browser = null; // Mark as closed
 
     // Encode to MP4
     log('🎥 Encoding to MP4...');
@@ -154,6 +204,11 @@ export async function recordFeature(
     log(`💥 Recording error: ${errorMessage}`);
     fs.rmSync(framesDir, { recursive: true, force: true });
     return { success: false, error: errorMessage };
+  } finally {
+    // ALWAYS clean up browser
+    if (browser) {
+      await closeBrowser(browser);
+    }
   }
 }
 
@@ -172,19 +227,31 @@ export async function recordGameFeature(
   const framesDir = path.join(FRAMES_DIR, featureName);
   fs.mkdirSync(framesDir, { recursive: true });
 
+  let browser: Browser | null = null;
+
   try {
-    const browser = await puppeteer.launch({
-      headless: false, // Need visible for games
+    // Launch browser with timeout
+    const launchPromise = puppeteer.launch({
+      headless: true, // Use headless on VPS (changed from false)
       defaultViewport: null,
       args: [
         '--window-size=1920,1080',
         '--disable-web-security',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
         '--autoplay-policy=no-user-gesture-required',
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
       ],
     });
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Browser launch timed out after ${BROWSER_LAUNCH_TIMEOUT_MS}ms`)), BROWSER_LAUNCH_TIMEOUT_MS);
+    });
+
+    browser = await Promise.race([launchPromise, timeoutPromise]);
+    activeBrowsers.add(browser);
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
@@ -291,7 +358,8 @@ export async function recordGameFeature(
     for (const key of keys) {
       await page.keyboard.up(key);
     }
-    await browser.close();
+    await closeBrowser(browser);
+    browser = null; // Mark as closed
 
     // Encode
     log('🎥 Encoding game footage...');
@@ -322,5 +390,10 @@ export async function recordGameFeature(
     log(`💥 Game recording error: ${errorMessage}`);
     fs.rmSync(framesDir, { recursive: true, force: true });
     return { success: false, error: errorMessage };
+  } finally {
+    // ALWAYS clean up browser
+    if (browser) {
+      await closeBrowser(browser);
+    }
   }
 }

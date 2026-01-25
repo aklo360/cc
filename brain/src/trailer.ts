@@ -15,15 +15,13 @@
  * - Camera tracks focal points perfectly centered
  */
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
 import { buildEvents } from './builder.js';
 import { recordFeature } from './recorder.js';
 import { FeatureManifest } from './manifest.js';
-
-const execAsync = promisify(exec);
+import { execWithTimeout } from './process-manager.js';
+import { getCycleTrailer, setCycleTrailer } from './db.js';
 
 // Paths
 const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
@@ -57,6 +55,8 @@ export interface TrailerConfig {
   tagline?: string;
   /** Ground truth manifest from the deployed feature - prevents hallucination */
   manifest?: FeatureManifest;
+  /** Cycle ID for idempotency - reuses existing trailer if available */
+  cycleId?: number;
 }
 
 export interface TrailerResult {
@@ -307,16 +307,38 @@ async function captureIntercutFootage(
  * Main entry point - generates a 20-second Remotion trailer
  *
  * Flow:
- * 1. Check if manifest indicates WebGL (needs screen recording)
- * 2. If WebGL: capture 6s footage first
- * 3. Generate scene content from manifest (ground truth)
- * 4. Render with Remotion (always 20 seconds)
+ * 1. Check for existing trailer (idempotency)
+ * 2. Check if manifest indicates WebGL (needs screen recording)
+ * 3. If WebGL: capture 6s footage first
+ * 4. Generate scene content from manifest (ground truth)
+ * 5. Render with Remotion (always 20 seconds)
+ * 6. Store trailer path in DB for future reuse
  */
 export async function generateTrailer(
   config: TrailerConfig,
   deployUrl?: string
 ): Promise<TrailerResult> {
   log(`🎬 Generating ${TRAILER_DURATION_SEC}s trailer for: ${config.name}`);
+
+  // IDEMPOTENCY: Check if trailer already exists for this cycle
+  if (config.cycleId) {
+    const existingTrailer = getCycleTrailer(config.cycleId);
+    if (existingTrailer && fs.existsSync(existingTrailer)) {
+      log(`   ✓ Reusing existing trailer: ${path.basename(existingTrailer)}`);
+      const videoBuffer = fs.readFileSync(existingTrailer);
+      const videoBase64 = videoBuffer.toString('base64');
+      const stats = fs.statSync(existingTrailer);
+      const sizeMb = (stats.size / 1024 / 1024).toFixed(1);
+
+      log(`   ✓ Loaded existing trailer: ${sizeMb} MB`);
+      return {
+        success: true,
+        videoPath: existingTrailer,
+        videoBase64,
+        durationSec: TRAILER_DURATION_SEC,
+      };
+    }
+  }
 
   // Check if this needs WebGL footage (based on manifest detection)
   const needsFootage = needsWebGLFootage(config.manifest);
@@ -356,9 +378,11 @@ export async function generateTrailer(
 
     const command = `cd "${VIDEO_DIR}" && npx remotion render WebappTrailer "${outputPath}" --props='${propsJson}' --log=error`;
 
-    const { stdout, stderr } = await execAsync(command, {
-      timeout: 180000, // 3 minute timeout
-      maxBuffer: 10 * 1024 * 1024,
+    // Use execWithTimeout for proper process killing on timeout
+    const { stdout, stderr } = await execWithTimeout(command, {
+      timeout: 180000, // 3 minute timeout - process WILL be killed on timeout
+      description: 'Remotion render',
+      cycleId: config.cycleId,
     });
 
     if (stderr && !stderr.includes('Rendered')) {
@@ -369,6 +393,12 @@ export async function generateTrailer(
     if (!fs.existsSync(outputPath)) {
       log(`❌ Remotion output not found at ${outputPath}`);
       return { success: false, error: 'Remotion render produced no output' };
+    }
+
+    // Store trailer path in DB for idempotency
+    if (config.cycleId) {
+      setCycleTrailer(config.cycleId, outputPath);
+      log(`   ✓ Trailer path stored in database for idempotency`);
     }
 
     // Read video as base64 for Twitter

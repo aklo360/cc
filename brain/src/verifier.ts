@@ -10,10 +10,39 @@
  * 1. BASIC: Page loads, no console errors, key elements visible
  * 2. INTERACTIVE: Can click buttons, submit forms, see expected results
  * 3. GAME: Start button works, game starts, player can interact
+ *
+ * Fixed issues:
+ * - Added launch timeout to prevent hanging
+ * - Added overall verification timeout
+ * - Proper browser cleanup in all cases
  */
 
 import puppeteer, { Browser, Page } from 'puppeteer';
 import { buildEvents } from './builder.js';
+
+// Timeouts
+const BROWSER_LAUNCH_TIMEOUT_MS = 30000; // 30 seconds to launch browser
+const VERIFICATION_TIMEOUT_MS = 120000;  // 2 minutes for entire verification
+
+// Track active browsers for cleanup
+const activeBrowsers = new Set<Browser>();
+
+// Cleanup any active browsers on process exit
+function cleanupActiveBrowsers(): void {
+  for (const browser of activeBrowsers) {
+    try {
+      browser.close();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  }
+  activeBrowsers.clear();
+}
+
+// Register cleanup handlers
+process.on('exit', cleanupActiveBrowsers);
+process.on('SIGINT', cleanupActiveBrowsers);
+process.on('SIGTERM', cleanupActiveBrowsers);
 
 export interface VerificationResult {
   success: boolean;
@@ -66,9 +95,10 @@ function getVerificationType(description: string, slug: string): 'basic' | 'inte
 
 /**
  * Launch browser with proper settings for VPS
+ * Includes timeout to prevent hanging
  */
 async function launchBrowser(): Promise<Browser> {
-  return puppeteer.launch({
+  const launchPromise = puppeteer.launch({
     headless: true,
     args: [
       '--no-sandbox',
@@ -79,6 +109,28 @@ async function launchBrowser(): Promise<Browser> {
       '--window-size=1920,1080',
     ],
   });
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`Browser launch timed out after ${BROWSER_LAUNCH_TIMEOUT_MS}ms`));
+    }, BROWSER_LAUNCH_TIMEOUT_MS);
+  });
+
+  const browser = await Promise.race([launchPromise, timeoutPromise]);
+  activeBrowsers.add(browser);
+  return browser;
+}
+
+/**
+ * Safely close browser and remove from tracking
+ */
+async function closeBrowser(browser: Browser): Promise<void> {
+  try {
+    activeBrowsers.delete(browser);
+    await browser.close();
+  } catch {
+    // Ignore close errors
+  }
 }
 
 /**
@@ -553,84 +605,111 @@ async function verifyBrand(page: Page, config: VerificationConfig): Promise<Veri
 /**
  * Main verification entry point
  * Runs the appropriate verification based on feature type
+ * Includes overall timeout to prevent hanging
  */
 export async function verifyFeature(config: VerificationConfig): Promise<VerificationResult> {
   const verificationType = getVerificationType(config.description, config.slug);
   log(`🔍 FUNCTIONAL VERIFICATION: ${config.name}`);
   log(`   Type: ${verificationType}`);
   log(`   URL: ${config.deployUrl}`);
+  log(`   Timeout: ${VERIFICATION_TIMEOUT_MS / 1000}s`);
 
   let browser: Browser | null = null;
 
-  try {
-    browser = await launchBrowser();
-    const page = await browser.newPage();
+  // Wrap entire verification in timeout
+  const verificationPromise = async (): Promise<VerificationResult> => {
+    try {
+      browser = await launchBrowser();
+      const page = await browser.newPage();
 
-    // Set viewport
-    await page.setViewport({ width: 1920, height: 1080 });
+      // Set viewport
+      await page.setViewport({ width: 1920, height: 1080 });
 
-    // Collect console errors
-    const consoleErrors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
+      // Collect console errors
+      const consoleErrors: string[] = [];
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          consoleErrors.push(msg.text());
+        }
+      });
+
+      let result: VerificationResult;
+
+      // FIRST: Run brand verification (CRITICAL - must pass before functional tests)
+      log(`   → Running brand verification FIRST...`);
+      const brandResult = await verifyBrand(page, config);
+      if (!brandResult.success) {
+        log(`❌ BRAND VERIFICATION FAILED - Feature does not match claudecode.wtf design system`);
+        log(`   This feature will be REJECTED until it follows brand guidelines.`);
+        return brandResult;
       }
-    });
 
-    let result: VerificationResult;
-
-    // FIRST: Run brand verification (CRITICAL - must pass before functional tests)
-    log(`   → Running brand verification FIRST...`);
-    const brandResult = await verifyBrand(page, config);
-    if (!brandResult.success) {
-      log(`❌ BRAND VERIFICATION FAILED - Feature does not match claudecode.wtf design system`);
-      log(`   This feature will be REJECTED until it follows brand guidelines.`);
-      return brandResult;
-    }
-
-    // THEN: Run functional verification based on type
-    switch (verificationType) {
-      case 'game':
-        result = await verifyGame(page, config);
-        break;
-      case 'interactive':
-        result = await verifyInteractive(page, config);
-        break;
-      default:
-        result = await verifyBasic(page, config);
-    }
-
-    // Add any console errors
-    if (consoleErrors.length > 0) {
-      result.warnings.push(`Console errors detected: ${consoleErrors.slice(0, 3).join('; ')}`);
-    }
-
-    // Log result
-    if (result.success) {
-      log(`✅ VERIFICATION PASSED: ${config.name}`);
-      if (result.warnings.length > 0) {
-        log(`   Warnings: ${result.warnings.join(', ')}`);
+      // THEN: Run functional verification based on type
+      switch (verificationType) {
+        case 'game':
+          result = await verifyGame(page, config);
+          break;
+        case 'interactive':
+          result = await verifyInteractive(page, config);
+          break;
+        default:
+          result = await verifyBasic(page, config);
       }
-    } else {
-      log(`❌ VERIFICATION FAILED: ${config.name}`);
-      log(`   Errors: ${result.errors.join(', ')}`);
-    }
 
-    return result;
+      // Add any console errors
+      if (consoleErrors.length > 0) {
+        result.warnings.push(`Console errors detected: ${consoleErrors.slice(0, 3).join('; ')}`);
+      }
 
-  } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    log(`❌ VERIFICATION ERROR: ${errorMsg}`);
-    return {
-      success: false,
-      errors: [`Verification crashed: ${errorMsg}`],
-      warnings: [],
-    };
-  } finally {
-    if (browser) {
-      await browser.close();
+      // Log result
+      if (result.success) {
+        log(`✅ VERIFICATION PASSED: ${config.name}`);
+        if (result.warnings.length > 0) {
+          log(`   Warnings: ${result.warnings.join(', ')}`);
+        }
+      } else {
+        log(`❌ VERIFICATION FAILED: ${config.name}`);
+        log(`   Errors: ${result.errors.join(', ')}`);
+      }
+
+      return result;
+
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log(`❌ VERIFICATION ERROR: ${errorMsg}`);
+      return {
+        success: false,
+        errors: [`Verification crashed: ${errorMsg}`],
+        warnings: [],
+      };
+    } finally {
+      if (browser) {
+        await closeBrowser(browser);
+      }
     }
+  };
+
+  // Create timeout promise
+  const timeoutPromise = new Promise<VerificationResult>((resolve) => {
+    setTimeout(() => {
+      log(`⏰ VERIFICATION TIMEOUT: Exceeded ${VERIFICATION_TIMEOUT_MS / 1000}s`);
+      resolve({
+        success: false,
+        errors: [`Verification timed out after ${VERIFICATION_TIMEOUT_MS / 1000} seconds`],
+        warnings: [],
+      });
+    }, VERIFICATION_TIMEOUT_MS);
+  });
+
+  // Race verification against timeout
+  const result = await Promise.race([verificationPromise(), timeoutPromise]);
+
+  // If we timed out, ensure browser is cleaned up
+  if (browser) {
+    await closeBrowser(browser);
   }
+
+  return result;
 }
 
 /**
@@ -649,7 +728,7 @@ export async function smokeTest(url: string): Promise<boolean> {
     return false;
   } finally {
     if (browser) {
-      await browser.close();
+      await closeBrowser(browser);
     }
   }
 }

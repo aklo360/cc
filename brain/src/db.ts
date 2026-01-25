@@ -67,7 +67,11 @@ db.exec(`
     project_slug TEXT,
     started_at TEXT DEFAULT CURRENT_TIMESTAMP,
     ends_at TEXT,
-    completed_at TEXT
+    completed_at TEXT,
+    claude_pid INTEGER,
+    last_phase INTEGER DEFAULT 0,
+    error_message TEXT,
+    trailer_path TEXT
   );
 
   CREATE TABLE IF NOT EXISTS scheduled_tweets (
@@ -97,6 +101,34 @@ db.exec(`
     shipped_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+// ============ Schema Migration ============
+// Add new columns to existing tables if they don't exist
+// This handles upgrades from older versions of the database
+
+function columnExists(tableName: string, columnName: string): boolean {
+  const pragma = db.prepare(`PRAGMA table_info(${tableName})`);
+  const columns = pragma.all() as { name: string }[];
+  return columns.some(col => col.name === columnName);
+}
+
+// Migrate cycles table
+if (!columnExists('cycles', 'claude_pid')) {
+  console.log('  Migrating: Adding claude_pid column to cycles table');
+  db.exec('ALTER TABLE cycles ADD COLUMN claude_pid INTEGER');
+}
+if (!columnExists('cycles', 'last_phase')) {
+  console.log('  Migrating: Adding last_phase column to cycles table');
+  db.exec('ALTER TABLE cycles ADD COLUMN last_phase INTEGER DEFAULT 0');
+}
+if (!columnExists('cycles', 'error_message')) {
+  console.log('  Migrating: Adding error_message column to cycles table');
+  db.exec('ALTER TABLE cycles ADD COLUMN error_message TEXT');
+}
+if (!columnExists('cycles', 'trailer_path')) {
+  console.log('  Migrating: Adding trailer_path column to cycles table');
+  db.exec('ALTER TABLE cycles ADD COLUMN trailer_path TEXT');
+}
 
 console.log('✓ SQLite database initialized');
 
@@ -276,6 +308,10 @@ export interface Cycle {
   started_at: string;
   ends_at: string | null;
   completed_at: string | null;
+  claude_pid: number | null;
+  last_phase: number;
+  error_message: string | null;
+  trailer_path: string | null;
 }
 
 export function createCycle(): number {
@@ -387,10 +423,17 @@ export function cancelExpiredCycles(): number {
   return result.changes;
 }
 
-export function cleanupOnStartup(): { cancelled: number; expired: number } {
+export function cleanupOnStartup(): { cancelled: number; expired: number; pidsToKill: number[] } {
+  // Get PIDs of any active cycles before cancelling
+  const activeCycles = db.prepare(`
+    SELECT claude_pid FROM cycles WHERE status IN ('planning', 'executing') AND claude_pid IS NOT NULL
+  `).all() as { claude_pid: number }[];
+
+  const pidsToKill = activeCycles.map(c => c.claude_pid).filter(Boolean);
+
   const cancelled = cancelIncompleteCycles();
   const expired = cancelExpiredCycles();
-  return { cancelled, expired };
+  return { cancelled, expired, pidsToKill };
 }
 
 // ============ Daily Stats Helpers ============
@@ -524,6 +567,175 @@ export function findSimilarFeature(slug: string): ShippedFeature | null {
     SELECT * FROM shipped_features WHERE slug = ?
   `);
   return (stmt.get(slug) as ShippedFeature) || null;
+}
+
+// ============ Cycle Process & Phase Tracking ============
+
+/**
+ * Update Claude PID for a cycle (for process cleanup on cancel)
+ */
+export function setCyclePid(cycleId: number, pid: number): void {
+  const stmt = db.prepare(`
+    UPDATE cycles SET claude_pid = ? WHERE id = ?
+  `);
+  stmt.run(pid, cycleId);
+}
+
+/**
+ * Get Claude PID for a cycle
+ */
+export function getCyclePid(cycleId: number): number | null {
+  const stmt = db.prepare(`
+    SELECT claude_pid FROM cycles WHERE id = ?
+  `);
+  const result = stmt.get(cycleId) as { claude_pid: number | null } | undefined;
+  return result?.claude_pid || null;
+}
+
+/**
+ * Update the last completed phase for a cycle
+ * Used for recovery after crashes
+ */
+export function updateCyclePhase(cycleId: number, phase: number): void {
+  const stmt = db.prepare(`
+    UPDATE cycles SET last_phase = ? WHERE id = ?
+  `);
+  stmt.run(phase, cycleId);
+}
+
+/**
+ * Get the last completed phase for a cycle
+ */
+export function getCyclePhase(cycleId: number): number {
+  const stmt = db.prepare(`
+    SELECT last_phase FROM cycles WHERE id = ?
+  `);
+  const result = stmt.get(cycleId) as { last_phase: number } | undefined;
+  return result?.last_phase || 0;
+}
+
+/**
+ * Set error message for a cycle
+ */
+export function setCycleError(cycleId: number, error: string): void {
+  const stmt = db.prepare(`
+    UPDATE cycles SET error_message = ? WHERE id = ?
+  `);
+  stmt.run(error, cycleId);
+}
+
+/**
+ * Set trailer path for a cycle (for idempotency)
+ */
+export function setCycleTrailer(cycleId: number, trailerPath: string): void {
+  const stmt = db.prepare(`
+    UPDATE cycles SET trailer_path = ? WHERE id = ?
+  `);
+  stmt.run(trailerPath, cycleId);
+}
+
+/**
+ * Get trailer path for a cycle
+ */
+export function getCycleTrailer(cycleId: number): string | null {
+  const stmt = db.prepare(`
+    SELECT trailer_path FROM cycles WHERE id = ?
+  `);
+  const result = stmt.get(cycleId) as { trailer_path: string | null } | undefined;
+  return result?.trailer_path || null;
+}
+
+// ============ Transaction Helpers ============
+
+/**
+ * Execute a function within a database transaction
+ * Rolls back on error, commits on success
+ */
+export function runTransaction<T>(fn: () => T): T {
+  return db.transaction(fn)();
+}
+
+/**
+ * Atomically start a new cycle with exclusive lock
+ * Returns null if a cycle is already active (prevents race condition)
+ */
+export function startCycleAtomic(): number | null {
+  return db.transaction(() => {
+    // Check for existing active cycle within the transaction
+    const active = getActiveCycle();
+    if (active) {
+      return null; // Already running
+    }
+
+    // Create new cycle
+    const endsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const stmt = db.prepare(`
+      INSERT INTO cycles (status, ends_at) VALUES ('planning', ?)
+    `);
+    const result = stmt.run(endsAt);
+    return result.lastInsertRowid as number;
+  })();
+}
+
+/**
+ * Complete a cycle and update all related stats in one transaction
+ * This ensures consistency between cycle completion and stats
+ */
+export function completeCycleAtomic(
+  cycleId: number,
+  slug: string,
+  name: string,
+  description: string
+): DailyStats {
+  return db.transaction(() => {
+    // Mark cycle complete
+    const completeStmt = db.prepare(`
+      UPDATE cycles SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?
+    `);
+    completeStmt.run(cycleId);
+
+    // Increment features shipped and update last_cycle_end
+    const today = new Date().toISOString().split('T')[0];
+    const now = new Date().toISOString();
+
+    const statsStmt = db.prepare(`
+      INSERT INTO daily_stats (date, features_shipped, last_cycle_end)
+      VALUES (?, 1, ?)
+      ON CONFLICT(date) DO UPDATE SET
+        features_shipped = features_shipped + 1,
+        last_cycle_end = ?
+    `);
+    statsStmt.run(today, now, now);
+
+    // Record shipped feature
+    const featureStmt = db.prepare(`
+      INSERT OR REPLACE INTO shipped_features (slug, name, description, shipped_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+    featureStmt.run(slug, name, description);
+
+    // Return updated stats
+    return getTodayStats();
+  })();
+}
+
+/**
+ * Mark cycle start time for cooldown calculation
+ * This is called when a cycle STARTS, not when it ends
+ * This ensures cooldown is measured from start, preventing overlap
+ */
+export function markCycleStarted(): void {
+  const today = new Date().toISOString().split('T')[0];
+  const now = new Date().toISOString();
+
+  // Update or create today's stats with the start time
+  const stmt = db.prepare(`
+    INSERT INTO daily_stats (date, features_shipped, last_cycle_end)
+    VALUES (?, 0, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      last_cycle_end = ?
+  `);
+  stmt.run(today, now, now);
 }
 
 /**

@@ -23,9 +23,10 @@ import 'dotenv/config';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cron from 'node-cron';
-import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed, getHoursBetweenCycles, seedInitialFeatures, getAllShippedFeatures } from './db.js';
+import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed, getHoursBetweenCycles, seedInitialFeatures, getAllShippedFeatures, getActiveCycle } from './db.js';
 import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
 import { executeVideoTweets, getPendingVideoTweets } from './video-scheduler.js';
+import { cleanupOrphanedProcesses, killProcess, registerShutdownHandlers } from './process-manager.js';
 
 const PORT = process.env.PORT || 3001;
 
@@ -210,12 +211,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     console.log('\n⛔ CANCEL triggered! Stopping active cycle...\n');
     broadcastLog('⛔ CANCEL triggered! Stopping active cycle...');
 
-    const result = cancelActiveCycle();
+    // cancelActiveCycle is now async (kills processes)
+    const result = await cancelActiveCycle();
 
     if (result) {
       sendJson(res, 200, {
         success: true,
-        message: 'Cycle cancelled',
+        message: 'Cycle cancelled and processes killed',
         cycleId: result.id,
         project: result.project_idea,
       });
@@ -267,6 +269,40 @@ async function handleVideoTweetExecutor(): Promise<void> {
   }
 }
 
+/**
+ * Auto-cycle handler - checks if a new cycle should start
+ * This replaces the broken setTimeout-based scheduling
+ */
+async function handleAutoCycle(): Promise<void> {
+  // Don't log every check - only when something happens
+  try {
+    // Skip if there's already an active cycle
+    const active = getActiveCycle();
+    if (active) {
+      return;
+    }
+
+    // Check if we can ship more today
+    if (!canShipMore()) {
+      return;
+    }
+
+    // Check if cooldown has elapsed
+    const cooldownMs = getTimeUntilNextAllowed();
+    if (cooldownMs > 0) {
+      return;
+    }
+
+    // All checks passed - start a new cycle!
+    console.log('\n🔄 [Auto-Cycle] Cooldown elapsed, starting new cycle...');
+    broadcastLog('🔄 [Auto-Cycle] Cooldown elapsed, starting new cycle...');
+
+    await startNewCycle();
+  } catch (error) {
+    console.error('[Auto-Cycle] Error:', error);
+  }
+}
+
 function setupCronJobs(): void {
   console.log('Setting up cron jobs...');
 
@@ -277,12 +313,21 @@ function setupCronJobs(): void {
   // Check for scheduled video tweets every 5 minutes
   cron.schedule('*/5 * * * *', handleVideoTweetExecutor);
   console.log('  ✓ Video Tweet Executor: every 5 minutes');
+
+  // Auto-cycle: Check every 10 minutes if a new cycle should start
+  // This replaces the broken setTimeout-based scheduling
+  cron.schedule('*/10 * * * *', handleAutoCycle);
+  console.log('  ✓ Auto-Cycle Checker: every 10 minutes');
 }
 
 // ============ Main ============
 
 async function main(): Promise<void> {
   console.log(BANNER);
+
+  // Register shutdown handlers for process cleanup
+  registerShutdownHandlers();
+  console.log('✓ Shutdown handlers registered');
 
   // Database is initialized on import (see db.ts)
   console.log('✓ Database ready');
@@ -291,6 +336,28 @@ async function main(): Promise<void> {
   const cleanup = cleanupOnStartup();
   if (cleanup.cancelled > 0 || cleanup.expired > 0) {
     console.log(`✓ Cleanup: ${cleanup.cancelled} cancelled, ${cleanup.expired} expired cycles cleaned`);
+  }
+
+  // Kill any orphaned processes from previous crashes (PIDs from database)
+  if (cleanup.pidsToKill.length > 0) {
+    console.log(`  Killing ${cleanup.pidsToKill.length} orphaned Claude processes from database...`);
+    for (const pid of cleanup.pidsToKill) {
+      try {
+        await killProcess(pid);
+        console.log(`    ✓ Killed PID ${pid}`);
+      } catch {
+        console.log(`    - PID ${pid} already dead`);
+      }
+    }
+  }
+
+  // Also clean up any Claude/Chrome processes not in database (from hard crashes)
+  console.log('  Scanning for orphaned processes...');
+  const orphanCleanup = await cleanupOrphanedProcesses();
+  if (orphanCleanup.claude > 0 || orphanCleanup.chrome > 0) {
+    console.log(`    ✓ Killed ${orphanCleanup.claude} orphaned Claude, ${orphanCleanup.chrome} orphaned Chrome processes`);
+  } else {
+    console.log('    ✓ No orphaned processes found');
   }
 
   // Seed initial features to prevent duplicates

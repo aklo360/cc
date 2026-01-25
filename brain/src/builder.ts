@@ -6,10 +6,15 @@
  * 2. Test the build
  * 3. If tests fail, enter debug loop (max 3 attempts)
  * 4. Return success or failure with logs
+ *
+ * Fixed issues:
+ * - Added 10-minute timeout per build attempt
+ * - Tracks Claude PID for cleanup on cancel
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { EventEmitter } from 'events';
+import { setCyclePid } from './db.js';
 
 // Event emitter for real-time log streaming
 export const buildEvents = new EventEmitter();
@@ -33,13 +38,29 @@ export interface ProjectSpec {
   verificationErrors?: string[];
   /** If retrying, this indicates which attempt we're on */
   retryAttempt?: number;
+  /** Cycle ID for PID tracking and cleanup */
+  cycleId?: number;
 }
+
+// Build timeout: 10 minutes per attempt
+const BUILD_TIMEOUT_MS = 10 * 60 * 1000;
 
 function log(message: string): void {
   const timestamp = new Date().toISOString();
   const logLine = `[${timestamp}] ${message}`;
   console.log(logLine);
   buildEvents.emit('log', logLine);
+}
+
+/**
+ * Creates a timeout promise that rejects after the specified time
+ */
+function createTimeout(ms: number, label: string): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
 }
 
 const BUILD_SYSTEM_PROMPT = `You are an expert software engineer building a new feature for claudecode.wtf.
@@ -283,73 +304,127 @@ Remember: ONLY create NEW files. Never modify existing files.`;
     let attempt = 0;
     const maxAttempts = 3;
 
+    // Find claude executable - check common locations
+    const claudePath = process.env.CLAUDE_PATH ||
+      (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : undefined);
+
     while (!buildSuccess && attempt < maxAttempts) {
       attempt++;
-      log(`📝 Build attempt ${attempt}/${maxAttempts}`);
+      log(`📝 Build attempt ${attempt}/${maxAttempts} (timeout: ${BUILD_TIMEOUT_MS / 1000}s)`);
 
-      // Find claude executable - check common locations
-      const claudePath = process.env.CLAUDE_PATH ||
-        (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : undefined);
+      // Wrap the query in a promise so we can race against timeout
+      const runBuildAttempt = async (): Promise<{
+        success: boolean;
+        sessionId?: string;
+        tokensUsed: number;
+        costUsd: number;
+        durationMs: number;
+        logs: string[];
+      }> => {
+        let attemptSuccess = false;
+        let attemptSessionId = sessionId;
+        let attemptTokens = 0;
+        let attemptCost = 0;
+        let attemptDuration = 0;
+        const attemptLogs: string[] = [];
 
-      for await (const message of query({
-        prompt: attempt === 1 ? buildPrompt : 'The build failed. Please fix the errors and try again.',
-        options: {
-          allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
-          permissionMode: 'acceptEdits',
-          model: 'sonnet',
-          cwd: projectRoot,
-          resume: sessionId,
-          maxTurns: 20,
-          maxBudgetUsd: 2.0,
-          env: process.env as Record<string, string>,
-          pathToClaudeCodeExecutable: claudePath,
-        },
-      })) {
-        // Capture session ID
-        if (message.type === 'system' && message.subtype === 'init') {
-          sessionId = message.session_id;
-          log(`🔗 Session: ${sessionId}`);
-        }
+        for await (const message of query({
+          prompt: attempt === 1 ? buildPrompt : 'The build failed. Please fix the errors and try again.',
+          options: {
+            allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
+            permissionMode: 'acceptEdits',
+            model: 'sonnet',
+            cwd: projectRoot,
+            resume: attemptSessionId,
+            maxTurns: 20,
+            maxBudgetUsd: 2.0,
+            env: process.env as Record<string, string>,
+            pathToClaudeCodeExecutable: claudePath,
+          },
+        })) {
+          // Capture session ID
+          if (message.type === 'system' && message.subtype === 'init') {
+            attemptSessionId = message.session_id;
+            log(`🔗 Session: ${attemptSessionId}`);
 
-        // Log assistant messages
-        if (message.type === 'assistant' && message.message?.content) {
-          for (const block of message.message.content) {
-            if (block.type === 'text') {
-              const text = block.text.slice(0, 200);
-              log(`💭 ${text}${block.text.length > 200 ? '...' : ''}`);
-              logs.push(block.text);
-            } else if (block.type === 'tool_use') {
-              log(`🔧 Using tool: ${block.name}`);
+            // Track the Claude PID for cleanup on cancel (if available)
+            if (spec.cycleId && (message as { pid?: number }).pid) {
+              setCyclePid(spec.cycleId, (message as { pid?: number }).pid!);
+              log(`📝 Tracking Claude PID: ${(message as { pid?: number }).pid}`);
             }
           }
-        }
 
-        // Check result
-        if (message.type === 'result') {
-          tokensUsed += message.usage?.input_tokens || 0;
-          tokensUsed += message.usage?.output_tokens || 0;
-          costUsd = message.total_cost_usd || 0;
-          durationMs = message.duration_ms || 0;
+          // Log assistant messages
+          if (message.type === 'assistant' && message.message?.content) {
+            for (const block of message.message.content) {
+              if (block.type === 'text') {
+                const text = block.text.slice(0, 200);
+                log(`💭 ${text}${block.text.length > 200 ? '...' : ''}`);
+                attemptLogs.push(block.text);
+              } else if (block.type === 'tool_use') {
+                log(`🔧 Using tool: ${block.name}`);
+              }
+            }
+          }
 
-          if (message.subtype === 'success') {
-            const result = message.result?.toLowerCase() || '';
-            // Check if the build was successful
-            if (result.includes('success') || result.includes('built') || result.includes('compiled')) {
-              buildSuccess = true;
-              log(`✅ Build successful!`);
-            } else if (result.includes('error') || result.includes('failed')) {
-              log(`❌ Build has errors, will retry...`);
+          // Check result
+          if (message.type === 'result') {
+            attemptTokens += message.usage?.input_tokens || 0;
+            attemptTokens += message.usage?.output_tokens || 0;
+            attemptCost = message.total_cost_usd || 0;
+            attemptDuration = message.duration_ms || 0;
+
+            if (message.subtype === 'success') {
+              const result = message.result?.toLowerCase() || '';
+              // Check if the build was successful
+              if (result.includes('success') || result.includes('built') || result.includes('compiled')) {
+                attemptSuccess = true;
+                log(`✅ Build successful!`);
+              } else if (result.includes('error') || result.includes('failed')) {
+                log(`❌ Build has errors, will retry...`);
+              } else {
+                // Assume success if no explicit failure
+                attemptSuccess = true;
+                log(`✅ Build completed`);
+              }
+              attemptLogs.push(message.result || '');
             } else {
-              // Assume success if no explicit failure
-              buildSuccess = true;
-              log(`✅ Build completed`);
+              log(`❌ Build error: ${message.errors?.join(', ')}`);
+              attemptLogs.push(`Error: ${message.errors?.join(', ')}`);
             }
-            logs.push(message.result || '');
-          } else {
-            log(`❌ Build error: ${message.errors?.join(', ')}`);
-            logs.push(`Error: ${message.errors?.join(', ')}`);
           }
         }
+
+        return {
+          success: attemptSuccess,
+          sessionId: attemptSessionId,
+          tokensUsed: attemptTokens,
+          costUsd: attemptCost,
+          durationMs: attemptDuration,
+          logs: attemptLogs,
+        };
+      };
+
+      // Race the build against timeout
+      try {
+        const result = await Promise.race([
+          runBuildAttempt(),
+          createTimeout(BUILD_TIMEOUT_MS, `Build attempt ${attempt}`),
+        ]);
+
+        // Update cumulative stats
+        sessionId = result.sessionId;
+        tokensUsed += result.tokensUsed;
+        costUsd = result.costUsd;
+        durationMs += result.durationMs;
+        logs.push(...result.logs);
+        buildSuccess = result.success;
+
+      } catch (timeoutError) {
+        const errMsg = timeoutError instanceof Error ? timeoutError.message : String(timeoutError);
+        log(`⏰ ${errMsg}`);
+        logs.push(`Timeout: ${errMsg}`);
+        // Continue to next attempt (timeout counts as failure)
       }
     }
 

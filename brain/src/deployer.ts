@@ -5,15 +5,16 @@
  * 1. Build the Next.js static export
  * 2. Deploy to Cloudflare Pages
  * 3. Return the live URL
+ *
+ * Fixed issues:
+ * - Uses execWithTimeout for proper process killing on timeout
+ * - Git push is critical (with retry logic)
  */
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { buildEvents } from './builder.js';
 import { config } from 'dotenv';
 import { join } from 'path';
-
-const execAsync = promisify(exec);
+import { execWithTimeout } from './process-manager.js';
 
 // Load .env from brain directory
 const brainDir = process.cwd().includes('/brain') ? process.cwd() : join(process.cwd(), 'brain');
@@ -67,66 +68,90 @@ export async function deployToCloudflare(): Promise<DeployResult> {
     // Step 1: Build the Next.js static export
     log('📦 Building Next.js static export...');
     try {
-      const buildResult = await execAsync('npm run build', {
+      const buildResult = await execWithTimeout('npm run build', {
         cwd: projectRoot,
-        timeout: 300000, // 5 minutes
+        timeout: 300000, // 5 minutes - process WILL be killed on timeout
         env: execEnv,
+        description: 'Next.js build',
       });
       logs.push(buildResult.stdout);
       log('✅ Build complete');
     } catch (error) {
-      const err = error as { stderr?: string; stdout?: string };
-      log(`❌ Build failed: ${err.stderr || err.stdout}`);
+      const err = error as Error;
+      log(`❌ Build failed: ${err.message}`);
       return {
         success: false,
-        error: `Build failed: ${err.stderr}`,
+        error: `Build failed: ${err.message}`,
         logs,
       };
     }
 
-    // Step 1.5: Commit and push to GitHub (keeps repo in sync)
+    // Step 1.5: Commit and push to GitHub (CRITICAL - with retry)
     log('📤 Pushing to GitHub...');
-    try {
-      // Add all new/modified files
-      await execAsync('git add -A', {
-        cwd: projectRoot,
-        timeout: 30000,
-        env: execEnv,
-      });
+    let gitPushSucceeded = false;
+    const maxGitRetries = 3;
 
-      // Commit with descriptive message (use heredoc for multiline)
-      const commitResult = await execAsync(`git commit -m "Auto-deploy: New feature built by Central Brain
+    for (let attempt = 1; attempt <= maxGitRetries; attempt++) {
+      try {
+        // Add all new/modified files
+        await execWithTimeout('git add -A', {
+          cwd: projectRoot,
+          timeout: 30000,
+          env: execEnv,
+          description: 'Git add',
+        });
+
+        // Commit with descriptive message
+        await execWithTimeout(`git commit -m "Auto-deploy: New feature built by Central Brain
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>" || true`, {
-        cwd: projectRoot,
-        timeout: 30000,
-        env: execEnv,
-      });
-      logs.push(commitResult.stdout);
+          cwd: projectRoot,
+          timeout: 30000,
+          env: execEnv,
+          description: 'Git commit',
+        });
 
-      // Push to origin main
-      const pushResult = await execAsync('git push origin main', {
-        cwd: projectRoot,
-        timeout: 60000,
-        env: execEnv,
-      });
-      logs.push(pushResult.stdout);
-      log('✅ Pushed to GitHub');
-    } catch (error) {
-      const err = error as { stderr?: string; stdout?: string };
-      // Don't fail deploy if git push fails - log warning and continue
-      log(`⚠️ Git push warning: ${err.stderr || err.stdout || 'unknown'}`);
+        // Push to origin main
+        const pushResult = await execWithTimeout('git push origin main', {
+          cwd: projectRoot,
+          timeout: 60000,
+          env: execEnv,
+          description: 'Git push',
+        });
+        logs.push(pushResult.stdout);
+        log('✅ Pushed to GitHub');
+        gitPushSucceeded = true;
+        break;
+      } catch (error) {
+        const err = error as Error;
+        log(`⚠️ Git push attempt ${attempt}/${maxGitRetries} failed: ${err.message}`);
+
+        if (attempt < maxGitRetries) {
+          log(`   Retrying in 5 seconds...`);
+          await new Promise(r => setTimeout(r, 5000));
+        }
+      }
+    }
+
+    if (!gitPushSucceeded) {
+      log('❌ Git push failed after all retries - aborting deploy');
+      return {
+        success: false,
+        error: 'Git push failed - code not synced to GitHub',
+        logs,
+      };
     }
 
     // Step 2: Deploy to Cloudflare Pages
     log('☁️ Deploying to Cloudflare Pages...');
     try {
-      const deployResult = await execAsync(
+      const deployResult = await execWithTimeout(
         'npx wrangler pages deploy out --project-name=ccwtf --commit-dirty=true',
         {
           cwd: projectRoot,
-          timeout: 300000, // 5 minutes
+          timeout: 300000, // 5 minutes - process WILL be killed on timeout
           env: execEnv,
+          description: 'Wrangler deploy',
         }
       );
       logs.push(deployResult.stdout);
@@ -143,11 +168,11 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>" || true`, {
         logs,
       };
     } catch (error) {
-      const err = error as { stderr?: string; stdout?: string };
-      log(`❌ Deploy failed: ${err.stderr || err.stdout}`);
+      const err = error as Error;
+      log(`❌ Deploy failed: ${err.message}`);
       return {
         success: false,
-        error: `Deploy failed: ${err.stderr}`,
+        error: `Deploy failed: ${err.message}`,
         logs,
       };
     }

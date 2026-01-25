@@ -36,6 +36,16 @@ import {
   insertTweet,
   completeCycle,
   type Cycle,
+  // New atomic/tracking functions
+  startCycleAtomic,
+  completeCycleAtomic,
+  markCycleStarted,
+  setCyclePid,
+  getCyclePid,
+  updateCyclePhase,
+  setCycleError,
+  setCycleTrailer,
+  getCycleTrailer,
 } from './db.js';
 import { postTweetToCommunity, postTweetWithVideo, getTwitterCredentials, CC_COMMUNITY_ID } from './twitter.js';
 import { buildProject, buildEvents, type BuildResult } from './builder.js';
@@ -43,8 +53,9 @@ import { deployToCloudflare, verifyDeployment } from './deployer.js';
 import { generateTrailer, type TrailerResult } from './trailer.js';
 import { addFeatureToHomepage, type HomepageUpdateResult } from './homepage.js';
 import { extractFeatureManifest, type FeatureManifest } from './manifest.js';
-import { incrementFeaturesShipped, canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit, getHoursBetweenCycles, getAllShippedFeatures, recordShippedFeature } from './db.js';
+import { canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit, getHoursBetweenCycles, getAllShippedFeatures } from './db.js';
 import { verifyFeature, type VerificationResult } from './verifier.js';
+import { killProcess, killProcessesForCycle } from './process-manager.js';
 
 interface CyclePlan {
   project: {
@@ -232,19 +243,30 @@ export async function startNewCycle(): Promise<FullCycleResult | null> {
     return null;
   }
 
-  // Check if there's already an active cycle
-  const activeCycle = getActiveCycle();
-  if (activeCycle) {
-    log(`[Cycle Engine] Active cycle already exists (id: ${activeCycle.id})`);
+  // Check cooldown first (before trying to start)
+  const cooldownMs = getTimeUntilNextAllowed();
+  if (cooldownMs > 0) {
+    const cooldownHours = (cooldownMs / 3600000).toFixed(1);
+    log(`[Cycle Engine] Cooldown active - ${cooldownHours} hours remaining until next cycle allowed`);
     return null;
   }
+
+  // Atomically check for active cycle AND create new one
+  // This prevents race condition where two cycles could start simultaneously
+  const cycleId = startCycleAtomic();
+  if (cycleId === null) {
+    const activeCycle = getActiveCycle();
+    log(`[Cycle Engine] Active cycle already exists (id: ${activeCycle?.id})`);
+    return null;
+  }
+
+  // Mark cycle start time for cooldown calculation
+  // This ensures cooldown is measured from START, not END
+  markCycleStarted();
 
   log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   log('🚀 STARTING NEW 24-HOUR GROWTH CYCLE');
   log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-  // Create the cycle in DB
-  const cycleId = createCycle();
   log(`📋 Created cycle #${cycleId}`);
 
   // ============ PHASE 1: PLAN ============
@@ -305,8 +327,11 @@ Return ONLY the JSON object, no other text.`;
     log(`   Tweets: ${plan.tweets.length}`);
 
     updateCycleProject(cycleId, plan.project.idea, plan.project.slug);
+    updateCyclePhase(cycleId, 1); // Phase 1 complete: PLAN
+    log(`   ✓ Phase 1 checkpoint saved`);
   } catch (error) {
     log(`❌ Planning failed: ${error}`);
+    setCycleError(cycleId, `Planning failed: ${error}`);
     return null;
   }
 
@@ -337,6 +362,7 @@ Return ONLY the JSON object, no other text.`;
       description: plan.project.description,
       verificationErrors: verificationErrors.length > 0 ? verificationErrors : undefined,
       retryAttempt: buildAttempt > 1 ? buildAttempt : undefined,
+      cycleId, // Pass cycleId for PID tracking
     });
 
     if (!buildResult.success) {
@@ -349,6 +375,7 @@ Return ONLY the JSON object, no other text.`;
       // Max retries exceeded - clean up and start fresh
       log('');
       log('❌ Build failed after max retries - feature too complex');
+      setCycleError(cycleId, `Build failed after ${MAX_BUILD_RETRIES} attempts: ${buildResult.error}`);
       await cleanupBrokenFeature(plan.project.slug, log);
       completeCycle(cycleId);
 
@@ -379,6 +406,7 @@ Return ONLY the JSON object, no other text.`;
       // Max retries exceeded - clean up and start fresh
       log('');
       log('❌ Deploy failed after max retries - feature too complex');
+      setCycleError(cycleId, `Deploy failed after ${MAX_BUILD_RETRIES} attempts: ${deployResult.error}`);
       await cleanupBrokenFeature(plan.project.slug, log);
       completeCycle(cycleId);
 
@@ -421,6 +449,7 @@ Return ONLY the JSON object, no other text.`;
       // Max retries exceeded - clean up and start fresh
       log('');
       log('❌ Deployment verification failed after max retries - feature too complex');
+      setCycleError(cycleId, `Deployment verification failed after ${MAX_BUILD_RETRIES} attempts`);
       await cleanupBrokenFeature(plan.project.slug, log);
       completeCycle(cycleId);
 
@@ -480,6 +509,9 @@ Return ONLY the JSON object, no other text.`;
         log('╚═══════════════════════════════════════════════════════════════╝');
         log('');
 
+        // Record error for diagnostics
+        setCycleError(cycleId, `Functional verification failed after ${MAX_BUILD_RETRIES} attempts: ${verificationErrors.join('; ')}`);
+
         // Clean up the broken feature directory
         await cleanupBrokenFeature(plan.project.slug, log);
 
@@ -516,6 +548,10 @@ Return ONLY the JSON object, no other text.`;
         log(`     - ${warning}`);
       }
     }
+
+    // Checkpoint: Phases 2-5 complete (BUILD → DEPLOY → VERIFY → TEST all passed)
+    updateCyclePhase(cycleId, 5);
+    log(`   ✓ Phase 5 checkpoint saved (build/deploy/verify/test complete)`)
 
     // ============ PHASE 5.5: EXTRACT FEATURE MANIFEST (GROUND TRUTH) ============
     // This captures what the feature ACTUALLY does from the deployed page
@@ -563,6 +599,7 @@ Return ONLY the JSON object, no other text.`;
       slug: plan.project.slug,
       description: plan.project.description,
       manifest: featureManifest,  // Ground truth from deployed page
+      cycleId,  // For idempotency - reuses existing trailer if available
     },
     deployUrl
   );
@@ -573,6 +610,10 @@ Return ONLY the JSON object, no other text.`;
   } else {
     log(`✅ Trailer created: ${trailerResult.durationSec}s`);
   }
+
+  // Checkpoint: Phase 6 complete (TRAILER - even if failed, we continue)
+  updateCyclePhase(cycleId, 6);
+  log(`   ✓ Phase 6 checkpoint saved (trailer generation complete)`);
 
   // ============ PHASE 7: TWEET ANNOUNCEMENT ============
   // ONLY runs if deployment is VERIFIED and FUNCTIONAL VERIFICATION passed
@@ -607,8 +648,13 @@ Return ONLY the JSON object, no other text.`;
 
       // Record in DB
       insertTweet(tweetContent, 'announcement', announcementTweetId);
+
+      // Checkpoint: Phase 7 complete (TWEET)
+      updateCyclePhase(cycleId, 7);
+      log(`   ✓ Phase 7 checkpoint saved (announcement posted)`);
     } catch (error) {
       log(`❌ Announcement tweet failed: ${error}`);
+      setCycleError(cycleId, `Announcement tweet failed: ${error}`);
     }
   }
 
@@ -645,19 +691,26 @@ Return ONLY the JSON object, no other text.`;
     log('   ⏭️ Skipping homepage update (deployment not verified or tweet not posted)');
   }
 
-  // ============ PHASE 10: MARK CYCLE COMPLETE + CONTINUOUS SHIPPING ============
+  // Checkpoint: Phase 9 complete (HOMEPAGE)
+  updateCyclePhase(cycleId, 9);
+  log(`   ✓ Phase 9 checkpoint saved (homepage update complete)`);
+
+  // ============ PHASE 10: MARK CYCLE COMPLETE (ATOMIC) ============
   log('\n▸ PHASE 10: COMPLETING CYCLE');
 
-  // Mark this cycle as complete
-  completeCycle(cycleId);
-
-  // Increment daily stats
-  const stats = incrementFeaturesShipped();
+  // Atomically complete cycle + update stats + record feature
+  // This ensures consistency - all or nothing
+  const stats = completeCycleAtomic(
+    cycleId,
+    plan.project.slug,
+    plan.project.idea,
+    plan.project.description
+  );
   log(`   ✓ Features shipped today: ${stats.features_shipped}/${getDailyLimit()}`);
-
-  // Record this feature to prevent similar ideas in the future
-  recordShippedFeature(plan.project.slug, plan.project.idea, plan.project.description);
   log(`   ✓ Recorded feature to avoid duplicates: ${plan.project.idea}`);
+
+  // Update phase tracker
+  updateCyclePhase(cycleId, 10);
 
   // ============ COMPLETE ============
   log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -667,22 +720,16 @@ Return ONLY the JSON object, no other text.`;
   log(`   Tweets scheduled: ${plan.tweets.length - 1}`);
   log(`   Features today: ${stats.features_shipped}/${getDailyLimit()}`);
 
-  // Check for continuous shipping (staggered across 24 hours)
+  // Report next cycle timing (but DON'T auto-schedule with setTimeout!)
+  // The cron job in index.ts will handle auto-scheduling properly
   if (canShipMore()) {
     const cooldownMs = getTimeUntilNextAllowed();
     const cooldownHours = (cooldownMs / 3600000).toFixed(1);
     const nextTime = new Date(Date.now() + cooldownMs).toISOString();
-    log(`\n   🔄 Staggered shipping: Next cycle in ${cooldownHours} hours (~${getHoursBetweenCycles()}h spacing)`);
-    log(`   ⏰ Next cycle scheduled for: ${nextTime}`);
+    log(`\n   🔄 Next cycle allowed in: ${cooldownHours} hours (~${getHoursBetweenCycles()}h spacing)`);
+    log(`   ⏰ Next allowed at: ${nextTime}`);
+    log(`   📋 The cron job will auto-start the next cycle when ready.`);
     log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-    // Schedule next cycle after cooldown (staggered ~4.5h apart)
-    setTimeout(() => {
-      log('\n🔄 STAGGERED CYCLE: Starting next feature build...');
-      startNewCycle().catch((error) => {
-        log(`❌ Auto-continue failed: ${error}`);
-      });
-    }, cooldownMs);
   } else {
     log('\n   ⏸️ Daily limit reached. Next cycle tomorrow (midnight UTC)');
     log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
@@ -782,14 +829,37 @@ export function getCycleStatus(): {
   };
 }
 
-export function cancelActiveCycle(): Cycle | null {
+export async function cancelActiveCycle(): Promise<Cycle | null> {
   const cycle = getActiveCycle();
   if (!cycle) {
     return null;
   }
 
+  log(`[Cycle Engine] Cancelling cycle #${cycle.id}: ${cycle.project_idea}`);
+
+  // Kill the Claude subprocess if it's running
+  const pid = getCyclePid(cycle.id);
+  if (pid) {
+    log(`[Cycle Engine] Killing Claude process: PID ${pid}`);
+    try {
+      await killProcess(pid);
+      log(`[Cycle Engine] Claude process killed`);
+    } catch (error) {
+      log(`[Cycle Engine] Failed to kill Claude process: ${error}`);
+    }
+  }
+
+  // Kill any other processes associated with this cycle
+  const killedCount = await killProcessesForCycle(cycle.id);
+  if (killedCount > 0) {
+    log(`[Cycle Engine] Killed ${killedCount} additional processes for cycle`);
+  }
+
+  // Mark cycle as cancelled in database
   completeCycle(cycle.id);
-  log(`[Cycle Engine] Cancelled cycle #${cycle.id}: ${cycle.project_idea}`);
+  setCycleError(cycle.id, 'Cancelled by user');
+
+  log(`[Cycle Engine] Cycle #${cycle.id} cancelled successfully`);
   return cycle;
 }
 
