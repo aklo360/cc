@@ -140,6 +140,21 @@ export default function Home() {
             </svg>
             AI Code Refactor
           </a>
+          <a href="/karaoke" className="inline-flex items-center gap-2 bg-bg-secondary border border-pink-500 text-pink-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-pink-500 hover:text-white">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 18V5l12-2v13"/>
+              <circle cx="6" cy="18" r="3"/>
+              <circle cx="18" cy="16" r="3"/>
+            </svg>
+            Code Karaoke
+          </a>
+          <a href="/time" className="inline-flex items-center gap-2 bg-bg-secondary border border-sky-500 text-sky-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-sky-500 hover:text-white">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            Code Time Machine
+          </a>
         </section>
 
         {/* Terminal + Info Cards - grouped together */}

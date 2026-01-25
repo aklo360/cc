@@ -4,8 +4,8 @@
  * https://github.com/hydra-synth/hydra
  */
 
-import type { IVisualEngine, VisualParams, VisualStyle } from '../types.js';
-import { STYLE_PALETTES, hexToRgb } from '../types.js';
+import type { IVisualEngine, VisualParams, VisualStyle } from '../types';
+import { STYLE_PALETTES, hexToRgb } from '../types';
 
 // Hydra types (hydra-synth doesn't have proper types)
 interface HydraInstance {

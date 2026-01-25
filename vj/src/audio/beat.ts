@@ -4,7 +4,7 @@
  * Also implements custom onset detection for visual sync
  */
 
-import type { AudioCapture } from './capture.js';
+import type { AudioCapture } from './capture';
 
 export interface BeatState {
   bpm: number | null;

@@ -40,7 +40,7 @@ export default function VJPage() {
         // Dynamic import of VJ module - may not exist in all deployments
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore - VJ module may not exist in all builds
-        const module = await import('../../vj/src/index.js').catch(() => null);
+        const module = await import('../../vj/src/index.ts').catch(() => null);
         if (!module) {
           setIsSupported(false);
           setError('VJ module not available in this deployment');

@@ -3,6 +3,6 @@
  * Handles system audio capture, FFT analysis, and beat detection
  */
 
-export * from './capture.js';
-export * from './analyzer.js';
-export * from './beat.js';
+export * from './capture';
+export * from './analyzer';
+export * from './beat';
