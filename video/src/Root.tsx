@@ -5,6 +5,7 @@ import { BattleTrailer } from "./compositions/BattleTrailer";
 import { CodeReviewTrailer } from "./compositions/CodeReviewTrailer";
 import { RealFootageTrailer } from "./compositions/RealFootageTrailer";
 import { WebappTrailer } from "./compositions/WebappTrailer";
+import { GameTrailer } from "./compositions/GameTrailer";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -63,6 +64,16 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="WebappTrailer"
         component={WebappTrailer}
+        durationInFrames={20 * 30} // 20 seconds at 30fps
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+
+      {/* Game Trailer - CC Invaders arcade game */}
+      <Composition
+        id="GameTrailer"
+        component={GameTrailer}
         durationInFrames={20 * 30} // 20 seconds at 30fps
         fps={30}
         width={1920}

@@ -119,7 +119,7 @@ const CODE_EXAMPLES = [
   },
 ];
 
-export default function RefactorPage() {
+function RefactorPage() {
   const [code, setCode] = useState(EXAMPLE_CODE);
   const [refactoredCode, setRefactoredCode] = useState('');
   const [improvements, setImprovements] = useState<typeof IMPROVEMENTS>([]);
@@ -433,3 +433,6 @@ export default function RefactorPage() {
     </div>
   );
 }
+
+RefactorPage.displayName = 'RefactorPage';
+export default RefactorPage;

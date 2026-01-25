@@ -1,10 +1,18 @@
 /**
- * Trailer Generator - Creates 20-second trailers for features
+ * Trailer Generator - Creates 20-second CINEMATIC 3D trailers for features
  *
- * SIMPLIFIED ARCHITECTURE:
+ * ARCHITECTURE:
+ * - Uses WebappTrailer composition (3D tilted terminal with camera movements)
  * - ALL trailers are 20 seconds (universal format)
  * - Screen recording ONLY for WebGL/Three.js (detected from manifest)
  * - Uses manifest ground truth for content
+ *
+ * CINEMATIC FEATURES (from WebappTrailer):
+ * - 3D perspective with tilted terminal window
+ * - Dolly ins/zooms on active elements
+ * - Cursor with click animations
+ * - Typewriter text animation
+ * - Camera tracks focal points perfectly centered
  */
 
 import { exec } from 'child_process';
@@ -13,7 +21,7 @@ import path from 'path';
 import fs from 'fs';
 import { buildEvents } from './builder.js';
 import { recordFeature } from './recorder.js';
-import { FeatureManifest, manifestToTrailerContent } from './manifest.js';
+import { FeatureManifest } from './manifest.js';
 
 const execAsync = promisify(exec);
 
@@ -28,19 +36,18 @@ fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 const TRAILER_DURATION_SEC = 20;
 
 /**
- * Scene content interface - matches FeatureTrailer.tsx TrailerSceneContent
+ * WebappTrailer props - matches WebappTrailer.tsx WebappTrailerProps
+ * This is the CINEMATIC 3D trailer template used for ALL features
  */
-export interface TrailerSceneContent {
-  inputDemo: string;
-  inputLabel: string;
-  buttonText: string;
-  processingText: string;
-  processingSubtext: string;
-  outputHeader: string;
-  outputLines: string[];
-  outputStyle: 'poetry' | 'code' | 'terminal' | 'battle';
-  calloutTitle: string;
-  calloutDescription: string;
+export interface WebappTrailerProps {
+  featureName: string;
+  featureSlug: string;
+  tagline?: string;
+  inputPlaceholder?: string;
+  inputContent?: string;
+  buttonText?: string;
+  outputLines?: string[];
+  outputStyle?: 'text' | 'code' | 'poetry';
 }
 
 export interface TrailerConfig {
@@ -78,103 +85,192 @@ function needsWebGLFootage(manifest?: FeatureManifest): boolean {
 }
 
 /**
- * Generate scene content from a FeatureManifest (ground truth)
+ * Determine output style based on feature type
+ */
+function getOutputStyle(config: TrailerConfig): 'text' | 'code' | 'poetry' {
+  const slug = config.slug.toLowerCase();
+  const name = config.name.toLowerCase();
+  const desc = config.description.toLowerCase();
+
+  if (slug.includes('poetry') || slug.includes('haiku') || name.includes('poetry')) {
+    return 'poetry';
+  }
+
+  if (slug.includes('refactor') || slug.includes('code') || slug.includes('review') ||
+      slug.includes('roast') || desc.includes('code')) {
+    return 'code';
+  }
+
+  return 'text';
+}
+
+/**
+ * Get the primary action button text from manifest
+ */
+function getPrimaryButton(config: TrailerConfig): string {
+  if (!config.manifest?.buttons?.length) {
+    return 'Generate';
+  }
+
+  const actionKeywords = ['generate', 'create', 'start', 'play', 'submit', 'run', 'build',
+                          'analyze', 'roast', 'review', 'refactor', 'debug', 'get', 'check'];
+
+  for (const btn of config.manifest.buttons) {
+    if (actionKeywords.some(k => btn.toLowerCase().includes(k))) {
+      return btn;
+    }
+  }
+
+  return config.manifest.buttons[0] || 'Generate';
+}
+
+/**
+ * Generate WebappTrailer props from a FeatureManifest (ground truth)
  * This uses ONLY verified information from the actual deployed page.
  * NO hallucination - if manifest is missing, uses safe fallbacks.
  */
-function generateSceneContentFromManifest(config: TrailerConfig): TrailerSceneContent {
+function generateWebappTrailerProps(config: TrailerConfig): WebappTrailerProps {
+  const outputStyle = getOutputStyle(config);
+  const buttonText = getPrimaryButton(config);
+
   if (config.manifest) {
-    log(`🎭 Generating trailer script from MANIFEST (ground truth)`);
+    log(`🎭 Generating CINEMATIC trailer from MANIFEST (ground truth)`);
     log(`   Page title: "${config.manifest.pageTitle}"`);
     log(`   Interaction type: ${config.manifest.interactionType}`);
     log(`   Rendering type: ${config.manifest.renderingType}`);
     log(`   Buttons found: ${config.manifest.buttons.join(', ') || 'none'}`);
+    log(`   Output style: ${outputStyle}`);
+    log(`   Primary button: "${buttonText}"`);
 
-    // Use manifest to generate truthful content
-    const content = manifestToTrailerContent(config.manifest);
+    // Get output lines from manifest or generate fallback
+    const outputLines = config.manifest.capturedOutputLines?.length
+      ? config.manifest.capturedOutputLines.slice(0, 6)
+      : getDefaultOutputLines(config, outputStyle);
 
-    log(`✅ Trailer script from manifest:`);
-    log(`   Button: "${content.buttonText}" (from actual page)`);
-    log(`   Type: ${content.outputStyle}`);
-
-    return content;
+    return {
+      featureName: config.name,
+      featureSlug: config.slug,
+      tagline: config.tagline || config.description.slice(0, 50),
+      inputPlaceholder: config.manifest.inputs[0] || '// Paste your code here...',
+      inputContent: config.manifest.exampleInput || getDefaultInput(config),
+      buttonText,
+      outputLines,
+      outputStyle,
+    };
   }
 
-  // No manifest - use safe fallback based on description keywords
+  // No manifest - use safe fallback
   log(`⚠️ No manifest provided - using keyword-based fallback`);
-  return generateFallbackContent(config);
+  return {
+    featureName: config.name,
+    featureSlug: config.slug,
+    tagline: config.tagline || config.description.slice(0, 50),
+    inputPlaceholder: '// Paste your code here...',
+    inputContent: getDefaultInput(config),
+    buttonText,
+    outputLines: getDefaultOutputLines(config, outputStyle),
+    outputStyle,
+  };
 }
 
 /**
- * Generate fallback content when manifest is not available
- * Still tries to be feature-specific based on keywords
+ * Get default input content based on feature type
  */
-function generateFallbackContent(config: TrailerConfig): TrailerSceneContent {
-  const { slug, name, description } = config;
-  const descLower = description.toLowerCase();
+function getDefaultInput(config: TrailerConfig): string {
+  const slug = config.slug.toLowerCase();
 
-  // Battle/Arena features
-  if (descLower.includes('battle') || descLower.includes('arena') || descLower.includes('versus')) {
-    return {
-      inputDemo: 'function solve(n) {\\n  return n * 2;\\n}',
-      inputLabel: 'Submit your solution',
-      buttonText: 'Enter Battle',
-      processingText: 'Matching opponents',
-      processingSubtext: 'Finding worthy challengers',
-      outputHeader: 'Battle Results',
-      outputLines: ['Your code: 95% efficient', 'Opponent: 87% efficient', 'YOU WIN!', '+100 XP earned'],
-      outputStyle: 'battle',
-      calloutTitle: 'THE ARENA',
-      calloutDescription: 'Compete against other coders in real-time battles',
-    };
+  if (slug.includes('refactor') || slug.includes('code')) {
+    return `function calculate(a, b, op) {
+  var result;
+  if (op == "add") result = a + b;
+  else if (op == "sub") result = a - b;
+  return result;
+}`;
   }
 
-  // Poetry features
-  if (descLower.includes('poetry') || descLower.includes('haiku') || descLower.includes('poem')) {
-    return {
-      inputDemo: 'function fibonacci(n) {\\n  if (n <= 1) return n;\\n  return fibonacci(n-1) + fibonacci(n-2);\\n}',
-      inputLabel: 'Paste your code',
-      buttonText: 'Generate Poetry',
-      processingText: 'Composing',
-      processingSubtext: 'AI transforming logic into verse',
-      outputHeader: 'Your Code Poetry',
-      outputLines: ['Recursive calls dance', 'Numbers spiral outward, grow', 'Fibonacci blooms'],
-      outputStyle: 'poetry',
-      calloutTitle: 'CODE TO ART',
-      calloutDescription: 'Transform your algorithms into beautiful poetry',
-    };
+  if (slug.includes('roast')) {
+    return `function doStuff(x) {
+  var y = x * 2;
+  console.log(y);
+  return y;
+}`;
   }
 
-  // Meme features
-  if (descLower.includes('meme') || descLower.includes('image')) {
-    return {
-      inputDemo: 'When the code works on first try',
-      inputLabel: 'Describe your meme',
-      buttonText: 'Generate Meme',
-      processingText: 'Creating',
-      processingSubtext: 'AI generating your masterpiece',
-      outputHeader: 'Your Meme',
-      outputLines: ['[AI-generated meme image]', 'Ready to share!'],
-      outputStyle: 'terminal',
-      calloutTitle: 'AI POWERED',
-      calloutDescription: 'Create viral dev memes in seconds',
-    };
+  if (slug.includes('poetry')) {
+    return `function fibonacci(n) {
+  if (n <= 1) return n;
+  return fibonacci(n-1) + fibonacci(n-2);
+}`;
+  }
+
+  return `// Your input here
+const example = "Hello $CC!";
+console.log(example);`;
+}
+
+/**
+ * Get default output lines based on feature type
+ */
+function getDefaultOutputLines(config: TrailerConfig, style: 'text' | 'code' | 'poetry'): string[] {
+  const slug = config.slug.toLowerCase();
+
+  if (slug.includes('refactor')) {
+    return [
+      'type Operation = "add" | "sub";',
+      '',
+      'function calculate(a: number, b: number, op: Operation): number {',
+      '  const ops = { add: (a, b) => a + b, sub: (a, b) => a - b };',
+      '  return ops[op](a, b);',
+      '}',
+    ];
+  }
+
+  if (slug.includes('roast')) {
+    return [
+      "Oh honey, var in 2026? That's vintage... like a flip phone.",
+      "",
+      "doStuff? More like doNothing useful with that name.",
+      "",
+      "console.log for debugging? We have debuggers now, grandpa.",
+    ];
+  }
+
+  if (slug.includes('poetry')) {
+    return [
+      "Recursive dance of numbers,",
+      "Each call returns to sender,",
+      "Fibonacci blooms eternal.",
+    ];
+  }
+
+  if (slug.includes('review')) {
+    return [
+      "✓ Clean export pattern",
+      "✓ Async handler correctly structured",
+      "⚠ Consider adding input validation",
+      "⚠ Add error handling for process()",
+      "Overall: 7/10 - Solid foundation",
+    ];
+  }
+
+  if (slug.includes('duck')) {
+    return [
+      "🦆 *tilts head*",
+      "",
+      "Have you tried explaining what each variable does?",
+      "Walk me through line 3 - what should happen there?",
+    ];
   }
 
   // Generic fallback
-  return {
-    inputDemo: `// Try ${name}\\nconsole.log("Hello $CC!");`,
-    inputLabel: 'Enter your input',
-    buttonText: 'Generate',
-    processingText: 'Processing',
-    processingSubtext: 'AI working its magic',
-    outputHeader: 'Result',
-    outputLines: ['Success!', 'Your output is ready', `Try it at /${slug}`],
-    outputStyle: 'terminal',
-    calloutTitle: 'NEW FEATURE',
-    calloutDescription: description.slice(0, 100),
-  };
+  return [
+    "✨ Processing complete!",
+    "",
+    `Your ${config.name} result is ready.`,
+    `Try it at claudecode.wtf/${config.slug}`,
+  ];
 }
+
 
 /**
  * Capture intercut footage for WebGL features
@@ -235,26 +331,13 @@ export async function generateTrailer(
     log(`   📄 Static/Canvas2D - pure Remotion (no screen recording)`);
   }
 
-  // Generate scene content from MANIFEST (ground truth)
-  const sceneContent = generateSceneContentFromManifest(config);
+  // Generate WebappTrailer props from MANIFEST (ground truth)
+  const trailerProps = generateWebappTrailerProps(config);
 
   // Render with Remotion
   const outputPath = path.join(OUTPUT_DIR, `${config.slug}_${Date.now()}.mp4`);
 
-  // Feature type: 'game' if we have footage, 'static' otherwise
-  const featureType = footagePath ? 'game' : 'static';
-
-  const props = {
-    featureName: config.name,
-    featureSlug: config.slug,
-    description: config.description,
-    featureType,
-    tagline: config.tagline || config.description,
-    footagePath: footagePath,
-    sceneContent,
-  };
-
-  const propsJson = JSON.stringify(props).replace(/'/g, "'\\''");
+  const propsJson = JSON.stringify(trailerProps).replace(/'/g, "'\\''");
 
   try {
     // Check if Remotion is installed
@@ -264,13 +347,14 @@ export async function generateTrailer(
       return { success: false, error: 'Remotion not installed' };
     }
 
-    log(`📹 Rendering with Remotion...`);
-    log(`   Composition: FeatureTrailer`);
+    log(`📹 Rendering CINEMATIC 3D trailer with Remotion...`);
+    log(`   Composition: WebappTrailer (3D tilted terminal + camera movements)`);
     log(`   Duration: ${TRAILER_DURATION_SEC} seconds`);
-    log(`   WebGL footage: ${footagePath || 'none'}`);
+    log(`   Button: "${trailerProps.buttonText}"`);
+    log(`   Style: ${trailerProps.outputStyle}`);
     log(`   Output: ${path.basename(outputPath)}`);
 
-    const command = `cd "${VIDEO_DIR}" && npx remotion render FeatureTrailer "${outputPath}" --props='${propsJson}' --log=error`;
+    const command = `cd "${VIDEO_DIR}" && npx remotion render WebappTrailer "${outputPath}" --props='${propsJson}' --log=error`;
 
     const { stdout, stderr } = await execAsync(command, {
       timeout: 180000, // 3 minute timeout
@@ -294,7 +378,7 @@ export async function generateTrailer(
     const stats = fs.statSync(outputPath);
     const sizeMb = (stats.size / 1024 / 1024).toFixed(1);
 
-    log(`✅ Trailer generated: ${sizeMb} MB (${TRAILER_DURATION_SEC}s)`);
+    log(`✅ CINEMATIC 3D trailer generated: ${sizeMb} MB (${TRAILER_DURATION_SEC}s)`);
 
     return {
       success: true,

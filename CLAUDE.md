@@ -188,20 +188,17 @@ ccwtf/
 │   ├── claudecode.jpg            # 3D rendered mascot
 │   └── og.jpg                    # Social preview
 ├── video/                        # Remotion video generator (separate project)
-│   ├── agent/
-│   │   └── index.ts              # Autonomous trailer capture agent
 │   ├── src/
 │   │   ├── Root.tsx              # Remotion entry point
 │   │   ├── Trailer.tsx           # StarClaude64 15-second composition
 │   │   ├── compositions/
-│   │   │   └── FeatureTrailer.tsx # Dynamic feature trailer (10-12s)
+│   │   │   ├── WebappTrailer.tsx # CINEMATIC 3D trailer (PRIMARY - used by brain)
+│   │   │   ├── FeatureTrailer.tsx # Legacy feature trailer
+│   │   │   └── *.tsx             # Other compositions
 │   │   └── scenes/
-│   │       ├── TitleCard.tsx     # Animated title with particles
-│   │       ├── FeatureCallout.tsx # Premium text overlays
-│   │       └── CallToAction.tsx  # End screen with CTA
+│   │       └── *.tsx             # Scene components
 │   ├── public/footage/           # Captured gameplay clips
-│   ├── out/                      # Rendered output (trailer.mp4)
-│   ├── post-tweet.ts             # Script to post video to Twitter
+│   ├── out/                      # Rendered output
 │   └── package.json              # Remotion dependencies
 ├── brain/                        # Central Brain v3.1 (full autonomous loop)
 │   ├── src/
@@ -317,25 +314,33 @@ ccwtf/
   - `GET /auth/v1` - OAuth 1.0a setup UI
 
 ### 6. Video Generator (`/video`)
-- **Remotion-based** trailer generator with EXACT webapp UI recreation
-- **WebappTrailer composition** - looks identical to the real claudecode.wtf
+- **CINEMATIC 3D Remotion trailers** with exact webapp UI recreation
+- **WebappTrailer composition** - 3D tilted terminal with camera movements
 - **Manifest-driven content** - extracts real buttons, inputs, outputs from deployed pages
 - **How it works:**
   1. Extract manifest from deployed feature (buttons, placeholders, real output)
   2. Pass content to WebappTrailer Remotion composition
-  3. Render 20-second trailer that recreates the exact user journey
+  3. Render 20-second CINEMATIC trailer with camera movements
+- **3D Camera System:**
+  - Tilted terminal window in 3D perspective
+  - Dolly ins and zooms on active elements (2.2x-3.2x)
+  - Cursor with click animations on buttons
+  - Typewriter text animation for output
+  - Perfect focal point centering throughout
+- **Camera Positions (scene-by-scene):**
+  - intro → inputTyping → inputCursorMove → buttonClick → processing → outputReveal → outputTyping → outputComplete → cta
 - **Timeline (20 seconds):**
-  - Input scene (5s) - Typing animation with real placeholder
+  - Input scene (5s) - Typing animation with zoom on textarea
   - Processing scene (1.5s) - Snappy spinner + progress bar
-  - Output scene (8s) - Reveals REAL generated content
+  - Output scene (8s) - Typewriter reveal with zoom tracking
   - CTA scene (5.5s) - "Try it now" + feature URL
 - **Design tokens match webapp exactly:**
   - Colors: #0d0d0d, #1a1a1a, #da7756, etc.
   - Components: Terminal header, cards, buttons, footer
   - Typography: JetBrains Mono + system fonts
 - **Key files:**
-  - `video/src/compositions/WebappTrailer.tsx` - Main composition
-  - `brain/src/trailer-webapp.ts` - Generator using manifest
+  - `video/src/compositions/WebappTrailer.tsx` - CINEMATIC 3D composition (PRIMARY)
+  - `brain/src/trailer.ts` - Generator using manifest + WebappTrailer
   - `brain/src/manifest.ts` - Extracts real content from pages
 
 ### 7. Watch Brain (`/watch`)

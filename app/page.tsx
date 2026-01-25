@@ -134,6 +134,12 @@ export default function Home() {
             </svg>
             Code Roast
           </a>
+          <a href="/refactor" className="inline-flex items-center gap-2 bg-bg-secondary border border-violet-500 text-violet-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-violet-500 hover:text-white">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+            </svg>
+            AI Code Refactor
+          </a>
         </section>
 
         {/* Terminal + Info Cards - grouped together */}

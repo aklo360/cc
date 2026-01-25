@@ -25,6 +25,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import cron from 'node-cron';
 import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed, getHoursBetweenCycles, seedInitialFeatures, getAllShippedFeatures } from './db.js';
 import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
+import { executeVideoTweets, getPendingVideoTweets } from './video-scheduler.js';
 
 const PORT = process.env.PORT || 3001;
 
@@ -248,12 +249,34 @@ async function handleTweetExecutor(): Promise<void> {
   }
 }
 
+async function handleVideoTweetExecutor(): Promise<void> {
+  console.log('\n[Video Tweet Executor] Checking for scheduled video tweets...');
+  try {
+    const posted = await executeVideoTweets();
+    if (posted > 0) {
+      console.log(`[Video Tweet Executor] Posted ${posted} video tweet(s)`);
+      broadcastLog(`[Video Tweet Executor] Posted ${posted} video tweet(s)`);
+    } else {
+      const pending = getPendingVideoTweets();
+      if (pending.length > 0) {
+        console.log(`[Video Tweet Executor] ${pending.length} video tweet(s) pending, next at: ${pending[0].scheduled_for}`);
+      }
+    }
+  } catch (error) {
+    console.error('[Video Tweet Executor] Error:', error);
+  }
+}
+
 function setupCronJobs(): void {
   console.log('Setting up cron jobs...');
 
   // Check for scheduled tweets every 5 minutes
   cron.schedule('*/5 * * * *', handleTweetExecutor);
   console.log('  ✓ Tweet Executor: every 5 minutes');
+
+  // Check for scheduled video tweets every 5 minutes
+  cron.schedule('*/5 * * * *', handleVideoTweetExecutor);
+  console.log('  ✓ Video Tweet Executor: every 5 minutes');
 }
 
 // ============ Main ============

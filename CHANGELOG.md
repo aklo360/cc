@@ -6,6 +6,35 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-25] - CINEMATIC 3D Trailer System
+
+### Changed - Trailer Generation (MAJOR UPGRADE)
+Complete overhaul to use cinematic 3D trailers with camera movements:
+
+**brain/src/trailer.ts:**
+- Now uses `WebappTrailer` composition (3D tilted terminal)
+- Replaced `FeatureTrailer` with cinematic 3D version
+- Props: featureName, featureSlug, tagline, inputPlaceholder, inputContent, buttonText, outputLines, outputStyle
+- Smart output style detection: poetry, code, or text
+- Default content generation for all feature types
+
+**video/src/compositions/WebappTrailer.tsx:**
+- 3D perspective with tilted terminal window
+- Cinematic camera movements (dolly ins, zooms, rotations)
+- Cursor with click animations on buttons
+- Typewriter text animation for output reveal
+- Camera tracks focal points with perfect centering
+- Extreme zooms (2.2x-3.2x) on active elements
+- Scene-by-scene camera positions: intro, inputTyping, inputCursorMove, buttonClick, processing, outputReveal, outputTyping, outputComplete, cta
+
+**Camera Rules (locked in forever):**
+- Active element MUST be perfectly centered in frame
+- translateY: positive = view moves UP, negative = view moves DOWN
+- translateX: positive = view moves LEFT, negative = view moves RIGHT
+- At higher zoom (scale), smaller translate values have bigger effect
+
+---
+
 ## [2026-01-25] - WebappTrailer System
 
 ### Added - Exact UI Recreation Trailers
