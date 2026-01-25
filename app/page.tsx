@@ -152,6 +152,15 @@ export default function Home() {
             Buy on Photon
           </a>
           <a
+            href="https://axiom.trade/meme/3iJgVmQZwFHe4ScccyvXcFVoVaWnHcktoviessy8sR15?chain=sol&ref=aklo"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-border text-text-primary px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm transition-colors hover:bg-bg-tertiary hover:border-claude-orange hover:text-claude-orange"
+          >
+            <img src="/axiom.png" alt="Axiom" width={16} height={16} />
+            Buy on Axiom
+          </a>
+          <a
             href="https://x.com/ClaudeCodeWTF"
             target="_blank"
             rel="noopener noreferrer"
