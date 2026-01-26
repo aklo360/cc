@@ -19,7 +19,7 @@ interface VJStateV2 {
   fps: number;
 }
 
-function VJPageContent() {
+function VJV2PageContent() {
   const searchParams = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
   const vjRef = useRef<any>(null);
@@ -54,7 +54,7 @@ function VJPageContent() {
         const module = await import('../../vj/src/index-v2.ts').catch(() => null);
         if (!module) {
           setIsSupported(false);
-          setError('VJ module not available in this deployment');
+          setError('VJ v2 module not available in this deployment');
           return;
         }
         const VJv2 = module.VJv2;
@@ -105,8 +105,8 @@ function VJPageContent() {
           }
         };
       } catch (err) {
-        console.error('Failed to initialize VJ:', err);
-        setError('Failed to initialize VJ. Check console for details.');
+        console.error('Failed to initialize VJ v2:', err);
+        setError('Failed to initialize VJ v2. Check console for details.');
       }
     };
 
@@ -236,6 +236,13 @@ function VJPageContent() {
       {/* Visual container */}
       <div ref={containerRef} className="absolute inset-0" />
 
+      {/* STAGING Badge */}
+      <div className="absolute top-4 right-4 z-50">
+        <div className="bg-fuchsia-600 text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-lg animate-pulse">
+          STAGING v2
+        </div>
+      </div>
+
       {/* UI Overlay */}
       {showUI && (
         <div className="absolute inset-0 pointer-events-none">
@@ -247,11 +254,11 @@ function VJPageContent() {
               className="text-[#da7756] font-mono text-xl hover:text-white transition-colors flex items-center gap-2"
             >
               <img src="/vj/mascot-3d.png" alt="$CC" className="w-8 h-8" />
-              $CC VJ
+              $CC VJ v2
             </Link>
 
             {/* Stats */}
-            <div className="text-white/50 font-mono text-sm text-right">
+            <div className="text-white/50 font-mono text-sm text-right mr-24">
               <div className="text-[#da7756] font-bold">{state.fps} FPS</div>
               {state.bpm && <div>{Math.round(state.bpm)} BPM</div>}
               <div className="text-xs mt-1">
@@ -402,10 +409,10 @@ function VJPageContent() {
   );
 }
 
-export default function VJPage() {
+export default function VJV2Page() {
   return (
     <Suspense fallback={<div className="w-screen h-screen bg-[#0a0a0a]" />}>
-      <VJPageContent />
+      <VJV2PageContent />
     </Suspense>
   );
 }

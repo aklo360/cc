@@ -65,7 +65,23 @@
       "Bash(grep:*)",
       "Bash(jq:*)",
       "Bash(source /root/ccwtf/.env)",
-      "Bash(docker stats:*)"
+      "Bash(docker stats:*)",
+      "Bash(git -C /root/ccwtf add stream/cookies.txt)",
+      "Bash(git -C /root/ccwtf commit -m \"Remove sensitive cookies file content\" --allow-empty)",
+      "Bash(git -C /root/ccwtf rm --cached stream/cookies.txt)",
+      "Bash(git -C /root/ccwtf commit -m \"Remove cookies.txt from tracking \\(contains secrets\\)\")",
+      "Bash(git -C /root/ccwtf log --oneline -5)",
+      "Bash(git -C /root/ccwtf show 0a26d0a --stat)",
+      "Bash(git -C /root/ccwtf log --all --full-history -- stream/cookies.txt)",
+      "Bash(git -C /root/ccwtf log origin/main..HEAD --oneline)",
+      "Bash(git -C /root/ccwtf status)",
+      "Bash(git -C /root/ccwtf fetch origin)",
+      "Bash(git -C /root/ccwtf log origin/main -3 --oneline)",
+      "Bash(xargs kill:*)",
+      "Bash(git log:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(wc:*)"
     ]
   },
   "enabledMcpjsonServers": [

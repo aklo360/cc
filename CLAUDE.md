@@ -59,9 +59,10 @@ A memecoin website for $CC (Claude Code Coin) featuring:
 7. **Video Generator** (`/video`) - Remotion-based cinematic trailer generator
 8. **Central Brain** (`/brain`) - Full autonomous software engineering agent
 9. **VJ Agent** (`/vj`) - Claude-powered live audio-reactive visual generator
-10. **Rubber Duck Debugger** (`/duck`) - Interactive debugging companion
-11. **Code Roast** (`/roast`) - Humorous code critique with actual suggestions
-12. **24/7 Livestream** - Streams /watch to Kick/YouTube/Twitter via Docker
+10. **VJ Agent v2** (`/vj-v2`) - STAGING: Trippy branded visuals with mascot integration
+11. **Rubber Duck Debugger** (`/duck`) - Interactive debugging companion
+12. **Code Roast** (`/roast`) - Humorous code critique with actual suggestions
+13. **24/7 Livestream** - Streams /watch to Kick/YouTube/Twitter via Docker
 
 ### Why It Exists
 $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% of fees go to @bcherny.
@@ -178,6 +179,8 @@ ccwtf/
 │   │   └── page.tsx              # Code Roast page
 │   ├── vj/
 │   │   └── page.tsx              # VJ - live audio-reactive visuals
+│   ├── vj-v2/
+│   │   └── page.tsx              # VJ v2 STAGING - trippy branded visuals
 │   ├── watch/
 │   │   └── page.tsx              # Brain monitor - real-time build logs
 │   ├── globals.css               # Tailwind + CSS variables
@@ -187,7 +190,12 @@ ccwtf/
 │   ├── cc.png                    # 2D logo (SOURCE OF TRUTH)
 │   ├── claudecode.svg            # Vector SVG for 3D extrusion (Adobe Illustrator)
 │   ├── claudecode.jpg            # 3D rendered mascot
-│   └── og.jpg                    # Social preview
+│   ├── og.jpg                    # Social preview
+│   └── vj/                       # VJ v2 assets
+│       ├── mascot-3d.png         # 3D mascot render (717KB)
+│       ├── cc-logo.png           # Logo
+│       ├── ccbanner.png          # Wide banner
+│       └── claude3.png           # Claude branding
 ├── video/                        # Remotion video generator (separate project)
 │   ├── src/
 │   │   ├── Root.tsx              # Remotion entry point
@@ -229,16 +237,19 @@ ccwtf/
 │   └── wrangler.toml             # Worker config + cron schedule
 ├── vj/                           # VJ Agent - Live audio-reactive visuals
 │   ├── src/
-│   │   ├── index.ts              # Main VJ orchestrator
+│   │   ├── index.ts              # Main VJ orchestrator (v1)
+│   │   ├── index-v2.ts           # VJ v2 orchestrator (trippy branded)
 │   │   ├── audio/
 │   │   │   ├── capture.ts        # getDisplayMedia system audio capture
 │   │   │   ├── analyzer.ts       # Web Audio API FFT analysis
 │   │   │   └── beat.ts           # BPM detection (realtime-bpm-analyzer)
 │   │   ├── engines/
 │   │   │   ├── types.ts          # Common engine interface
-│   │   │   ├── threejs/index.ts  # Three.js 3D engine (particles, geometry)
-│   │   │   ├── hydra/index.ts    # Hydra live coding engine (GLSL shaders)
-│   │   │   └── remotion/         # Remotion Player (hacked for live)
+│   │   │   ├── threejs/index.ts  # Three.js 3D engine (v1)
+│   │   │   ├── threejs-v2/index.ts # Three.js v2 (trippy effects)
+│   │   │   ├── hydra/index.ts    # Hydra live coding engine (v1)
+│   │   │   ├── hydra-v2/index.ts # Hydra v2 (branded presets)
+│   │   │   └── remotion/         # Remotion Player (unused in v2)
 │   │   └── agent/
 │   │       └── index.ts          # Claude Agent SDK VJ controller
 │   └── package.json              # Dependencies
@@ -409,7 +420,39 @@ npm install
 # Then visit /vj in the main Next.js app
 ```
 
-### 10. Rubber Duck Debugger (`/duck`)
+### 10. VJ Agent v2 (`/vj-v2`) - STAGING
+Trippy branded visual generator with mascot integration:
+- **STAGING STATUS:** Test at `/vj-v2` - NOT deployed to production `/vj` yet
+- **Two Visual Engines (removed Remotion):**
+  - **Three.js v2**: Tunnel zoom, spiral, kaleidoscope, chromatic aberration, vortex background
+  - **Hydra v2**: Branded presets with mascot image loading, chaos mode
+- **Four Visual Modes:**
+  - **Tunnel**: Zooming mascot layers toward camera
+  - **Mandala**: Kaleidoscope with radial mascot arrangement
+  - **Chaos**: All effects combined (default)
+  - **Auto**: Cycles through modes every 8 seconds
+- **ALWAYS Branded:** $CC mascot visible, orange (#da7756) dominant, logo integration
+- **Trippy Effects Ported from Remotion:**
+  - TunnelZoom, FractalSpiral, Kaleidoscope, ChromaticAberration
+  - PulsingCenter, WaveOrbit, VortexBackground, ScanLines
+- **Post-Processing Chain:**
+  - Bloom (strength reacts to bass)
+  - Chromatic aberration (reacts to high frequencies)
+  - Scanlines (animated)
+- **Assets:** `/public/vj/` - mascot-3d.png, cc-logo.png, ccbanner.png
+- **Keyboard Shortcuts:**
+  - H: Hide UI, F: Fullscreen
+  - 1/2: Engines (Three.js/Hydra)
+  - A/B/S/X: Styles
+  - T/M/C/O: Modes (Tunnel/Mandala/Chaos/Auto)
+
+**Key files:**
+- `app/vj-v2/page.tsx` - Staging page with STAGING badge
+- `vj/src/index-v2.ts` - V2 orchestrator
+- `vj/src/engines/threejs-v2/index.ts` - Three.js v2 engine (~550 lines)
+- `vj/src/engines/hydra-v2/index.ts` - Hydra v2 engine (~350 lines)
+
+### 11. Rubber Duck Debugger (`/duck`)
 Interactive debugging companion based on "The Pragmatic Programmer" technique:
 - Animated SVG duck with quacking animation
 - Problem input textarea with common examples
@@ -418,7 +461,7 @@ Interactive debugging companion based on "The Pragmatic Programmer" technique:
 - Occasionally gives intentionally bad advice (clearly marked)
 - Explains the rubber duck debugging methodology
 
-### 11. Code Roast (`/roast`)
+### 12. Code Roast (`/roast`)
 Humorous code critique with actual suggestions:
 - Code input with example snippets
 - Random example button for testing
@@ -427,7 +470,7 @@ Humorous code critique with actual suggestions:
 - Feature cards (Brutally Honest, Actually Helpful, With Love)
 - List of common roast targets (using var in 2026, console.log debugging, etc.)
 
-### 12. 24/7 Livestream Service (Docker)
+### 13. 24/7 Livestream Service (Docker)
 Streams `/watch` page to multiple platforms simultaneously:
 - **Architecture:** CDP screencast → FFmpeg → RTMP (tee muxer)
 - **Platforms:** Kick, YouTube, Twitter/X (configurable via env vars)
@@ -835,11 +878,15 @@ npx wrangler deploy
 | `brain/src/meme.ts` | Meme generation engine | ~350 |
 | `brain/src/meme-prompts.ts` | 75+ dev meme prompts | ~90 |
 | `app/vj/page.tsx` | VJ page UI | ~250 |
-| `vj/src/index.ts` | VJ orchestrator | ~280 |
+| `app/vj-v2/page.tsx` | VJ v2 STAGING page | ~270 |
+| `vj/src/index.ts` | VJ orchestrator (v1) | ~280 |
+| `vj/src/index-v2.ts` | VJ v2 orchestrator (trippy) | ~280 |
 | `vj/src/audio/capture.ts` | System audio capture | ~85 |
 | `vj/src/audio/analyzer.ts` | FFT analysis | ~150 |
-| `vj/src/engines/threejs/index.ts` | Three.js engine | ~250 |
-| `vj/src/engines/hydra/index.ts` | Hydra engine | ~200 |
+| `vj/src/engines/threejs/index.ts` | Three.js engine (v1) | ~250 |
+| `vj/src/engines/threejs-v2/index.ts` | Three.js v2 (trippy effects) | ~550 |
+| `vj/src/engines/hydra/index.ts` | Hydra engine (v1) | ~200 |
+| `vj/src/engines/hydra-v2/index.ts` | Hydra v2 (branded presets) | ~350 |
 | `vj/src/agent/index.ts` | Claude Agent SDK VJ | ~300 |
 
 ---

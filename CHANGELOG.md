@@ -6,6 +6,56 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-26] - VJ Visualizer v2 STAGING
+
+### Added - Trippy Branded Visuals
+VJ v2 is a complete rewrite of the audio-reactive visual generator with trippy effects ported from Remotion compositions.
+
+**New Staging Page (`/vj-v2`):**
+- STAGING badge indicates not yet production-ready
+- Test at `/vj-v2` before replacing `/vj`
+
+**Three.js Engine v2 (`vj/src/engines/threejs-v2/index.ts`):**
+- TunnelZoom: Mascot sprites zooming toward camera
+- FractalSpiral: 20 mascot images in logarithmic spiral
+- Kaleidoscope: 12-segment radial mirrored mascot arrangement
+- VortexBackground: 6-layer conic gradient shaders
+- PulsingCenter: Breathing center mascot with multi-layer glow
+- WaveOrbit: 8 orbiting mascots with sine wave motion
+- ParticleSparkles: 200 orange glowing particles
+- Post-processing: Bloom, Chromatic Aberration, Scanlines
+
+**Hydra Engine v2 (`vj/src/engines/hydra-v2/index.ts`):**
+- Loads mascot images as Hydra sources (s0, s1, s2)
+- 5 preset modes: Tunnel, Spiral, Kaleidoscope, Vortex, Chaos
+- Auto mode cycles presets every 8 seconds
+- All presets feature $CC orange (#da7756) and mascot
+
+**Four Visual Modes:**
+- **Tunnel**: Zooming mascot layers
+- **Mandala**: Kaleidoscope radial pattern
+- **Chaos**: All effects combined (default)
+- **Auto**: Cycles modes every 8 seconds
+
+**VJ v2 Orchestrator (`vj/src/index-v2.ts`):**
+- Removed Remotion engine (doesn't work real-time)
+- New mode switching (T/M/C/O keyboard shortcuts)
+- More dynamic fake audio for testing
+
+**Assets (`public/vj/`):**
+- mascot-3d.png (717KB) - 3D mascot render
+- cc-logo.png - Logo
+- ccbanner.png (580KB) - Wide banner
+- claude3.png - Claude branding
+
+**Key Design Decisions:**
+- ALWAYS BRANDED: Mascot visible, orange dominant
+- Removed Remotion: Doesn't work for real-time VJ
+- Two engines only: Three.js v2 and Hydra v2
+- Audio-reactive everything: bass/mid/high affect all effects
+
+---
+
 ## [2026-01-26] - Stream Auto-Recovery (Comprehensive Health Monitoring)
 
 ### Added - Self-Healing Stream
