@@ -1,0 +1,127 @@
+import { Composition } from "remotion";
+import { ClaudeCodeInstall } from "./ClaudeCodeInstall";
+import { ClaudeCodeMandala } from "./ClaudeCodeMandala";
+import { ClaudeCodeTrippy } from "./ClaudeCodeTrippy";
+import { ClaudeCodeTrippy2 } from "./ClaudeCodeTrippy2";
+import { ClaudeCodeTrippy3 } from "./ClaudeCodeTrippy3";
+import {
+  ClaudeAngry,
+  ClaudeHappy,
+  ClaudeSad,
+  ClaudeLaughing,
+  ClaudeThinking,
+  ClaudeSurprised,
+  ClaudeLove,
+  ClaudeCool,
+} from "./ClaudeReaction";
+
+export const RemotionRoot: React.FC = () => {
+  return (
+    <>
+      <Composition
+        id="ClaudeCodeInstall"
+        component={ClaudeCodeInstall}
+        durationInFrames={450}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="ClaudeCodeMandala"
+        component={ClaudeCodeMandala}
+        durationInFrames={450}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="ClaudeCodeTrippy"
+        component={ClaudeCodeTrippy}
+        durationInFrames={450}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="ClaudeCodeTrippy2"
+        component={ClaudeCodeTrippy2}
+        durationInFrames={450}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="ClaudeCodeTrippy3"
+        component={ClaudeCodeTrippy3}
+        durationInFrames={450}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="ClaudeAngry"
+        component={ClaudeAngry}
+        durationInFrames={90}
+        fps={30}
+        width={2160}
+        height={2160}
+      />
+      <Composition
+        id="ClaudeHappy"
+        component={ClaudeHappy}
+        durationInFrames={120}
+        fps={30}
+        width={2160}
+        height={2160}
+      />
+      <Composition
+        id="ClaudeSad"
+        component={ClaudeSad}
+        durationInFrames={150}
+        fps={30}
+        width={2160}
+        height={2160}
+      />
+      <Composition
+        id="ClaudeLaughing"
+        component={ClaudeLaughing}
+        durationInFrames={120}
+        fps={30}
+        width={2160}
+        height={2160}
+      />
+      <Composition
+        id="ClaudeThinking"
+        component={ClaudeThinking}
+        durationInFrames={150}
+        fps={30}
+        width={2160}
+        height={2160}
+      />
+      <Composition
+        id="ClaudeSurprised"
+        component={ClaudeSurprised}
+        durationInFrames={90}
+        fps={30}
+        width={2160}
+        height={2160}
+      />
+      <Composition
+        id="ClaudeLove"
+        component={ClaudeLove}
+        durationInFrames={120}
+        fps={30}
+        width={2160}
+        height={2160}
+      />
+      <Composition
+        id="ClaudeCool"
+        component={ClaudeCool}
+        durationInFrames={120}
+        fps={30}
+        width={2160}
+        height={2160}
+      />
+    </>
+  );
+};

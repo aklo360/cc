@@ -1,0 +1,25 @@
+{
+  "name": "claude-code-video",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion render ClaudeCodeInstall out/video.mp4",
+    "upgrade": "remotion upgrade"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.407",
+    "@remotion/cli": "^4.0.407",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "remotion": "^4.0.407"
+  }
+}
