@@ -26,6 +26,9 @@ export class FfmpegPipeline {
   private process: ChildProcess | null = null;
   private isRunning = false;
   private frameCount = 0;
+  private lastFrameCount = 0;
+  private lastFrameTime = 0;
+  private rtmpConnected = false;
 
   constructor(config: PipelineConfig, events: PipelineEvents) {
     this.config = config;
@@ -120,20 +123,48 @@ export class FfmpegPipeline {
         const str = data.toString();
         const now = Date.now();
 
+        // Detect RTMP connection errors
+        if (str.includes('Connection refused') ||
+            str.includes('Connection reset') ||
+            str.includes('Broken pipe') ||
+            str.includes('Connection timed out') ||
+            str.includes('Failed to connect') ||
+            str.includes('I/O error') ||
+            str.includes('RTMP_Connect') ||
+            str.includes('Server error')) {
+          console.error(`[ffmpeg] RTMP ERROR: ${str.trim()}`);
+          this.rtmpConnected = false;
+          this.events.onError(new Error(`RTMP connection failed: ${str.trim()}`));
+          return;
+        }
+
         // Log important lines always
         if (str.includes('Error') || str.includes('error') ||
             str.includes('Opening') || str.includes('Output') ||
             str.includes('Connection') || str.includes('failed') ||
             str.includes('Stream mapping')) {
           console.log(`[ffmpeg] ${str.trim()}`);
+          // Mark connected when we see successful output
+          if (str.includes('Output #0') || str.includes('Stream mapping')) {
+            this.rtmpConnected = true;
+          }
         }
         // Log frame stats every 10 seconds
         else if (str.includes('frame=') && (now - lastLogTime) > 10000) {
           const match = str.match(/frame=\s*(\d+).*fps=\s*([\d.]+).*size=\s*(\S+)/);
           if (match) {
             this.frameCount = parseInt(match[1], 10);
+            this.lastFrameTime = now;
             console.log(`[ffmpeg] frame=${match[1]} fps=${match[2]} size=${match[3]}`);
             lastLogTime = now;
+          }
+        }
+        // Update frame count even if not logging
+        else if (str.includes('frame=')) {
+          const match = str.match(/frame=\s*(\d+)/);
+          if (match) {
+            this.frameCount = parseInt(match[1], 10);
+            this.lastFrameTime = now;
           }
         }
         this.events.onStderr(str);
@@ -172,5 +203,27 @@ export class FfmpegPipeline {
 
   getFrameCount(): number {
     return this.frameCount;
+  }
+
+  isRtmpConnected(): boolean {
+    return this.rtmpConnected;
+  }
+
+  /**
+   * Check if frames are progressing (not stalled)
+   * Returns true if frames have increased since last check
+   */
+  checkFrameProgress(): { healthy: boolean; framesSinceLastCheck: number; secondsSinceLastFrame: number } {
+    const now = Date.now();
+    const framesSinceLastCheck = this.frameCount - this.lastFrameCount;
+    const secondsSinceLastFrame = this.lastFrameTime > 0 ? (now - this.lastFrameTime) / 1000 : 0;
+
+    // Update last check values
+    this.lastFrameCount = this.frameCount;
+
+    // Healthy if frames are progressing and last frame was recent
+    const healthy = framesSinceLastCheck > 0 && secondsSinceLastFrame < 60;
+
+    return { healthy, framesSinceLastCheck, secondsSinceLastFrame };
   }
 }

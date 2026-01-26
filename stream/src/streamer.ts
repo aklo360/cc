@@ -49,7 +49,9 @@ export class Streamer extends EventEmitter {
   private lastError: string | null = null;
   private isShuttingDown: boolean = false;
   private restartResetTimer: NodeJS.Timeout | null = null;
+  private streamHealthInterval: NodeJS.Timeout | null = null;
   private static readonly RESTART_RESET_AFTER_MS = 5 * 60 * 1000; // Reset counter after 5 min stable
+  private static readonly STREAM_HEALTH_CHECK_MS = 3 * 60 * 1000; // Check stream health every 3 minutes
 
   constructor(config: StreamerConfig) {
     super();
@@ -142,6 +144,9 @@ export class Streamer extends EventEmitter {
         }
       }, Streamer.RESTART_RESET_AFTER_MS);
 
+      // Start comprehensive stream health monitoring (every 3 minutes)
+      this.startStreamHealthCheck();
+
     } catch (error) {
       this.lastError = (error as Error).message;
       this.setState('error');
@@ -159,6 +164,9 @@ export class Streamer extends EventEmitter {
       clearTimeout(this.restartResetTimer);
       this.restartResetTimer = null;
     }
+
+    // Clear stream health check interval
+    this.stopStreamHealthCheck();
 
     if (this.director) {
       this.director.stop();
@@ -252,6 +260,68 @@ export class Streamer extends EventEmitter {
     } catch (error) {
       console.error('[streamer] Restart failed:', error);
       this.attemptRestart();
+    }
+  }
+
+  /**
+   * Comprehensive stream health check - runs every 3 minutes
+   * Checks: FFmpeg frame progress, RTMP connection, CDP page health
+   */
+  private startStreamHealthCheck(): void {
+    // Clear any existing interval
+    if (this.streamHealthInterval) {
+      clearInterval(this.streamHealthInterval);
+    }
+
+    console.log('[streamer] Starting stream health monitor (every 3 min)');
+
+    this.streamHealthInterval = setInterval(async () => {
+      if (this.state !== 'streaming' || this.isShuttingDown) {
+        return;
+      }
+
+      try {
+        await this.checkStreamHealth();
+      } catch (error) {
+        console.error('[streamer] Health check failed:', (error as Error).message);
+        this.lastError = `Health check: ${(error as Error).message}`;
+        this.attemptRestart();
+      }
+    }, Streamer.STREAM_HEALTH_CHECK_MS);
+  }
+
+  private async checkStreamHealth(): Promise<void> {
+    console.log('[streamer] Running 3-minute health check...');
+
+    // Check 1: FFmpeg frame progress
+    if (this.ffmpegPipeline) {
+      const frameCheck = this.ffmpegPipeline.checkFrameProgress();
+      console.log(`[streamer] Frame check: +${frameCheck.framesSinceLastCheck} frames, ${frameCheck.secondsSinceLastFrame.toFixed(1)}s since last`);
+
+      if (!frameCheck.healthy) {
+        throw new Error(`FFmpeg stalled: ${frameCheck.framesSinceLastCheck} frames in last 3 min, ${frameCheck.secondsSinceLastFrame.toFixed(1)}s since last frame`);
+      }
+
+      // Check RTMP connection status
+      if (!this.ffmpegPipeline.isRtmpConnected()) {
+        console.warn('[streamer] RTMP connection status: disconnected (may be normal during startup)');
+      }
+    } else {
+      throw new Error('FFmpeg pipeline not running');
+    }
+
+    // Check 2: CDP/Chrome page health (already checked every 30s, but verify here too)
+    if (this.cdpCapture && !this.cdpCapture.isRunning()) {
+      throw new Error('CDP capture not running');
+    }
+
+    console.log('[streamer] Health check passed ✓');
+  }
+
+  private stopStreamHealthCheck(): void {
+    if (this.streamHealthInterval) {
+      clearInterval(this.streamHealthInterval);
+      this.streamHealthInterval = null;
     }
   }
 
