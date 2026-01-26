@@ -6,6 +6,29 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-26] - Stream Auto-Recovery (Chrome Crash Detection)
+
+### Added - Self-Healing Stream
+The 24/7 livestream now automatically detects Chrome crashes and recovers without manual intervention.
+
+**Chrome Crash Detection (`stream/src/cdp-capture.ts`):**
+- Health check runs every 30 seconds
+- Detects crash pages: "Aw, Snap!", "ERR_", "This page isn't working", "crashed"
+- Triggers automatic restart when crash detected
+- Checks if page is closed or disconnected
+
+**Never Give Up Recovery (`stream/src/streamer.ts`):**
+- After 10 failed restarts, waits 60 seconds and resets counter (instead of giving up)
+- Restart counter resets after 5 minutes of stable streaming
+- Stream will recover indefinitely from any crash
+
+**Why this matters:**
+- Chrome can crash due to memory pressure, SIGILL, or other issues
+- Previously required manual restart
+- Now the stream stays up 24/7 without intervention
+
+---
+
 ## [2026-01-26] - Global Twitter Rate Limiting
 
 ### Added - Respecting Twitter Free Tier Limits
