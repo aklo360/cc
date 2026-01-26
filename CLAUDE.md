@@ -420,37 +420,41 @@ npm install
 # Then visit /vj in the main Next.js app
 ```
 
-### 10. VJ Agent v2 (`/vj-v2`) - STAGING
-Trippy branded visual generator with mascot integration:
-- **STAGING STATUS:** Test at `/vj-v2` - NOT deployed to production `/vj` yet
+### 10. VJ Agent v2 (`/vj` and `/vj-v2`)
+Complete visual overhaul inspired by Beeple, Cyriak, and professional VJ techniques:
 - **Two Visual Engines (removed Remotion):**
-  - **Three.js v2**: Tunnel zoom, spiral, kaleidoscope, chromatic aberration, vortex background
-  - **Hydra v2**: Branded presets with mascot image loading, chaos mode
-- **Four Visual Modes:**
-  - **Tunnel**: Zooming mascot layers toward camera
-  - **Mandala**: Kaleidoscope with radial mascot arrangement
-  - **Chaos**: All effects combined (default)
-  - **Auto**: Cycles through modes every 8 seconds
-- **ALWAYS Branded:** $CC mascot visible, orange (#da7756) dominant, logo integration
-- **Trippy Effects Ported from Remotion:**
-  - TunnelZoom, FractalSpiral, Kaleidoscope, ChromaticAberration
-  - PulsingCenter, WaveOrbit, VortexBackground, ScanLines
+  - **Three.js v2**: Non-repeating procedural evolution, tunnel zoom, drift, bloom
+  - **Hydra v2**: 7 radically different visual modes with 28 scenes total
+- **Seven Visual Modes + Auto:**
+  1. **SPIRAL** (S key): Hypnotic spiraling, kaleidoscopic patterns
+  2. **MORPH** (M key): Cyriak-inspired - Droste effect, melt, fracture, breathe
+  3. **DYSTOPIA** (D key): Beeple-inspired - Monolith, corruption, emergence, eclipse
+  4. **GEOMETRY** (G key): Mathematical - Voronoi, shatter, wireframe, tessellation
+  5. **WARP** (W key): Hyperdrive/speed - Starfield, streak, vortex, hyperspace
+  6. **GLITCH** (X key): Digital corruption - VHS, RGB split, tear, corrupt
+  7. **LIQUID** (L key): Organic flow - Ripple, underwater, flow, mercury
+  8. **AUTO** (A key): Random scene selection every 10 seconds
+- **Design Principles:**
+  - Each mode RADICALLY different (not just "grids of mascots")
+  - Mix of single large mascot + abstracted/transformed scenes
+  - Inspired by Beeple (dystopian monoliths) and Cyriak (Droste/morphing)
+  - Scene changes every 10 seconds (auto randomizes)
 - **Post-Processing Chain:**
   - Bloom (strength reacts to bass)
   - Chromatic aberration (reacts to high frequencies)
-  - Scanlines (animated)
+  - Vortex (Three.js only)
 - **Assets:** `/public/vj/` - mascot-3d.png, cc-logo.png, ccbanner.png
 - **Keyboard Shortcuts:**
   - H: Hide UI, F: Fullscreen
   - 1/2: Engines (Three.js/Hydra)
-  - A/B/S/X: Styles
-  - T/M/C/O: Modes (Tunnel/Mandala/Chaos/Auto)
+  - S/M/D/G/W/X/L/A: Modes
 
 **Key files:**
+- `app/vj/page.tsx` - Production VJ page
 - `app/vj-v2/page.tsx` - Staging page with STAGING badge
 - `vj/src/index-v2.ts` - V2 orchestrator
-- `vj/src/engines/threejs-v2/index.ts` - Three.js v2 engine (~550 lines)
-- `vj/src/engines/hydra-v2/index.ts` - Hydra v2 engine (~350 lines)
+- `vj/src/engines/threejs-v2/index.ts` - Three.js v2 engine (~960 lines)
+- `vj/src/engines/hydra-v2/index.ts` - Hydra v2 engine (~1024 lines, 28 scenes)
 
 ### 11. Rubber Duck Debugger (`/duck`)
 Interactive debugging companion based on "The Pragmatic Programmer" technique:
@@ -884,9 +888,9 @@ npx wrangler deploy
 | `vj/src/audio/capture.ts` | System audio capture | ~85 |
 | `vj/src/audio/analyzer.ts` | FFT analysis | ~150 |
 | `vj/src/engines/threejs/index.ts` | Three.js engine (v1) | ~250 |
-| `vj/src/engines/threejs-v2/index.ts` | Three.js v2 (trippy effects) | ~550 |
+| `vj/src/engines/threejs-v2/index.ts` | Three.js v2 (trippy effects) | ~960 |
 | `vj/src/engines/hydra/index.ts` | Hydra engine (v1) | ~200 |
-| `vj/src/engines/hydra-v2/index.ts` | Hydra v2 (branded presets) | ~350 |
+| `vj/src/engines/hydra-v2/index.ts` | Hydra v2 (7 modes, 28 scenes) | ~1024 |
 | `vj/src/agent/index.ts` | Claude Agent SDK VJ | ~300 |
 
 ---

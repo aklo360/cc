@@ -167,8 +167,9 @@ const VortexShader = {
   `,
 };
 
-// Visual mode types
-type VisualMode = 'tunnel' | 'mandala' | 'chaos' | 'auto';
+// Visual mode types - renamed for clarity
+// showcase (was tunnel), drift (was mandala), pulse (was chaos)
+type VisualMode = 'showcase' | 'drift' | 'pulse' | 'auto';
 
 /**
  * A visual element that evolves over time
@@ -206,7 +207,7 @@ export class ThreeJSEngineV2 implements IVisualEngine {
   private particleSystem!: THREE.Points;
 
   // Evolution state
-  private mode: VisualMode = 'chaos';
+  private mode: VisualMode = 'showcase';
   private time = 0;
   private absoluteTime = 0; // Never resets, for long-term evolution
   private evolutionPhase = 0; // Slowly morphing phase
@@ -590,7 +591,7 @@ export class ThreeJSEngineV2 implements IVisualEngine {
 
     // Auto mode switches
     if (this.mode === 'auto' && this.absoluteTime - this.lastModeSwitch > 8) {
-      const modes: VisualMode[] = ['tunnel', 'mandala', 'chaos'];
+      const modes: VisualMode[] = ['showcase', 'drift', 'pulse'];
       const newMode = modes[Math.floor(Math.random() * modes.length)];
       this.setMode(newMode);
       this.lastModeSwitch = this.absoluteTime;
@@ -646,7 +647,7 @@ export class ThreeJSEngineV2 implements IVisualEngine {
     intensity: number
   ): void {
     // Mode visibility
-    const visibility = this.mode === 'mandala' ? 1 : this.mode === 'chaos' ? 0.7 : 0.3;
+    const visibility = this.mode === 'drift' ? 1 : this.mode === 'pulse' ? 0.7 : 0.3;
 
     // Beat pulse
     const beatPulse = beat.phase < 0.15 ? 1.3 : 1;
@@ -672,7 +673,7 @@ export class ThreeJSEngineV2 implements IVisualEngine {
   }
 
   private updateTunnelElements(audio: VisualParams['audio'], intensity: number): void {
-    const visibility = this.mode === 'tunnel' ? 1 : this.mode === 'chaos' ? 0.5 : 0.1;
+    const visibility = this.mode === 'showcase' ? 1 : this.mode === 'pulse' ? 0.5 : 0.1;
 
     for (const el of this.tunnelElements) {
       const sprite = el.mesh as THREE.Sprite;
@@ -707,7 +708,7 @@ export class ThreeJSEngineV2 implements IVisualEngine {
   }
 
   private updateMandalaElements(audio: VisualParams['audio'], intensity: number): void {
-    const visibility = this.mode === 'mandala' ? 1 : this.mode === 'chaos' ? 0.4 : 0.1;
+    const visibility = this.mode === 'drift' ? 1 : this.mode === 'pulse' ? 0.4 : 0.1;
 
     for (const el of this.mandalaElements) {
       const sprite = el.mesh as THREE.Sprite;
@@ -735,7 +736,7 @@ export class ThreeJSEngineV2 implements IVisualEngine {
   }
 
   private updateChaosElements(audio: VisualParams['audio'], intensity: number): void {
-    const visibility = this.mode === 'chaos' ? 1 : 0.3;
+    const visibility = this.mode === 'pulse' ? 1 : 0.3;
 
     for (const el of this.chaosElements) {
       const sprite = el.mesh as THREE.Sprite;
@@ -882,8 +883,31 @@ export class ThreeJSEngineV2 implements IVisualEngine {
     // This ensures consistent $CC branding
   }
 
-  setMode(mode: VisualMode): void {
-    this.mode = mode;
+  setMode(mode: VisualMode | string): void {
+    // Handle legacy mode names + new Hydra v2 mode names
+    const modeMap: Record<string, VisualMode> = {
+      // Legacy Three.js v2 modes
+      tunnel: 'showcase',
+      mandala: 'drift',
+      chaos: 'pulse',
+      showcase: 'showcase',
+      drift: 'drift',
+      pulse: 'pulse',
+      // New Hydra v2 modes mapped to Three.js equivalents
+      spiral: 'drift',      // Mandala-like
+      morph: 'showcase',    // Single focal point
+      dystopia: 'showcase', // Monolithic center
+      geometry: 'drift',    // Fragmented/mandala
+      warp: 'showcase',     // Tunnel/zoom
+      glitch: 'pulse',      // Chaotic
+      liquid: 'drift',      // Flowing
+      clean: 'showcase',
+      wavey: 'drift',
+      '3d': 'showcase',
+      auto: 'auto',
+    };
+
+    this.mode = modeMap[mode] || 'showcase';
     this.lastModeSwitch = this.absoluteTime;
   }
 

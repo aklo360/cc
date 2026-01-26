@@ -81,7 +81,9 @@
       "Bash(git log:*)",
       "Bash(git fetch:*)",
       "Bash(git pull:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(readlink:*)",
+      "Bash(docker-compose ps:*)"
     ]
   },
   "enabledMcpjsonServers": [

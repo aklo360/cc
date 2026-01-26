@@ -4,16 +4,14 @@ import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-// Types (inline to avoid import issues with vj/ module)
+// Types
 type EngineTypeV2 = 'threejs' | 'hydra';
-type VisualStyle = 'abstract' | 'branded' | 'synthwave' | 'auto';
-type VisualMode = 'tunnel' | 'mandala' | 'chaos' | 'auto';
+type VisualMode = 'spiral' | 'morph' | 'dystopia' | 'geometry' | 'warp' | 'glitch' | 'liquid' | 'auto';
 
 interface VJStateV2 {
   isRunning: boolean;
   isCapturing: boolean;
   engine: EngineTypeV2;
-  style: VisualStyle;
   mode: VisualMode;
   bpm: number | null;
   fps: number;
@@ -26,16 +24,14 @@ function VJPageContent() {
 
   // Get URL params for stream mode
   const paramEngine = searchParams.get('engine') as EngineTypeV2 | null;
-  const paramStyle = searchParams.get('style') as VisualStyle | null;
   const paramMode = searchParams.get('mode') as VisualMode | null;
   const paramHideUI = searchParams.get('hideUI') === 'true';
 
   const [state, setState] = useState<VJStateV2>({
     isRunning: false,
     isCapturing: false,
-    engine: paramEngine || 'threejs',
-    style: paramStyle || 'branded',
-    mode: paramMode || 'chaos',
+    engine: paramEngine || 'hydra',
+    mode: paramMode || 'auto',
     bpm: null,
     fps: 0,
   });
@@ -72,12 +68,12 @@ function VJPageContent() {
         vjRef.current = vj;
 
         await vj.init(containerRef.current, {
-          engine: paramEngine || 'threejs',
-          style: paramStyle || 'branded',
-          mode: paramMode || 'chaos',
+          engine: paramEngine || 'hydra',
+          style: 'branded', // Always branded
+          mode: paramMode || 'auto',
         });
 
-        // Start animation loop (will use fake audio until capture starts)
+        // Start animation loop
         vj.start();
 
         // Update state periodically
@@ -88,7 +84,6 @@ function VJPageContent() {
               isRunning: s.isRunning,
               isCapturing: s.isCapturing,
               engine: s.engine,
-              style: s.style,
               mode: s.mode,
               bpm: s.beat?.bpm || null,
               fps: s.fps,
@@ -160,13 +155,6 @@ function VJPageContent() {
     }
   }, []);
 
-  // Set style
-  const setStyle = useCallback((style: VisualStyle) => {
-    if (vjRef.current) {
-      vjRef.current.setStyle(style);
-    }
-  }, []);
-
   // Set mode
   const setMode = useCallback((mode: VisualMode) => {
     if (vjRef.current) {
@@ -199,29 +187,29 @@ function VJPageContent() {
         case '2':
           setEngine('hydra');
           break;
-        case 'a':
-          setStyle('abstract');
-          break;
-        case 'b':
-          setStyle('branded');
-          break;
+        // Mode shortcuts (7 modes + auto)
         case 's':
-          setStyle('synthwave');
-          break;
-        case 'x':
-          setStyle('auto');
-          break;
-        // Mode shortcuts
-        case 't':
-          setMode('tunnel');
+          setMode('spiral');
           break;
         case 'm':
-          setMode('mandala');
+          setMode('morph');
           break;
-        case 'c':
-          setMode('chaos');
+        case 'd':
+          setMode('dystopia');
           break;
-        case 'o':
+        case 'g':
+          setMode('geometry');
+          break;
+        case 'w':
+          setMode('warp');
+          break;
+        case 'x':
+          setMode('glitch');
+          break;
+        case 'l':
+          setMode('liquid');
+          break;
+        case 'a':
           setMode('auto');
           break;
       }
@@ -229,10 +217,10 @@ function VJPageContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setEngine, setStyle, setMode, toggleFullscreen]);
+  }, [setEngine, setMode, toggleFullscreen]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden">
+    <div className="relative w-screen h-screen overflow-hidden bg-[#0d0d0d]">
       {/* Visual container */}
       <div ref={containerRef} className="absolute inset-0" />
 
@@ -246,7 +234,7 @@ function VJPageContent() {
               href="/"
               className="text-[#da7756] font-mono text-xl hover:text-white transition-colors flex items-center gap-2"
             >
-              <img src="/vj/mascot-3d.png" alt="$CC" className="w-8 h-8" />
+              <img src="/cc.png" alt="$CC" className="w-8 h-8" />
               $CC VJ
             </Link>
 
@@ -256,9 +244,9 @@ function VJPageContent() {
               {state.bpm && <div>{Math.round(state.bpm)} BPM</div>}
               <div className="text-xs mt-1">
                 {state.isCapturing ? (
-                  <span className="text-green-400">LIVE</span>
+                  <span className="text-green-400">LIVE AUDIO</span>
                 ) : (
-                  <span className="text-fuchsia-400">DEMO</span>
+                  <span className="text-fuchsia-400">DEMO MODE</span>
                 )}
               </div>
             </div>
@@ -279,8 +267,8 @@ function VJPageContent() {
 
           {/* Bottom controls */}
           <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-auto">
-            <div className="max-w-5xl mx-auto bg-black/70 backdrop-blur-lg rounded-lg p-4 border border-[#da7756]/30">
-              <div className="flex flex-wrap gap-4 justify-between items-center">
+            <div className="max-w-5xl mx-auto bg-black/80 backdrop-blur-lg rounded-lg p-4 border border-[#da7756]/30">
+              <div className="flex flex-wrap gap-3 justify-between items-center">
                 {/* Audio capture */}
                 <div className="flex gap-2">
                   {!state.isCapturing ? (
@@ -303,48 +291,30 @@ function VJPageContent() {
 
                 {/* Engine selector */}
                 <div className="flex gap-1 items-center">
-                  <span className="text-white/50 font-mono text-sm mr-2">Engine:</span>
+                  <span className="text-white/50 font-mono text-xs mr-1">Engine:</span>
                   {(['threejs', 'hydra'] as EngineTypeV2[]).map((e) => (
                     <button
                       key={e}
                       onClick={() => setEngine(e)}
-                      className={`px-3 py-1 font-mono text-sm rounded transition-colors ${
+                      className={`px-2 py-1 font-mono text-xs rounded transition-colors ${
                         state.engine === e
                           ? 'bg-[#da7756] text-black font-bold'
                           : 'bg-white/10 text-white hover:bg-white/20'
                       }`}
                     >
-                      {e === 'threejs' ? 'Three.js' : 'Hydra'}
+                      {e === 'threejs' ? '3JS' : 'HYD'}
                     </button>
                   ))}
                 </div>
 
-                {/* Style selector */}
-                <div className="flex gap-1 items-center">
-                  <span className="text-white/50 font-mono text-sm mr-2">Style:</span>
-                  {(['abstract', 'branded', 'synthwave', 'auto'] as VisualStyle[]).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setStyle(s)}
-                      className={`px-3 py-1 font-mono text-sm rounded capitalize transition-colors ${
-                        state.style === s
-                          ? 'bg-fuchsia-600 text-white font-bold'
-                          : 'bg-white/10 text-white hover:bg-white/20'
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Mode selector */}
-                <div className="flex gap-1 items-center">
-                  <span className="text-white/50 font-mono text-sm mr-2">Mode:</span>
-                  {(['tunnel', 'mandala', 'chaos', 'auto'] as VisualMode[]).map((m) => (
+                {/* Mode selector - 8 modes (7 + auto) */}
+                <div className="flex gap-1 items-center flex-wrap">
+                  <span className="text-white/50 font-mono text-xs mr-1">Mode:</span>
+                  {(['spiral', 'morph', 'dystopia', 'geometry', 'warp', 'glitch', 'liquid', 'auto'] as VisualMode[]).map((m) => (
                     <button
                       key={m}
                       onClick={() => setMode(m)}
-                      className={`px-3 py-1 font-mono text-sm rounded capitalize transition-colors ${
+                      className={`px-2 py-1 font-mono text-xs rounded uppercase transition-colors ${
                         state.mode === m
                           ? 'bg-cyan-500 text-black font-bold'
                           : 'bg-white/10 text-white hover:bg-white/20'
@@ -358,19 +328,18 @@ function VJPageContent() {
                 {/* Fullscreen */}
                 <button
                   onClick={toggleFullscreen}
-                  className="px-3 py-1 bg-white/10 text-white font-mono text-sm rounded hover:bg-white/20 transition-colors"
+                  className="px-2 py-1 bg-white/10 text-white font-mono text-xs rounded hover:bg-white/20 transition-colors"
                 >
-                  Fullscreen
+                  FS
                 </button>
               </div>
 
               {/* Keyboard shortcuts */}
-              <div className="mt-3 pt-3 border-t border-white/10 text-white/30 font-mono text-xs flex flex-wrap gap-4">
-                <span>H: Hide UI</span>
+              <div className="mt-2 pt-2 border-t border-white/10 text-white/30 font-mono text-[10px] flex flex-wrap gap-3">
+                <span>H: Hide</span>
                 <span>F: Fullscreen</span>
-                <span>1/2: Engines</span>
-                <span>A/B/S/X: Styles</span>
-                <span>T/M/C/O: Modes</span>
+                <span>1/2: Engine</span>
+                <span>S/M/D/G/W/X/L/A: Modes</span>
               </div>
             </div>
           </div>
@@ -379,7 +348,7 @@ function VJPageContent() {
           {!isSupported && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/80 pointer-events-auto">
               <div className="bg-[#1a1a1a] p-8 rounded-lg max-w-md text-center border border-[#da7756]/50">
-                <div className="text-4xl mb-4">$CC</div>
+                <img src="/cc.png" alt="$CC" className="w-16 h-16 mx-auto mb-4" />
                 <h2 className="text-white text-xl font-mono mb-4">
                   Chrome or Edge Required
                 </h2>
@@ -404,7 +373,7 @@ function VJPageContent() {
 
 export default function VJPage() {
   return (
-    <Suspense fallback={<div className="w-screen h-screen bg-[#0a0a0a]" />}>
+    <Suspense fallback={<div className="w-screen h-screen bg-[#0d0d0d]" />}>
       <VJPageContent />
     </Suspense>
   );

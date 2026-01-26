@@ -21,8 +21,8 @@ import { HydraEngineV2 } from './engines/hydra-v2/index';
 // V2 only has Two engines (removed Remotion - doesn't work real-time)
 export type EngineTypeV2 = 'threejs' | 'hydra';
 
-// Visual modes for trippy effects
-export type VisualMode = 'tunnel' | 'mandala' | 'chaos' | 'auto';
+// Visual modes - 7 distinct modes + auto (Beeple/Cyriak inspired)
+export type VisualMode = 'spiral' | 'morph' | 'dystopia' | 'geometry' | 'warp' | 'glitch' | 'liquid' | 'auto';
 
 export interface VJConfigV2 {
   engine?: EngineTypeV2;
@@ -51,7 +51,7 @@ export class VJv2 {
   private engine: IVisualEngine | null = null;
   private engineType: EngineTypeV2 = 'threejs';
   private style: VisualStyle = 'branded'; // Default to branded
-  private mode: VisualMode = 'chaos';
+  private mode: VisualMode = 'auto'; // Default to auto (cycles all modes)
 
   private animationFrameId: number | null = null;
   private isRunning = false;
@@ -107,7 +107,7 @@ export class VJv2 {
     this.container = container;
     this.engineType = config.engine || 'threejs';
     this.style = config.style || 'branded';
-    this.mode = config.mode || 'chaos';
+    this.mode = config.mode || 'auto';
 
     // Create and initialize engine
     await this.createEngine(this.engineType);
