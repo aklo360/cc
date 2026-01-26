@@ -6,6 +6,126 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-26] - Meme Engine v2: Creative Overhaul + Strict Brand Enforcement
+
+### Changed - More Creative, More Strict
+
+Complete overhaul of the meme generation engine to produce more visually striking, creative memes while strictly enforcing brand standards.
+
+**BASE_PROMPT Improvements:**
+- Added explicit quality requirements: NO blur, NO artifacts, NO distortion
+- Detailed face specifications (empty rectangular holes, not real eyes)
+- Emphasized "the character's form is SACRED"
+- Added render quality requirements (sharp edges, smooth surfaces, perfect geometry)
+- Reinforced material specs (smooth matte ceramic, subsurface scattering)
+
+**Creative Prompt Generation (generateMemePrompt):**
+- Philosophy shift: "Think like Beeple meets dev Twitter"
+- Emphasized mascot is INANIMATE (humor from situations, not reactions)
+- New creative directions:
+  - Epic Scale (giant monuments, tiny in vast landscapes)
+  - Surreal/Artistic (Dali-esque, vaporwave, liminal spaces)
+  - Cinematic/Dramatic (noir, post-apocalyptic, battle scenes)
+  - Pop Culture (painting recreations, movie homages)
+  - Nature/Environment (serene, dramatic weather)
+  - Meta/Absurdist (museum exhibits, factories, recursion)
+- Discouraged generic "desk/computer" scenes
+
+**New Fallback Prompts (meme-prompts.ts):**
+- Expanded from 85 to 45 high-quality cinematic prompts
+- Categories: Epic Scale, Surreal, Cinematic, Nature, Pop Culture, Dev Humor (Visual), Meta, Wholesome, Retro, Seasonal
+- Examples: "Massive CC statue towering over cyberpunk cityscape", "Film noir CC in dark alley with neon Stack Overflow sign", "CC as museum exhibit from 'Early 21st Century Developer'"
+
+**Caption Generation (generateCaption):**
+- New personality: "chaotic neutral entity" vs "friendly robot"
+- Shorter target: 120 chars ideal (was 150)
+- Caption types: Observational, Existential, Absurdist, Self-deprecating, Meta
+- Golden rule: "Would a dev with 50k followers post this?"
+
+**Quality Gate (qualityGate):**
+- Stricter scoring (most should fail)
+- Visual fails: Generic desk scenes now instant fail
+- Bonus points: Surreal visuals, clever metaphors, unexpected settings
+- Caption fails: Describing image, being motivational, corporate tone
+
+**Files Changed:**
+- `brain/src/meme.ts` - Complete prompt overhaul
+- `brain/src/meme-prompts.ts` - 45 new cinematic prompts
+
+---
+
+## [2026-01-26] - VJ Hydra v2 Complete Visual Overhaul (Beeple/Cyriak Inspired)
+
+### Changed - 7 Radically Different Visual Modes
+Complete redesign of VJ visual modes inspired by Beeple, Cyriak, and professional VJ techniques.
+
+**New Mode Architecture (7 modes + auto):**
+1. **SPIRAL** - Hypnotic spiraling, kaleidoscopic patterns (kept from v1)
+2. **MORPH** - Cyriak-inspired: Droste effect, melt, fracture, breathe
+3. **DYSTOPIA** - Beeple-inspired: Monolith, corruption, emergence, eclipse
+4. **GEOMETRY** - Mathematical: Voronoi, shatter, wireframe, tessellation
+5. **WARP** - Hyperdrive/speed: Starfield, streak, vortex, hyperspace
+6. **GLITCH** - Digital corruption: VHS, RGB split, tear, corrupt
+7. **LIQUID** - Organic flow: Ripple, underwater, flow, mercury
+
+**Bug Fixes:**
+- **No blank start**: First scene applies immediately on init
+- **10s changes**: Scene changes every 10 seconds (was 20)
+- **Auto randomizes**: Auto mode picks random scenes (was sequential)
+
+**Keyboard Shortcuts Updated:**
+- S: Spiral, M: Morph, D: Dystopia, G: Geometry
+- W: Warp, X: Glitch, L: Liquid, A: Auto
+- 1/2: Engine (Three.js/Hydra), H: Hide, F: Fullscreen
+
+**Design Principles:**
+- Each mode RADICALLY different (not just "grids of mascots")
+- Mix of single large mascot + abstracted/transformed scenes
+- Inspired by Beeple (dystopian monoliths) and Cyriak (Droste/morphing)
+- 28 total scenes (4 per mode × 7 modes)
+
+**Files Changed:**
+- `vj/src/engines/hydra-v2/index.ts` - Complete rewrite (~1024 lines)
+- `app/vj/page.tsx` - Updated modes and shortcuts
+- `app/vj-v2/page.tsx` - Updated modes and shortcuts
+- `vj/src/index-v2.ts` - Updated VisualMode type
+- `vj/src/engines/threejs-v2/index.ts` - Added mode mappings
+
+---
+
+## [2026-01-26] - VJ v2 Hydra - Layered Psychedelia + Clean Mascot
+
+### Changed - Hydra Engine: Two-Layer Composition
+Rewrote Hydra presets with layered approach: ABSTRACT PSYCHEDELIA in BACKGROUND + CLEAN BRANDED MASCOT in FOREGROUND.
+
+**Design Principle:**
+- BACKGROUND: Go wild - kaleidoscope, feedback, osc, noise, voronoi (trippy abstract)
+- FOREGROUND: Clean crisp mascot overlay (smaller ~0.2-0.3 scale, high saturation/contrast)
+
+**Mode Presets:**
+- **Showcase**: Kaleidoscope tunnel background + centered mascot foreground
+- **Drift**: Spiral vortex background + multiple small floating mascots
+- **Pulse**: Voronoi chaos background + center mascot with glow rings
+
+**Style Presets:**
+- **Abstract**: Heavy psychedelia + geometric mascot
+- **Branded**: Orange kaleidoscope + prominent mascot
+- **Synthwave**: Neon grid + clean mascot
+
+**Key Changes from Previous:**
+- Restored high feedback (0.9) for trippy trails
+- Restored kaleidoscope (6 segments) for psychedelia
+- Mascot layered ON TOP (not mixed into effects)
+- Mascot smaller but crisp (saturate 1.5, contrast 1.3)
+
+**UI Mode Renames (from first attempt):**
+- `tunnel` -> `showcase` (S key)
+- `mandala` -> `drift` (D key)
+- `chaos` -> `pulse` (P key)
+- `auto` remains (O key)
+
+---
+
 ## [2026-01-26] - VJ Visualizer v2 STAGING
 
 ### Added - Trippy Branded Visuals
