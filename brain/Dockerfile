@@ -1,7 +1,9 @@
 FROM node:22-slim
 
-# Install Chromium and dependencies for Puppeteer
+# Install git, CA certificates (for HTTPS), and Chromium for Puppeteer
 RUN apt-get update && apt-get install -y \
+    git \
+    ca-certificates \
     chromium \
     fonts-liberation \
     libnss3 \

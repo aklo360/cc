@@ -28,10 +28,8 @@ export interface DeployResult {
 }
 
 function log(message: string): void {
-  const timestamp = new Date().toISOString();
-  const logLine = `[${timestamp}] ${message}`;
-  console.log(logLine);
-  buildEvents.emit('log', logLine);
+  console.log(`[${new Date().toISOString()}] ${message}`);
+  buildEvents.emit('log', message);
 }
 
 export async function deployToCloudflare(): Promise<DeployResult> {
@@ -51,11 +49,9 @@ export async function deployToCloudflare(): Promise<DeployResult> {
     };
   }
 
-  // Build environment with proper PATH for node/npx
-  const nodeDir = process.env.HOME ? `${process.env.HOME}/.nvm/versions/node/v22.22.0/bin` : '';
+  // Build environment - node/npm/npx are already in PATH (Docker uses /usr/local/bin, host uses nvm)
   const execEnv = {
     ...process.env,
-    PATH: nodeDir ? `${nodeDir}:${process.env.PATH}` : process.env.PATH,
     CLOUDFLARE_API_TOKEN: cfToken,
     CLOUDFLARE_ACCOUNT_ID: cfAccountId || '',
   } as NodeJS.ProcessEnv;

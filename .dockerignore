@@ -1,0 +1,51 @@
+# Dependencies
+node_modules
+*/node_modules
+
+# Build outputs
+dist
+*/dist
+out
+.next
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment (use .env.docker instead)
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage
+
+# Temporary files
+tmp
+temp
+*.tmp
+
+# Video output (large files)
+video/out
+video/public/footage
+
+# Documentation (not needed in container)
+*.md
+!README.md
+
+# Claude plans
+.claude

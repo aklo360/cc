@@ -68,10 +68,8 @@ export interface TrailerResult {
 }
 
 function log(message: string): void {
-  const timestamp = new Date().toISOString();
-  const logLine = `[${timestamp}] ${message}`;
-  console.log(logLine);
-  buildEvents.emit('log', logLine);
+  console.log(`[${new Date().toISOString()}] ${message}`);
+  buildEvents.emit('log', message);
 }
 
 /**

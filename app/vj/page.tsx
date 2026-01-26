@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 // Types (inline to avoid import issues with vj/ module)
@@ -16,18 +17,25 @@ interface VJState {
   fps: number;
 }
 
-export default function VJPage() {
+function VJPageContent() {
+  const searchParams = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
   const vjRef = useRef<any>(null);
+
+  // Get URL params for stream mode
+  const paramEngine = searchParams.get('engine') as EngineType | null;
+  const paramStyle = searchParams.get('style') as VisualStyle | null;
+  const paramHideUI = searchParams.get('hideUI') === 'true';
+
   const [state, setState] = useState<VJState>({
     isRunning: false,
     isCapturing: false,
-    engine: 'threejs',
-    style: 'synthwave',
+    engine: paramEngine || 'threejs',
+    style: paramStyle || 'synthwave',
     bpm: null,
     fps: 0,
   });
-  const [showUI, setShowUI] = useState(true);
+  const [showUI, setShowUI] = useState(!paramHideUI);
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
 
@@ -61,8 +69,8 @@ export default function VJPage() {
         vjRef.current = vj;
 
         await vj.init(containerRef.current, {
-          engine: 'threejs',
-          style: 'synthwave',
+          engine: paramEngine || 'threejs',
+          style: paramStyle || 'synthwave',
         });
 
         // Start animation loop (will use fake audio until capture starts)
@@ -345,5 +353,13 @@ export default function VJPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function VJPage() {
+  return (
+    <Suspense fallback={<div className="w-screen h-screen bg-black" />}>
+      <VJPageContent />
+    </Suspense>
   );
 }

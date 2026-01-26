@@ -23,10 +23,11 @@ import 'dotenv/config';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cron from 'node-cron';
-import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed, getHoursBetweenCycles, seedInitialFeatures, getAllShippedFeatures, getActiveCycle } from './db.js';
+import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed, getHoursBetweenCycles, seedInitialFeatures, getAllShippedFeatures, getActiveCycle, insertBuildLog, getRecentBuildLogs, cleanupOldBuildLogs } from './db.js';
 import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
-import { executeVideoTweets, getPendingVideoTweets } from './video-scheduler.js';
+import { executeVideoTweets, getPendingVideoTweets, cleanupOldScheduledTweets } from './video-scheduler.js';
 import { cleanupOrphanedProcesses, killProcess, registerShutdownHandlers } from './process-manager.js';
+import { getHumor } from './humor.js';
 
 const PORT = process.env.PORT || 3001;
 
@@ -56,8 +57,23 @@ const BANNER = `
 
 // ============ WebSocket Broadcast ============
 
-function broadcastLog(message: string): void {
-  const payload = JSON.stringify({ type: 'log', message, timestamp: Date.now() });
+function broadcastLog(message: string, persist: boolean = true): void {
+  const timestamp = Date.now();
+  const payload = JSON.stringify({ type: 'log', message, timestamp });
+
+  // Persist to database for historical access
+  if (persist) {
+    try {
+      const level = message.includes('Error') || message.includes('Failed') ? 'error' :
+                    message.includes('Success') || message.includes('Complete') ? 'success' : 'info';
+      insertBuildLog(message, level);
+    } catch (e) {
+      // Don't fail if DB write fails
+      console.error('[broadcastLog] Failed to persist log:', e);
+    }
+  }
+
+  // Send to all connected WebSocket clients
   for (const client of wsClients) {
     if (client.readyState === WebSocket.OPEN) {
       client.send(payload);
@@ -104,6 +120,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'GET /': 'This info',
         'GET /status': 'Check brain status and active cycle',
         'GET /stats': 'Daily shipping statistics',
+        'GET /features': 'All shipped features',
+        'GET /scheduled-tweets': 'All scheduled tweets',
+        'GET /logs': 'Recent build logs (last 24 hours)',
         'POST /go': 'Start a new 24-hour cycle (full autonomous loop)',
         'POST /cancel': 'Cancel the active cycle',
         'WS /ws': 'Real-time log streaming (WebSocket)',
@@ -163,11 +182,85 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  if (url === '/go' && method === 'POST') {
-    console.log('\n🚀 GO triggered! Starting full autonomous cycle...\n');
-    broadcastLog('🚀 GO triggered! Starting full autonomous cycle...');
+  if (url === '/features' && method === 'GET') {
+    const features = getAllShippedFeatures();
+    sendJson(res, 200, {
+      total: features.length,
+      features: features.map(f => ({
+        slug: f.slug,
+        name: f.name,
+        description: f.description,
+        url: `https://claudecode.wtf/${f.slug}`,
+        shipped_at: f.shipped_at,
+      })),
+    });
+    return;
+  }
 
-    const result = await startNewCycle();
+  if (url === '/scheduled-tweets' && method === 'GET') {
+    // Get all pending video tweets (brain-scheduled)
+    const videoTweets = getPendingVideoTweets();
+
+    // Get cycle-scheduled tweets if there's an active cycle
+    const cycleStatus = getCycleStatus();
+    const cycleTweets = cycleStatus.tweets || [];
+
+    sendJson(res, 200, {
+      video_tweets: videoTweets.map(t => ({
+        id: t.id,
+        content: t.content,
+        scheduled_for: t.scheduled_for,
+        posted: t.posted === 1,
+        source: 'brain-video',
+      })),
+      cycle_tweets: cycleTweets.map(t => ({
+        content: t.content,
+        scheduled_for: t.scheduled_for,
+        posted: t.posted,
+        source: 'brain-cycle',
+      })),
+      total_pending: videoTweets.filter(t => t.posted === 0).length +
+                     cycleTweets.filter(t => !t.posted).length,
+    });
+    return;
+  }
+
+  if (url === '/logs' && method === 'GET') {
+    // Get recent build logs (last 24 hours by default)
+    const logs = getRecentBuildLogs(24, 500);
+    sendJson(res, 200, {
+      count: logs.length,
+      logs: logs.map(l => ({
+        message: l.message,
+        level: l.level,
+        timestamp: new Date(l.created_at).getTime(),
+        created_at: l.created_at,
+      })),
+    });
+    return;
+  }
+
+  if (url === '/go' && method === 'POST') {
+    // Parse request body for force option
+    let force = false;
+    try {
+      const body = await new Promise<string>((resolve) => {
+        let data = '';
+        req.on('data', chunk => data += chunk);
+        req.on('end', () => resolve(data));
+      });
+      if (body) {
+        const parsed = JSON.parse(body);
+        force = parsed.force === true;
+      }
+    } catch {
+      // No body or invalid JSON, use defaults
+    }
+
+    console.log(`\n🚀 GO triggered! Starting full autonomous cycle...${force ? ' (FORCE MODE)' : ''}\n`);
+    broadcastLog(`🚀 GO triggered! Starting full autonomous cycle...${force ? ' (FORCE MODE)' : ''}`);
+
+    const result = await startNewCycle({ force });
 
     if (result) {
       sendJson(res, 200, {
@@ -338,6 +431,18 @@ async function main(): Promise<void> {
     console.log(`✓ Cleanup: ${cleanup.cancelled} cancelled, ${cleanup.expired} expired cycles cleaned`);
   }
 
+  // Cleanup old scheduled tweets that are more than 1 hour overdue
+  const skippedTweets = cleanupOldScheduledTweets();
+  if (skippedTweets > 0) {
+    console.log(`✓ Skipped ${skippedTweets} old scheduled tweet(s) that were >1 hour overdue`);
+  }
+
+  // Cleanup old build logs (older than 7 days)
+  const deletedLogs = cleanupOldBuildLogs(7);
+  if (deletedLogs > 0) {
+    console.log(`✓ Cleaned up ${deletedLogs} old build log(s) (>7 days old)`);
+  }
+
   // Kill any orphaned processes from previous crashes (PIDs from database)
   if (cleanup.pidsToKill.length > 0) {
     console.log(`  Killing ${cleanup.pidsToKill.length} orphaned Claude processes from database...`);
@@ -436,6 +541,10 @@ async function main(): Promise<void> {
   console.log(`  Start cycle: curl -X POST http://localhost:${PORT}/go`);
   console.log(`  Watch logs:  ws://localhost:${PORT}/ws`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  // Log startup to database (so /watch page has something to show)
+  const startupHumor = getHumor('startup');
+  broadcastLog(`🧠 Central Brain started - ${startupHumor}`);
 }
 
 // Graceful shutdown

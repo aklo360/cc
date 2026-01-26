@@ -42,10 +42,15 @@ export function scheduleVideoTweet(videoPath: string, content: string, scheduled
 }
 
 export function getUnpostedVideoTweets(): VideoScheduledTweet[] {
+  // Only get tweets that are due but not more than 30 minutes overdue
+  // This prevents posting a flood of tweets after a restart
   const stmt = db.prepare(`
     SELECT * FROM video_scheduled_tweets
-    WHERE posted = 0 AND datetime(scheduled_for) <= datetime('now')
+    WHERE posted = 0
+      AND datetime(scheduled_for) <= datetime('now')
+      AND datetime(scheduled_for) >= datetime('now', '-30 minutes')
     ORDER BY scheduled_for ASC
+    LIMIT 1
   `);
   return stmt.all() as VideoScheduledTweet[];
 }
@@ -68,6 +73,21 @@ export function getPendingVideoTweets(): VideoScheduledTweet[] {
 
 export function clearVideoSchedule(): void {
   db.exec(`DELETE FROM video_scheduled_tweets WHERE posted = 0`);
+}
+
+/**
+ * Mark old unposted tweets as skipped (more than 1 hour overdue)
+ * This prevents them from accumulating and being posted in bulk later
+ */
+export function cleanupOldScheduledTweets(): number {
+  const stmt = db.prepare(`
+    UPDATE video_scheduled_tweets
+    SET posted = -1
+    WHERE posted = 0
+      AND datetime(scheduled_for) < datetime('now', '-1 hour')
+  `);
+  const result = stmt.run();
+  return result.changes;
 }
 
 /**
