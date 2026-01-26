@@ -435,8 +435,10 @@ Streams `/watch` page to multiple platforms simultaneously:
   - YouTube live streams block datacenter IPs (403 on HLS segments)
   - Uses volume-mounted `lofi-fallback.mp3` with `-stream_loop -1` for infinite loop
 - **Settings:** 720p @ 30fps, 2500kbps video, 128kbps AAC audio
-- **Self-Healing:** Auto-detects Chrome crashes and recovers automatically
-  - Health check every 30 seconds for "Aw, Snap!" / crash pages
+- **Self-Healing:** Comprehensive health monitoring with auto-recovery
+  - Chrome crash check every 30 seconds ("Aw, Snap!" / error pages)
+  - RTMP connection monitoring (detects silent drops)
+  - 3-minute comprehensive health check (frame progress, RTMP, CDP)
   - Never gives up: after max restarts, waits 60s and resets counter
   - Restart counter resets after 5 min stable streaming
 - **Health endpoint:** `GET /health` returns state, frame count, uptime

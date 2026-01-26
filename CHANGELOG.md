@@ -6,10 +6,10 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
-## [2026-01-26] - Stream Auto-Recovery (Chrome Crash Detection)
+## [2026-01-26] - Stream Auto-Recovery (Comprehensive Health Monitoring)
 
 ### Added - Self-Healing Stream
-The 24/7 livestream now automatically detects Chrome crashes and recovers without manual intervention.
+The 24/7 livestream now automatically detects ALL failure modes and recovers without manual intervention.
 
 **Chrome Crash Detection (`stream/src/cdp-capture.ts`):**
 - Health check runs every 30 seconds
@@ -17,15 +17,28 @@ The 24/7 livestream now automatically detects Chrome crashes and recovers withou
 - Triggers automatic restart when crash detected
 - Checks if page is closed or disconnected
 
-**Never Give Up Recovery (`stream/src/streamer.ts`):**
+**RTMP Connection Monitoring (`stream/src/ffmpeg-pipeline.ts`):**
+- Detects RTMP errors: connection refused, broken pipe, timeout, I/O error
+- Tracks frame progression over time
+- New methods: `isRtmpConnected()`, `checkFrameProgress()`
+
+**Comprehensive 3-Minute Health Check (`stream/src/streamer.ts`):**
+- Runs every 3 minutes (in addition to 30s Chrome check)
+- Checks FFmpeg frame progress (detects silent stalls)
+- Checks RTMP connection status
+- Checks CDP capture is running
+- Auto-restart if ANY check fails
+
+**Never Give Up Recovery:**
 - After 10 failed restarts, waits 60 seconds and resets counter (instead of giving up)
 - Restart counter resets after 5 minutes of stable streaming
-- Stream will recover indefinitely from any crash
+- Stream will recover indefinitely from any failure
 
 **Why this matters:**
-- Chrome can crash due to memory pressure, SIGILL, or other issues
-- Previously required manual restart
-- Now the stream stays up 24/7 without intervention
+- Chrome crashes: detected in 30 seconds
+- RTMP silent drops: detected in 3 minutes
+- FFmpeg stalls: detected in 3 minutes
+- No manual intervention needed - stream stays up 24/7
 
 ---
 
