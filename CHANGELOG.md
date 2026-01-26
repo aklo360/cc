@@ -6,6 +6,69 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-26] - Stream Infrastructure & Bug Fixes
+
+### Added
+- Git + CA certificates installed in brain Docker container for Claude agent git operations
+- Git config mounted (`/root/.gitconfig`) so commits have correct author
+- Lofi fallback audio for 24/7 stream (YouTube blocks datacenter IPs)
+  - Uses Chad Crouch "Shipping Lanes" (CC licensed, royalty-free)
+  - Loops infinitely via FFmpeg `-stream_loop -1`
+  - Volume mounted from `stream/lofi-fallback.mp3`
+- Lite mode for /watch page (`?lite=1`) - hides GMGN chart (fallback option)
+
+### Changed
+- GMGN price chart on /watch changed to 1h candles with 1d range (1s/5m were crashing Chrome)
+- Stream service simplified to always use local lofi audio (YouTube HLS segments return 403 from datacenter IPs)
+- Brain container now fully self-contained with PROJECT_ROOT and CLAUDE_PATH env vars
+- Removed hardcoded nvm paths from deployer.ts (Docker uses /usr/local/bin)
+
+### Fixed
+- Orphaned cycle cleanup when brain container restarts
+- Chrome crashes in stream container caused by fast chart updates (now using hourly candles)
+- Git push failures in brain container (added CA certificates for HTTPS)
+- Brain cycle containerization (paths, env vars, and tool access)
+
+---
+
+## [2026-01-25] - Memecoin Dev Humor in Build Logs
+
+### Added - Dev Personality for Central Brain
+Sprinkled crypto Twitter / memecoin dev humor throughout build logs:
+
+**New File: `brain/src/humor.ts`**
+- Contextual humor organized by phase/action (not random)
+- Categories: planning, building, deploying, verifying, testing, recording, tweeting, homepage, waiting, cleanup
+- Success messages: planSuccess, buildSuccess, deploySuccess, verifySuccess, testSuccess, trailerSuccess, cycleComplete, tweetSuccess, homepageSuccess
+- Failure messages: retrying, buildFailed, deployFailed, verifyFailed, testFailed, maxRetriesFailed
+- Voice: lowercase, casual, crypto twitter slang ("dev is devving", "time to cook", "yeeting to prod")
+
+**Modified: `brain/src/cycle.ts`**
+- Added humor at each phase start (PLANNING, BUILDING, DEPLOYING, etc.)
+- Added humor after successes and failures
+- Added humor during retries and cleanup
+- Added humor for cooldown/waiting periods
+
+**Modified: `brain/src/builder.ts`**
+- Added humor after successful builds
+
+**Modified: `brain/src/index.ts`**
+- Added contextual startup humor
+
+**Example Output:**
+```
+▸ PHASE 1: PLANNING
+   💭 dev is thinking real hard...
+✅ Plan generated
+   💭 galaxy brain activated
+▸ PHASE 2: BUILDING
+   💭 time to cook
+✅ Build successful
+   💭 dev shipped
+```
+
+---
+
 ## [2026-01-25] - CINEMATIC 3D Trailer System
 
 ### Changed - Trailer Generation (MAJOR UPGRADE)

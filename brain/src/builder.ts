@@ -15,6 +15,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { EventEmitter } from 'events';
 import { setCyclePid } from './db.js';
+import { getHumor } from './humor.js';
 
 // Event emitter for real-time log streaming
 export const buildEvents = new EventEmitter();
@@ -46,10 +47,8 @@ export interface ProjectSpec {
 const BUILD_TIMEOUT_MS = 10 * 60 * 1000;
 
 function log(message: string): void {
-  const timestamp = new Date().toISOString();
-  const logLine = `[${timestamp}] ${message}`;
-  console.log(logLine);
-  buildEvents.emit('log', logLine);
+  console.log(`[${new Date().toISOString()}] ${message}`);
+  buildEvents.emit('log', message);
 }
 
 /**
@@ -328,6 +327,8 @@ Remember: ONLY create NEW files. Never modify existing files.`;
         let attemptDuration = 0;
         const attemptLogs: string[] = [];
 
+        log(`[CLAUDE_AGENT:BUILDING] Building feature...`);
+
         for await (const message of query({
           prompt: attempt === 1 ? buildPrompt : 'The build failed. Please fix the errors and try again.',
           options: {
@@ -443,6 +444,7 @@ Remember: ONLY create NEW files. Never modify existing files.`;
     }
 
     log(`🎉 Project built successfully!`);
+    log(`   💭 ${getHumor('buildSuccess')}`);
     return {
       success: true,
       projectPath,
@@ -471,6 +473,7 @@ export async function verifyBuild(): Promise<{ success: boolean; output: string 
     (process.env.HOME ? `${process.env.HOME}/.local/bin/claude` : undefined);
 
   try {
+    log(`[CLAUDE_AGENT:VERIFYING] Verifying build...`);
     for await (const message of query({
       prompt: 'Run "npm run build" and tell me if it succeeds or fails. Just report the result.',
       options: {

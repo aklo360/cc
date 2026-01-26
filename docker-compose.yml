@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   brain:
     build:
@@ -21,11 +19,47 @@ services:
       - /root/.local/share/claude:/root/.local/share/claude:ro
       # Mount ccwtf project for Claude to modify
       - /root/ccwtf:/root/ccwtf
+      # Mount git config for authentication
+      - /root/.gitconfig:/root/.gitconfig:ro
     networks:
       - llphant
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
     # Health check (using wget since curl not installed)
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/status', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  stream:
+    build:
+      context: ./stream
+      dockerfile: Dockerfile
+    container_name: ccwtf-stream
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:3002"
+    env_file:
+      - ./stream/.env
+    volumes:
+      # Mount YouTube cookies for yt-dlp authentication (optional)
+      - ./stream/cookies.txt:/app/cookies.txt
+      # Mount lofi fallback audio
+      - ./stream/lofi-fallback.mp3:/app/lofi-fallback.mp3:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 400M
+    networks:
+      - llphant
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -44,3 +44,4 @@ worker/node_modules
 video/node_modules/
 video/out/
 video/public/footage/
+stream/cookies.txt

@@ -100,6 +100,15 @@ db.exec(`
     keywords TEXT,
     shipped_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS build_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    level TEXT DEFAULT 'info',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_build_logs_created_at ON build_logs(created_at);
 `);
 
 // ============ Schema Migration ============
@@ -743,18 +752,22 @@ export function markCycleStarted(): void {
  * Called once on startup to ensure the brain knows about existing features
  */
 export function seedInitialFeatures(): number {
+  // Only features that ACTUALLY EXIST on the site
   const initialFeatures = [
     { slug: 'meme', name: 'Meme Generator', description: 'AI-powered meme creation with Gemini' },
     { slug: 'play', name: 'Space Invaders', description: '2D Canvas game with CC mascot shooting aliens' },
     { slug: 'moon', name: 'StarClaude64', description: '3D endless runner with Three.js, dodge asteroids and collect coins' },
     { slug: 'poetry', name: 'Code Poetry Generator', description: 'Transform code into haiku and poetry' },
-    { slug: 'battle', name: 'Code Battle Arena', description: 'Competitive coding duels between players' },
-    { slug: 'review', name: 'Code Review Bot', description: 'AI roasts and critiques your code snippets' },
     { slug: 'watch', name: 'Watch Brain', description: 'Real-time log viewer for the Central Brain' },
     { slug: 'ide', name: 'IDE Mode', description: 'Fake IDE that turns all code into console.log' },
     { slug: 'mood', name: 'Dev Mood Ring', description: 'Analyze code sentiment and developer mood' },
     { slug: 'duck', name: 'Rubber Duck Debugger', description: 'Talk to an AI rubber duck about your code problems' },
-    { slug: 'roast', name: 'Code Roast', description: 'Brutal AI roasting of your code (similar to review)' },
+    { slug: 'roast', name: 'Code Roast', description: 'Brutal AI roasting of your code' },
+    { slug: 'fortune', name: 'Dev Fortune Cookie', description: 'Get programming wisdom and fortunes' },
+    { slug: 'karaoke', name: 'Code Karaoke', description: 'Sing along to code-themed lyrics' },
+    { slug: 'refactor', name: 'Refactor Roulette', description: 'Random code refactoring suggestions' },
+    { slug: 'time', name: 'Time Tracker', description: 'Track your coding time' },
+    { slug: 'vj', name: 'VJ Mode', description: 'Live audio-reactive visual generator' },
   ];
 
   let seeded = 0;
@@ -769,4 +782,51 @@ export function seedInitialFeatures(): number {
   }
 
   return seeded;
+}
+
+// ============ Build Log Helpers ============
+
+export interface BuildLog {
+  id: number;
+  message: string;
+  level: string;
+  created_at: string;
+}
+
+/**
+ * Insert a build log entry
+ */
+export function insertBuildLog(message: string, level: string = 'info'): number {
+  const stmt = db.prepare(`
+    INSERT INTO build_logs (message, level) VALUES (?, ?)
+  `);
+  const result = stmt.run(message, level);
+  return result.lastInsertRowid as number;
+}
+
+/**
+ * Get recent build logs (last 24 hours by default)
+ */
+export function getRecentBuildLogs(hoursBack: number = 24, limit: number = 500): BuildLog[] {
+  const stmt = db.prepare(`
+    SELECT * FROM build_logs
+    WHERE datetime(created_at) > datetime('now', '-' || ? || ' hours')
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+  const logs = stmt.all(hoursBack, limit) as BuildLog[];
+  // Return in chronological order (oldest first)
+  return logs.reverse();
+}
+
+/**
+ * Clean up old build logs (older than specified days)
+ */
+export function cleanupOldBuildLogs(daysOld: number = 7): number {
+  const stmt = db.prepare(`
+    DELETE FROM build_logs
+    WHERE datetime(created_at) < datetime('now', '-' || ? || ' days')
+  `);
+  const result = stmt.run(daysOld);
+  return result.changes;
 }

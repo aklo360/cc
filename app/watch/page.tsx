@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { Suspense, useEffect, useState, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 interface LogEntry {
@@ -37,6 +38,33 @@ interface DailyStats {
   next_allowed_in_ms: number;
   next_allowed_in_hours: number;
   next_allowed_at: string | null;
+}
+
+interface ShippedFeature {
+  slug: string;
+  name: string;
+  description: string;
+  url: string;
+  shipped_at: string;
+}
+
+interface FeaturesData {
+  total: number;
+  features: ShippedFeature[];
+}
+
+interface ScheduledTweet {
+  id?: number;
+  content: string;
+  scheduled_for: string;
+  posted: boolean;
+  source: 'brain-video' | 'brain-cycle';
+}
+
+interface ScheduledTweetsData {
+  video_tweets: ScheduledTweet[];
+  cycle_tweets: ScheduledTweet[];
+  total_pending: number;
 }
 
 // Brain server URL - production uses brain.claudecode.wtf
@@ -86,11 +114,16 @@ const saveCachedLogs = (logs: LogEntry[]) => {
   }
 };
 
-export default function WatchPage() {
+function WatchPageContent() {
+  const searchParams = useSearchParams();
+  const isLiteMode = searchParams.get('lite') === '1';
+
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState<CycleStatus | null>(null);
   const [stats, setStats] = useState<DailyStats | null>(null);
+  const [features, setFeatures] = useState<FeaturesData | null>(null);
+  const [scheduledTweets, setScheduledTweets] = useState<ScheduledTweetsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -145,13 +178,71 @@ export default function WatchPage() {
     setLoading(null);
   };
 
-  // Fetch status and stats periodically
+  const fetchFeatures = async () => {
+    try {
+      const res = await fetch(`${BRAIN_URL}/features`);
+      if (res.ok) {
+        const data = await res.json();
+        setFeatures(data);
+      }
+    } catch {
+      // Features endpoint might not be available yet
+    }
+  };
+
+  const fetchScheduledTweets = async () => {
+    try {
+      const res = await fetch(`${BRAIN_URL}/scheduled-tweets`);
+      if (res.ok) {
+        const data = await res.json();
+        setScheduledTweets(data);
+      }
+    } catch {
+      // Scheduled tweets endpoint might not be available yet
+    }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const res = await fetch(`${BRAIN_URL}/logs`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.logs && data.logs.length > 0) {
+          // Convert API logs to LogEntry format
+          const historicalLogs: LogEntry[] = data.logs.map((l: { message: string; timestamp: number }) => ({
+            timestamp: l.timestamp,
+            message: l.message,
+          }));
+          // Only set if we don't have logs yet (initial load)
+          setLogs(prev => {
+            if (prev.length === 0 || (prev.length === 1 && prev[0].message.includes('Connected'))) {
+              return historicalLogs;
+            }
+            return prev;
+          });
+        }
+      }
+    } catch {
+      // Logs endpoint might not be available yet
+    }
+  };
+
+  // Fetch historical logs on mount
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  // Fetch all data periodically
   useEffect(() => {
     fetchStatus();
     fetchStats();
+    fetchFeatures();
+    fetchScheduledTweets();
     const interval = setInterval(() => {
       fetchStatus();
       fetchStats();
+      fetchFeatures();
+      fetchScheduledTweets();
     }, 10000);
     return () => clearInterval(interval);
   }, []);
@@ -273,138 +364,140 @@ export default function WatchPage() {
           <span className="text-text-muted text-xs ml-auto hidden sm:inline">Real-time build logs</span>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[70vh] min-h-[500px]">
         {/* Status Panel */}
-        <div className="lg:col-span-1 space-y-4">
-          {/* Current Cycle */}
-          <div className="bg-bg-secondary border border-border rounded-lg p-4">
-            <h2 className="text-sm text-text-secondary mb-3">CURRENT CYCLE</h2>
-            {status?.cycle ? (
-              <div className="space-y-2">
-                <div className="text-claude-orange font-bold">{status.cycle.project}</div>
-                <div className="text-sm text-text-secondary">/{status.cycle.slug}</div>
-                <div className="text-xs text-text-muted">
-                  Status: <span className="text-green-400">{status.cycle.status}</span>
+        <div className="lg:col-span-1 flex flex-col gap-4 overflow-y-auto">
+          {/* Stats Row - Two Columns */}
+          <div className="bg-bg-secondary border border-claude-orange/30 rounded-lg p-4">
+            <div className="grid grid-cols-2 gap-4">
+              {/* Left: Total Features */}
+              <div>
+                <h2 className="text-sm text-text-secondary mb-2">FEATURES SHIPPED</h2>
+                <div className="text-4xl font-bold text-claude-orange">
+                  {features?.total ?? '...'}
                 </div>
-                <div className="text-xs text-text-muted">
-                  Started: {new Date(status.cycle.started).toLocaleString()}
-                </div>
-                <div className="text-xs text-text-muted">
-                  Ends: {new Date(status.cycle.ends).toLocaleString()}
-                </div>
+                <div className="text-xs text-text-muted mt-1">autonomous builds</div>
               </div>
-            ) : (
-              <div className="text-text-muted text-sm">No active cycle</div>
+
+              {/* Right: Current Cycle */}
+              <div className="border-l border-border pl-4">
+                <h2 className="text-sm text-text-secondary mb-2">CURRENT CYCLE</h2>
+                {status?.cycle ? (
+                  <div className="space-y-1">
+                    <div className="text-claude-orange font-bold text-sm truncate">{status.cycle.project}</div>
+                    <div className="text-xs text-text-secondary">/{status.cycle.slug}</div>
+                    <div className="text-xs text-green-400">{status.cycle.status}</div>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="text-text-muted text-sm">No active cycle</div>
+                    {stats && stats.next_allowed_in_hours > 0 ? (
+                      <div className="text-xs text-amber-400">
+                        Next in {stats.next_allowed_in_hours.toFixed(1)}h
+                      </div>
+                    ) : stats?.can_ship_more ? (
+                      <div className="text-xs text-green-400">Ready to ship!</div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Latest Feature - Full Width Below */}
+            {features?.features[0] && (
+              <div className="border-t border-border pt-3 mt-3">
+                <div className="text-xs text-text-secondary mb-2">LATEST FEATURE</div>
+                <a
+                  href={features.features[0].url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block bg-claude-orange/10 border border-claude-orange/30 rounded-lg p-3 hover:bg-claude-orange/20 hover:border-claude-orange/50 transition group"
+                >
+                  <div className="text-lg text-claude-orange font-bold group-hover:underline">{features.features[0].name}</div>
+                  <div className="text-sm text-text-secondary mt-1">{features.features[0].description}</div>
+                  <div className="text-base text-claude-orange font-mono mt-2 flex items-center gap-2">
+                    <span className="bg-claude-orange text-white px-2 py-0.5 rounded text-sm">TRY IT</span>
+                    {features.features[0].url.replace('https://', '')}
+                  </div>
+                </a>
+              </div>
             )}
           </div>
 
-          {/* Scheduled Tweets */}
-          {status?.cycle?.tweets && status.cycle.tweets.length > 0 && (
-            <div className="bg-bg-secondary border border-border rounded-lg p-4">
-              <h2 className="text-sm text-text-secondary mb-3">SCHEDULED TWEETS</h2>
-              <div className="space-y-3 max-h-64 overflow-y-auto">
-                {status.cycle.tweets.map((tweet, i) => (
+          {/* All Scheduled Tweets - Combined (max 2 shown) */}
+          <div className="bg-bg-secondary border border-border rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm text-text-secondary">UPCOMING TWEETS</h2>
+              {scheduledTweets && scheduledTweets.total_pending > 0 && (
+                <span className="text-xs text-claude-orange">{scheduledTweets.total_pending} pending</span>
+              )}
+            </div>
+            <div className="space-y-2">
+              {(() => {
+                if (!scheduledTweets) return <div className="text-text-muted text-sm">Loading...</div>;
+
+                // Combine all tweets, filter unposted, sort by date, take first 2
+                const allTweets = [
+                  ...scheduledTweets.video_tweets.map(t => ({ ...t, type: 'video' as const })),
+                  ...scheduledTweets.cycle_tweets.map(t => ({ ...t, type: 'cycle' as const })),
+                ]
+                  .filter(t => !t.posted)
+                  .sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime())
+                  .slice(0, 2);
+
+                if (allTweets.length === 0) {
+                  return <div className="text-text-muted text-sm">No scheduled tweets</div>;
+                }
+
+                return allTweets.map((tweet, i) => (
                   <div
-                    key={i}
-                    className={`text-xs p-2 rounded ${
-                      tweet.posted
-                        ? 'bg-green-500/10 border border-green-500/20'
-                        : 'bg-bg-tertiary'
-                    }`}
+                    key={`tweet-${i}`}
+                    className="text-xs p-2 rounded bg-bg-tertiary border border-border"
                   >
-                    <div className="text-text-secondary mb-1">
-                      {new Date(tweet.scheduled_for).toLocaleString()}
-                      {tweet.posted && <span className="text-green-400 ml-2">POSTED</span>}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-text-muted">
+                        {new Date(tweet.scheduled_for).toLocaleString()}
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                        tweet.type === 'video'
+                          ? 'bg-fuchsia-500/20 text-fuchsia-400'
+                          : 'bg-cyan-500/20 text-cyan-400'
+                      }`}>
+                        {tweet.type === 'video' ? 'VIDEO' : 'CYCLE'}
+                      </span>
                     </div>
                     <div className="text-text-primary line-clamp-2">{tweet.content}</div>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Daily Stats */}
-          <div className="bg-bg-secondary border border-border rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm text-text-secondary">DAILY STATS</h2>
-              <button
-                onClick={fetchStats}
-                disabled={loading === 'stats'}
-                className="text-xs text-claude-orange hover:text-claude-orange/80 transition disabled:opacity-50"
-              >
-                {loading === 'stats' ? '...' : 'Refresh'}
-              </button>
-            </div>
-            {stats ? (
-              <div className="space-y-2">
-                <div className="text-2xl font-bold text-claude-orange">
-                  {stats.features_shipped}/{stats.daily_limit}
-                </div>
-                <div className="text-xs text-text-muted">Features shipped today</div>
-                <div className="w-full bg-bg-tertiary rounded-full h-2 mt-2">
-                  <div
-                    className="bg-claude-orange h-2 rounded-full transition-all"
-                    style={{ width: `${(stats.features_shipped / stats.daily_limit) * 100}%` }}
-                  />
-                </div>
-                <div className="text-xs text-text-muted mt-2">
-                  {stats.can_ship_more ? (
-                    stats.next_allowed_in_hours > 0 ? (
-                      <span className="text-amber-400">
-                        Next in {stats.next_allowed_in_hours.toFixed(1)}h
-                        {stats.next_allowed_at && (
-                          <span className="text-text-muted ml-1">
-                            ({new Date(stats.next_allowed_at).toLocaleTimeString()})
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="text-green-400">Ready to ship!</span>
-                    )
-                  ) : (
-                    <span className="text-red-400">Daily limit reached</span>
-                  )}
-                </div>
-                <div className="text-xs text-text-muted mt-1">
-                  Staggered: {stats.hours_between_cycles}h between features
-                </div>
-              </div>
-            ) : (
-              <div className="text-text-muted text-sm">Loading...</div>
-            )}
-          </div>
-
-          {/* Refresh Actions */}
-          <div className="bg-bg-secondary border border-border rounded-lg p-4">
-            <h2 className="text-sm text-text-secondary mb-3">REFRESH</h2>
-            <div className="space-y-2">
-              <button
-                onClick={() => { fetchStatus(); fetchStats(); }}
-                disabled={loading === 'status' || loading === 'stats'}
-                className="w-full px-4 py-2 bg-bg-tertiary border border-border text-text-secondary rounded text-sm hover:bg-bg-tertiary hover:text-text-primary transition disabled:opacity-50"
-              >
-                {loading === 'status' || loading === 'stats' ? 'Loading...' : 'REFRESH STATUS & STATS'}
-              </button>
+                ));
+              })()}
             </div>
           </div>
 
-          {/* Connection Info */}
-          <div className="bg-bg-secondary border border-border rounded-lg p-4">
-            <h2 className="text-sm text-text-secondary mb-3">CONNECTION</h2>
-            <div className="space-y-1 text-xs">
-              <div className="text-text-muted">
-                WebSocket Clients: <span className="text-text-primary">{status?.wsClients || 0}</span>
-              </div>
-              <div className="text-text-muted">
-                Brain Status: <span className="text-green-400">{status?.brain || 'unknown'}</span>
-              </div>
+          {/* GMGN Price Chart - 1h candles (1s/5m were crashing headless Chrome) */}
+          <div className="bg-bg-secondary border border-border rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+              <h2 className="text-sm text-text-secondary">$CC PRICE</h2>
+              <a
+                href="https://gmgn.ai/sol/token/Hg23qBLJDvhQtGLHMvot7NK54qAhzQFj9BVd5jpABAGS"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-claude-orange hover:underline"
+              >
+                Trade on GMGN →
+              </a>
             </div>
+            <iframe
+              src="https://www.gmgn.cc/kline/sol/Hg23qBLJDvhQtGLHMvot7NK54qAhzQFj9BVd5jpABAGS?theme=dark&interval=1h&range=1d"
+              className="w-full h-[280px] border-0"
+              title="$CC Price Chart"
+              allow="clipboard-write"
+            />
           </div>
         </div>
 
         {/* Log Panel */}
-        <div className="lg:col-span-2">
-          <div className="bg-bg-primary border border-border rounded-lg h-[60vh] min-h-[400px] flex flex-col">
+        <div className="lg:col-span-2 flex flex-col min-h-0">
+          <div className="bg-bg-primary border border-border rounded-lg flex-1 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2 border-b border-border">
               <h2 className="text-sm text-text-secondary">BUILD LOGS</h2>
               <button
@@ -438,22 +531,51 @@ export default function WatchPage() {
                   </div>
                 </div>
               )}
-              {logs.map((log, i) => (
-                <div key={i} className="flex gap-3 text-sm">
-                  <span className="text-text-muted shrink-0">{formatTime(log.timestamp)}</span>
-                  <span className={`${
-                    log.message.includes('---')
-                      ? 'text-claude-orange'
-                      : log.message.includes('Error') || log.message.includes('Failed')
-                        ? 'text-red-400'
-                        : log.message.includes('Success') || log.message.includes('Complete')
-                          ? 'text-green-400'
-                          : 'text-text-primary'
-                  }`}>
-                    {log.message}
-                  </span>
-                </div>
-              ))}
+              {logs.map((log, i) => {
+                const isClaudeAgent = log.message.includes('[CLAUDE_AGENT');
+                let activityEmoji = '🔧';
+                let displayMessage = log.message;
+
+                if (isClaudeAgent) {
+                  if (log.message.includes('[CLAUDE_AGENT:PLANNING]')) {
+                    activityEmoji = '📝';
+                    displayMessage = log.message.replace('[CLAUDE_AGENT:PLANNING] ', '');
+                  } else if (log.message.includes('[CLAUDE_AGENT:BUILDING]')) {
+                    activityEmoji = '🔧';
+                    displayMessage = log.message.replace('[CLAUDE_AGENT:BUILDING] ', '');
+                  } else if (log.message.includes('[CLAUDE_AGENT:VERIFYING]')) {
+                    activityEmoji = '🔍';
+                    displayMessage = log.message.replace('[CLAUDE_AGENT:VERIFYING] ', '');
+                  } else {
+                    displayMessage = log.message.replace(/\[CLAUDE_AGENT[^\]]*\]\s*/, '');
+                  }
+                }
+
+                return (
+                  <div key={i} className="flex gap-3 text-sm items-center">
+                    <span className="text-text-muted shrink-0">{formatTime(log.timestamp)}</span>
+                    {isClaudeAgent ? (
+                      <span className="text-claude-orange flex items-center gap-1.5">
+                        <img src="/cc.png" alt="" className="w-4 h-4 inline-block" />
+                        <span>{displayMessage}</span>
+                        <span>{activityEmoji}</span>
+                      </span>
+                    ) : (
+                      <span className={`${
+                        log.message.includes('---')
+                          ? 'text-claude-orange'
+                          : log.message.includes('Error') || log.message.includes('Failed')
+                            ? 'text-red-400'
+                            : log.message.includes('Success') || log.message.includes('Complete')
+                              ? 'text-green-400'
+                              : 'text-text-primary'
+                      }`}>
+                        {displayMessage}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
               <div ref={logsEndRef} />
             </div>
           </div>
@@ -471,5 +593,18 @@ export default function WatchPage() {
         </footer>
       </div>
     </div>
+  );
+}
+
+// Wrapper component with Suspense boundary for useSearchParams
+export default function WatchPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen w-full flex items-center justify-center">
+        <div className="text-text-muted">Loading...</div>
+      </div>
+    }>
+      <WatchPageContent />
+    </Suspense>
   );
 }

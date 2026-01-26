@@ -56,6 +56,7 @@ import { extractFeatureManifest, type FeatureManifest } from './manifest.js';
 import { canShipMore, getTimeUntilNextAllowed, getTodayStats, getDailyLimit, getHoursBetweenCycles, getAllShippedFeatures } from './db.js';
 import { verifyFeature, type VerificationResult } from './verifier.js';
 import { killProcess, killProcessesForCycle } from './process-manager.js';
+import { formatHumor } from './humor.js';
 
 interface CyclePlan {
   project: {
@@ -189,10 +190,9 @@ Return a JSON object with this exact structure:
 }`;
 
 function log(message: string): void {
-  const timestamp = new Date().toISOString();
-  const logLine = `[${timestamp}] ${message}`;
-  console.log(logLine);
-  buildEvents.emit('log', logLine);
+  console.log(`[${new Date().toISOString()}] ${message}`);
+  // Emit clean message without timestamp (watch page adds its own)
+  buildEvents.emit('log', message);
 }
 
 /**
@@ -208,6 +208,7 @@ async function cleanupBrokenFeature(slug: string, logger: (msg: string) => void)
   const featurePath = `${projectRoot}/app/${slug}`;
 
   logger(`🧹 Cleaning up broken feature: ${featurePath}`);
+  logger(formatHumor('cleanup'));
 
   try {
     // Check if directory exists
@@ -236,19 +237,23 @@ async function cleanupBrokenFeature(slug: string, logger: (msg: string) => void)
   }
 }
 
-export async function startNewCycle(): Promise<FullCycleResult | null> {
+export async function startNewCycle(options?: { force?: boolean }): Promise<FullCycleResult | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     log('[Cycle Engine] No ANTHROPIC_API_KEY - cannot start cycle');
     return null;
   }
 
-  // Check cooldown first (before trying to start)
+  // Check cooldown first (before trying to start) - skip if force=true
   const cooldownMs = getTimeUntilNextAllowed();
-  if (cooldownMs > 0) {
+  if (cooldownMs > 0 && !options?.force) {
     const cooldownHours = (cooldownMs / 3600000).toFixed(1);
     log(`[Cycle Engine] Cooldown active - ${cooldownHours} hours remaining until next cycle allowed`);
     return null;
+  }
+
+  if (options?.force && cooldownMs > 0) {
+    log(`[Cycle Engine] ⚡ FORCE MODE - bypassing ${(cooldownMs / 3600000).toFixed(1)}h cooldown`);
   }
 
   // Atomically check for active cycle AND create new one
@@ -271,6 +276,7 @@ export async function startNewCycle(): Promise<FullCycleResult | null> {
 
   // ============ PHASE 1: PLAN ============
   log('\n▸ PHASE 1: PLANNING');
+  log(formatHumor('planning'));
 
   const client = new Anthropic({ apiKey });
   const now = new Date();
@@ -301,6 +307,7 @@ Return ONLY the JSON object, no other text.`;
   let plan: CyclePlan;
 
   try {
+    log(`[CLAUDE_AGENT:PLANNING] Planning next feature...`);
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2000,
@@ -321,7 +328,8 @@ Return ONLY the JSON object, no other text.`;
     }
 
     plan = JSON.parse(jsonMatch[0]) as CyclePlan;
-    log(`✅ Plan generated:`);
+    log(`✅ Plan generated`);
+    log(formatHumor('planSuccess'));
     log(`   Project: ${plan.project.idea} (/${plan.project.slug})`);
     log(`   Description: ${plan.project.description}`);
     log(`   Tweets: ${plan.tweets.length}`);
@@ -355,6 +363,7 @@ Return ONLY the JSON object, no other text.`;
 
     // ============ PHASE 2: BUILD ============
     log('\n▸ PHASE 2: BUILDING');
+    log(formatHumor('building'));
 
     buildResult = await buildProject({
       idea: plan.project.idea,
@@ -367,8 +376,10 @@ Return ONLY the JSON object, no other text.`;
 
     if (!buildResult.success) {
       log(`❌ Build failed: ${buildResult.error}`);
+      log(formatHumor('buildFailed'));
       if (buildAttempt < MAX_BUILD_RETRIES) {
         log(`⚠️ Retrying build... (attempt ${buildAttempt + 1}/${MAX_BUILD_RETRIES})`);
+        log(formatHumor('retrying'));
         verificationErrors = [`Build failed: ${buildResult.error}`];
         continue; // Retry build
       }
@@ -388,18 +399,22 @@ Return ONLY the JSON object, no other text.`;
     }
 
     log(`✅ Build successful`);
+    log(formatHumor('buildSuccess'));
     log(`   Tokens: ${buildResult.tokensUsed}`);
     log(`   Cost: $${buildResult.costUsd?.toFixed(4)}`);
 
     // ============ PHASE 3: DEPLOY ============
     log('\n▸ PHASE 3: DEPLOYING');
+    log(formatHumor('deploying'));
 
     const deployResult = await deployToCloudflare();
 
     if (!deployResult.success) {
       log(`❌ Deploy failed: ${deployResult.error}`);
+      log(formatHumor('deployFailed'));
       if (buildAttempt < MAX_BUILD_RETRIES) {
         log(`⚠️ Retrying from build... (attempt ${buildAttempt + 1}/${MAX_BUILD_RETRIES})`);
+        log(formatHumor('retrying'));
         verificationErrors = [`Deploy failed: ${deployResult.error}`];
         continue; // Retry from build
       }
@@ -420,9 +435,11 @@ Return ONLY the JSON object, no other text.`;
 
     deployUrl = `https://claudecode.wtf/${plan.project.slug}`;
     log(`✅ Deployed to: ${deployUrl}`);
+    log(formatHumor('deploySuccess'));
 
     // ============ PHASE 4: VERIFY DEPLOYMENT ============
     log('\n▸ PHASE 4: VERIFYING DEPLOYMENT');
+    log(formatHumor('verifying'));
 
     // Multiple verification attempts with delay
     verified = false;
@@ -431,6 +448,7 @@ Return ONLY the JSON object, no other text.`;
       verified = await verifyDeployment(deployUrl);
       if (verified) {
         log(`✅ Deployment verified! URL is live and working.`);
+        log(formatHumor('verifySuccess'));
         break;
       }
       if (attempt < 3) {
@@ -441,8 +459,10 @@ Return ONLY the JSON object, no other text.`;
 
     if (!verified) {
       log('❌ Deployment verification FAILED after 3 attempts');
+      log(formatHumor('verifyFailed'));
       if (buildAttempt < MAX_BUILD_RETRIES) {
         log(`⚠️ Retrying from build... (attempt ${buildAttempt + 1}/${MAX_BUILD_RETRIES})`);
+        log(formatHumor('retrying'));
         verificationErrors = ['Deployment URL not accessible after deploy'];
         continue; // Retry from build
       }
@@ -463,6 +483,7 @@ Return ONLY the JSON object, no other text.`;
 
     // ============ PHASE 5: FUNCTIONAL VERIFICATION (CRITICAL) ============
     log('\n▸ PHASE 5: FUNCTIONAL VERIFICATION');
+    log(formatHumor('testing'));
     log('   ⚠️ This is the CRITICAL quality gate - feature MUST work as intended');
 
     verificationResult = await verifyFeature({
@@ -478,6 +499,7 @@ Return ONLY the JSON object, no other text.`;
       log('╔═══════════════════════════════════════════════════════════════╗');
       log('║  ⚠️ FUNCTIONAL VERIFICATION FAILED - RETRYING BUILD          ║');
       log('╚═══════════════════════════════════════════════════════════════╝');
+      log(formatHumor('testFailed'));
       log('');
       log('   Errors:');
       for (const error of verificationResult.errors) {
@@ -496,6 +518,7 @@ Return ONLY the JSON object, no other text.`;
       if (buildAttempt < MAX_BUILD_RETRIES) {
         log('');
         log(`🔄 LOOPING BACK TO BUILD PHASE (attempt ${buildAttempt + 1}/${MAX_BUILD_RETRIES})`);
+        log(formatHumor('retrying'));
         log('   Claude will see these errors and fix the feature...');
         log('');
         continue; // THIS IS THE KEY: Loop back to build!
@@ -507,6 +530,7 @@ Return ONLY the JSON object, no other text.`;
         log('║  After 5 attempts, the feature could not be fixed.           ║');
         log('║  Cleaning up broken code and starting fresh...               ║');
         log('╚═══════════════════════════════════════════════════════════════╝');
+        log(formatHumor('maxRetriesFailed'));
         log('');
 
         // Record error for diagnostics
@@ -542,6 +566,7 @@ Return ONLY the JSON object, no other text.`;
     log('╔═══════════════════════════════════════════════════════════════╗');
     log('║  ✅ FUNCTIONAL VERIFICATION PASSED                            ║');
     log('╚═══════════════════════════════════════════════════════════════╝');
+    log(formatHumor('testSuccess'));
     if (verificationResult.warnings.length > 0) {
       log('   Warnings (non-blocking):');
       for (const warning of verificationResult.warnings) {
@@ -587,6 +612,7 @@ Return ONLY the JSON object, no other text.`;
 
   // ============ PHASE 6: CREATE TRAILER ============
   log('\n▸ PHASE 6: CREATING TRAILER');
+  log(formatHumor('recording'));
   if (featureManifest) {
     log('   📋 Using manifest for ground truth (no hallucination)');
   } else {
@@ -609,6 +635,7 @@ Return ONLY the JSON object, no other text.`;
     log('   Will post announcement without video');
   } else {
     log(`✅ Trailer created: ${trailerResult.durationSec}s`);
+    log(formatHumor('trailerSuccess'));
   }
 
   // Checkpoint: Phase 6 complete (TRAILER - even if failed, we continue)
@@ -618,6 +645,7 @@ Return ONLY the JSON object, no other text.`;
   // ============ PHASE 7: TWEET ANNOUNCEMENT ============
   // ONLY runs if deployment is VERIFIED and FUNCTIONAL VERIFICATION passed
   log('\n▸ PHASE 7: TWEETING ANNOUNCEMENT (verified & tested)');
+  log(formatHumor('tweeting'));
 
   const announcementTweet = plan.tweets.find((t) => t.type === 'announcement');
   let announcementTweetId: string | undefined;
@@ -639,11 +667,13 @@ Return ONLY the JSON object, no other text.`;
         );
         announcementTweetId = result.id;
         log(`✅ Announcement posted with trailer: ${result.id}`);
+        log(formatHumor('tweetSuccess'));
       } else {
         log('📝 Posting announcement (no video)...');
         const result = await postTweetToCommunity(tweetContent, credentials);
         announcementTweetId = result.id;
         log(`✅ Announcement posted: ${result.id}`);
+        log(formatHumor('tweetSuccess'));
       }
 
       // Record in DB
@@ -666,6 +696,7 @@ Return ONLY the JSON object, no other text.`;
 
   // ============ PHASE 9: UPDATE HOMEPAGE ============
   log('\n▸ PHASE 9: UPDATING HOMEPAGE');
+  log(formatHumor('homepage'));
 
   let homepageResult: HomepageUpdateResult | undefined;
 
@@ -681,6 +712,7 @@ Return ONLY the JSON object, no other text.`;
         log('   ✓ Button already exists on homepage');
       } else if (homepageResult.deployed) {
         log('   ✓ Homepage updated and deployed with new button');
+        log(formatHumor('homepageSuccess'));
       } else {
         log('   ⚠️ Button added but deploy failed');
       }
@@ -715,6 +747,7 @@ Return ONLY the JSON object, no other text.`;
   // ============ COMPLETE ============
   log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   log('🎉 CYCLE COMPLETED SUCCESSFULLY');
+  log(formatHumor('cycleComplete'));
   log(`   Project: ${plan.project.idea}`);
   log(`   URL: ${deployUrl || 'not deployed'}`);
   log(`   Tweets scheduled: ${plan.tweets.length - 1}`);
@@ -727,11 +760,13 @@ Return ONLY the JSON object, no other text.`;
     const cooldownHours = (cooldownMs / 3600000).toFixed(1);
     const nextTime = new Date(Date.now() + cooldownMs).toISOString();
     log(`\n   🔄 Next cycle allowed in: ${cooldownHours} hours (~${getHoursBetweenCycles()}h spacing)`);
+    log(formatHumor('waiting'));
     log(`   ⏰ Next allowed at: ${nextTime}`);
     log(`   📋 The cron job will auto-start the next cycle when ready.`);
     log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
   } else {
     log('\n   ⏸️ Daily limit reached. Next cycle tomorrow (midnight UTC)');
+    log(formatHumor('waiting'));
     log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
   }
 

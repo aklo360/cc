@@ -61,6 +61,7 @@ A memecoin website for $CC (Claude Code Coin) featuring:
 9. **VJ Agent** (`/vj`) - Claude-powered live audio-reactive visual generator
 10. **Rubber Duck Debugger** (`/duck`) - Interactive debugging companion
 11. **Code Roast** (`/roast`) - Humorous code critique with actual suggestions
+12. **24/7 Livestream** - Streams /watch to Kick/YouTube/Twitter via Docker
 
 ### Why It Exists
 $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% of fees go to @bcherny.
@@ -210,7 +211,8 @@ ccwtf/
 │   │   ├── homepage.ts           # Homepage button auto-updater
 │   │   ├── recorder.ts           # Puppeteer video capture (fallback)
 │   │   ├── twitter.ts            # OAuth 1.0a + video upload
-│   │   └── db.ts                 # SQLite database + daily_stats
+│   │   ├── db.ts                 # SQLite database + daily_stats
+│   │   └── humor.ts              # Memecoin dev personality for logs
 │   ├── brain.db                  # SQLite database file
 │   └── package.json              # Dependencies
 ├── worker/                       # Cloudflare Worker (API + Bot)
@@ -238,6 +240,20 @@ ccwtf/
 │   │   └── agent/
 │   │       └── index.ts          # Claude Agent SDK VJ controller
 │   └── package.json              # Dependencies
+├── stream/                       # 24/7 Livestream Service (Docker)
+│   ├── src/
+│   │   ├── index.ts              # HTTP server (port 3002)
+│   │   ├── streamer.ts           # Orchestrator with auto-restart
+│   │   ├── cdp-capture.ts        # Puppeteer CDP screencast
+│   │   ├── ffmpeg-pipeline.ts    # FFmpeg + tee muxer (uses lofi fallback)
+│   │   ├── youtube-audio.ts      # yt-dlp audio URL fetcher (unused - YT blocks datacenter IPs)
+│   │   └── destinations.ts       # RTMP config loader
+│   ├── lofi-fallback.mp3         # Lofi audio (Chad Crouch "Shipping Lanes", CC licensed)
+│   ├── Dockerfile                # Stream service image
+│   ├── .env                      # RTMP keys (gitignored)
+│   └── package.json              # Dependencies
+├── docker-compose.yml            # Docker orchestration (brain + stream)
+├── .dockerignore                 # Docker build exclusions
 ├── .env                          # Local secrets (GEMINI_API_KEY)
 ├── .env.example                  # Template
 ├── CHANGELOG.md                  # Version history (KEEP UPDATED!)
@@ -349,6 +365,8 @@ Real-time build log viewer for the Central Brain:
 - Live streaming of all build phases
 - Status panel showing current cycle, scheduled tweets
 - START CYCLE / CANCEL buttons for manual control
+- GMGN price chart (hidden in lite mode for streaming)
+- **Lite mode** (`?lite=1`): Hides heavy chart iframe to prevent Chrome crashes in headless streaming
 
 ### 9. VJ Agent (`/vj`)
 Claude-powered live audio-reactive visual generator:
@@ -400,6 +418,29 @@ Humorous code critique with actual suggestions:
 - Actual improvement suggestions alongside the roast
 - Feature cards (Brutally Honest, Actually Helpful, With Love)
 - List of common roast targets (using var in 2026, console.log debugging, etc.)
+
+### 12. 24/7 Livestream Service (Docker)
+Streams `/watch` page to multiple platforms simultaneously:
+- **Architecture:** CDP screencast → FFmpeg → RTMP (tee muxer)
+- **Platforms:** Kick, YouTube, Twitter/X (configurable via env vars)
+- **Audio:** Local lofi fallback (Chad Crouch "Shipping Lanes", CC licensed)
+  - YouTube live streams block datacenter IPs (403 on HLS segments)
+  - Uses volume-mounted `lofi-fallback.mp3` with `-stream_loop -1` for infinite loop
+- **Settings:** 720p @ 30fps, 2500kbps video, 128kbps AAC audio
+- **Auto-restart:** Up to 10 retries with 5s delay on failure
+- **Health endpoint:** `GET /health` returns state, frame count, uptime
+- **Control API:** `POST /start`, `POST /stop`
+- **Docker:** Isolated container with CPU/memory limits (0.6 CPU, 400MB)
+
+**Run:**
+```bash
+# Configure RTMP keys in stream/.env
+cd /root/ccwtf
+docker compose up -d stream
+
+# Check health
+curl localhost:3002/health
+```
 
 ### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT v4.1
 Continuous shipping agent - ships up to 5 features per day:
@@ -763,6 +804,7 @@ npx wrangler deploy
 | `brain/src/recorder.ts` | Video capture (Puppeteer) | ~320 |
 | `brain/src/db.ts` | SQLite database | ~380 |
 | `brain/src/twitter.ts` | Twitter API + community | ~300 |
+| `brain/src/humor.ts` | Memecoin dev humor for logs | ~130 |
 | `app/vj/page.tsx` | VJ page UI | ~250 |
 | `vj/src/index.ts` | VJ orchestrator | ~280 |
 | `vj/src/audio/capture.ts` | System audio capture | ~85 |

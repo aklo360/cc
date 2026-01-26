@@ -26,10 +26,8 @@ interface TrackedProcess {
 const activeProcesses = new Map<number, TrackedProcess>();
 
 function log(message: string): void {
-  const timestamp = new Date().toISOString();
-  const logLine = `[${timestamp}] [ProcessManager] ${message}`;
-  console.log(logLine);
-  buildEvents.emit('log', logLine);
+  console.log(`[${new Date().toISOString()}] [ProcessManager] ${message}`);
+  buildEvents.emit('log', `[ProcessManager] ${message}`);
 }
 
 /**
