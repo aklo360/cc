@@ -268,16 +268,17 @@ ccwtf/
 │   │   └── agent/
 │   │       └── index.ts          # Claude Agent SDK VJ controller
 │   └── package.json              # Dependencies
-├── stream/                       # 24/7 Livestream Service (Docker)
+├── stream/                       # 24/7 Livestream Service (Native Mac Mini)
 │   ├── src/
 │   │   ├── index.ts              # HTTP server (port 3002)
-│   │   ├── streamer.ts           # Orchestrator with auto-restart
-│   │   ├── cdp-capture.ts        # Puppeteer CDP screencast
-│   │   ├── ffmpeg-pipeline.ts    # FFmpeg + tee muxer (uses lofi fallback)
-│   │   ├── youtube-audio.ts      # yt-dlp audio URL fetcher (unused - YT blocks datacenter IPs)
+│   │   ├── streamer.ts           # Orchestrator with YouTube audio + auto-restart
+│   │   ├── cdp-capture.ts        # Puppeteer + Chrome with Metal GPU
+│   │   ├── ffmpeg-pipeline.ts    # avfoundation + VideoToolbox encoding
+│   │   ├── youtube-audio.ts      # yt-dlp fetcher for YouTube lofi stream
+│   │   ├── director.ts           # Scene switcher (watch/vj based on brain)
 │   │   └── destinations.ts       # RTMP config loader
-│   ├── lofi-fallback.mp3         # Lofi audio (Chad Crouch "Shipping Lanes", CC licensed)
-│   ├── Dockerfile                # Stream service image
+│   ├── lofi-fallback.mp3         # Fallback audio (Chad Crouch "Shipping Lanes", CC)
+│   ├── Dockerfile                # Docker image (unused - now runs native)
 │   ├── .env                      # RTMP keys (gitignored)
 │   └── package.json              # Dependencies
 ├── docker-compose.yml            # Docker orchestration (brain + stream)
@@ -489,36 +490,41 @@ Humorous code critique with actual suggestions:
 - Feature cards (Brutally Honest, Actually Helpful, With Love)
 - List of common roast targets (using var in 2026, console.log debugging, etc.)
 
-### 13. 24/7 Livestream Service (Docker)
-Streams `/watch` page to multiple platforms simultaneously:
-- **Architecture:** CDP screencast → FFmpeg → RTMP (tee muxer)
-- **Platforms:** Kick, YouTube, Twitter/X (configurable via env vars)
-- **Audio:** Local lofi fallback (Chad Crouch "Shipping Lanes", CC licensed)
-  - YouTube live streams block datacenter IPs (403 on HLS segments)
-  - Uses volume-mounted `lofi-fallback.mp3` with `-stream_loop -1` for infinite loop
+### 13. 24/7 Livestream Service (Native Mac Mini)
+Streams `/watch` and `/vj` pages to multiple platforms with GPU acceleration:
+- **Architecture:** Puppeteer (Chrome) → avfoundation screen capture → FFmpeg → RTMP
+- **Platforms:** Twitter/X (configurable via env vars)
+- **Audio:** YouTube lofi hip hop radio (primary) with local fallback
+  - Primary: `https://www.youtube.com/watch?v=jfKfPfyJRdk` via yt-dlp
+  - Fallback: `lofi-fallback.mp3` (Chad Crouch "Shipping Lanes", CC licensed)
+  - FFmpeg reconnect options for reliable YouTube streaming
+- **Director:** Auto-switches scenes based on brain state:
+  - `/watch` during BUILDING mode or meme generation
+  - `/vj` (Hydra auto mode) during RESTING/IDLE
+- **GPU Acceleration:** Native Mac Mini with Metal + WebGL
+  - Chrome with `--use-angle=metal` for GPU rendering
+  - VideoToolbox (h264_videotoolbox) for hardware H.264 encoding
+  - Full WebGL support for VJ visuals
 - **Settings:** 720p @ 30fps, 2500kbps video, 128kbps AAC audio
-- **Self-Healing:** Comprehensive health monitoring with auto-recovery
-  - Chrome crash check every 30 seconds ("Aw, Snap!" / error pages)
-  - RTMP connection monitoring (detects silent drops)
-  - 3-minute comprehensive health check (frame progress, RTMP, CDP)
-  - Never gives up: after max restarts, waits 60s and resets counter
-  - Restart counter resets after 5 min stable streaming
+- **Self-Healing:** Health monitoring with auto-recovery
 - **Health endpoint:** `GET /health` returns state, frame count, uptime
 - **Control API:** `POST /start`, `POST /stop`
-- **Docker:** Isolated container with CPU/memory limits (0.6 CPU, 400MB)
 
-**Run (Mac Mini):**
+**Run (Mac Mini - NATIVE, not Docker):**
 ```bash
 # Configure RTMP keys in stream/.env
-cd ~/ccwtf
-docker compose up -d stream
+cd ~/ccwtf/stream
+npm run start
 
 # Check health
 curl localhost:3002/health
-
-# View logs
-docker logs ccwtf-stream -f
 ```
+
+**Key files:**
+- `stream/src/youtube-audio.ts` - yt-dlp URL fetcher for YouTube lofi
+- `stream/src/director.ts` - Scene switching based on brain state
+- `stream/src/ffmpeg-pipeline.ts` - avfoundation + VideoToolbox encoding
+- `stream/src/streamer.ts` - Main orchestrator with YouTube audio integration
 
 ### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT v4.2
 Continuous shipping agent - ships up to 5 features per day + generates memes during cooldowns:
