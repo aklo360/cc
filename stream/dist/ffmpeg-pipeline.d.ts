@@ -21,11 +21,24 @@ export declare class FfmpegPipeline {
     private process;
     private isRunning;
     private frameCount;
+    private lastFrameCount;
+    private lastFrameTime;
+    private rtmpConnected;
     constructor(config: PipelineConfig, events: PipelineEvents);
     start(): void;
     writeFrame(_frameBuffer: Buffer): boolean;
     stop(): void;
     isActive(): boolean;
     getFrameCount(): number;
+    isRtmpConnected(): boolean;
+    /**
+     * Check if frames are progressing (not stalled)
+     * Returns true if frames have increased since last check
+     */
+    checkFrameProgress(): {
+        healthy: boolean;
+        framesSinceLastCheck: number;
+        secondsSinceLastFrame: number;
+    };
 }
 //# sourceMappingURL=ffmpeg-pipeline.d.ts.map

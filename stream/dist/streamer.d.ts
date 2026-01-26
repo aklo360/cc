@@ -38,6 +38,10 @@ export declare class Streamer extends EventEmitter {
     private restartCount;
     private lastError;
     private isShuttingDown;
+    private restartResetTimer;
+    private streamHealthInterval;
+    private static readonly RESTART_RESET_AFTER_MS;
+    private static readonly STREAM_HEALTH_CHECK_MS;
     constructor(config: StreamerConfig);
     start(): Promise<void>;
     stop(): Promise<void>;
@@ -46,6 +50,13 @@ export declare class Streamer extends EventEmitter {
     private handleExit;
     private handleDisconnect;
     private attemptRestart;
+    /**
+     * Comprehensive stream health check - runs every 3 minutes
+     * Checks: FFmpeg frame progress, RTMP connection, CDP page health
+     */
+    private startStreamHealthCheck;
+    private checkStreamHealth;
+    private stopStreamHealthCheck;
     private setState;
     getStats(): StreamerStats;
     getState(): StreamerState;

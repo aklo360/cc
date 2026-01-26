@@ -38,24 +38,37 @@ export class CdpCapture {
       throw new Error('Capture already running');
     }
 
-    const display = process.env.DISPLAY || ':99';
-    console.log(`[cdp] Launching browser on display ${display}`);
+    const isMacOS = process.platform === 'darwin';
+    const chromePathMac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    const chromePathLinux = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
 
-    // Launch browser on Xvfb display (non-headless so it renders to X11)
+    console.log(`[cdp] Platform: ${process.platform}, launching Chrome with ${isMacOS ? 'GPU enabled' : 'Xvfb'}`);
+
+    // Launch browser - GPU enabled on macOS, Xvfb on Linux
     this.browser = await puppeteer.launch({
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      headless: false, // Must be non-headless to render to Xvfb
+      executablePath: isMacOS ? chromePathMac : chromePathLinux,
+      headless: false, // Must be non-headless to render properly
       ignoreDefaultArgs: ['--enable-automation'], // Hide "controlled by automation" banner
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
+        // GPU flags - enabled on macOS, disabled on Linux
+        ...(isMacOS ? [
+          '--enable-gpu',
+          '--enable-webgl',
+          '--use-gl=angle',
+          '--use-angle=metal', // Use Apple Metal for best performance
+          '--enable-features=Metal',
+        ] : [
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+        ]),
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
         '--disable-infobars', // Hide infobars
+        '--autoplay-policy=no-user-gesture-required', // Allow audio autoplay for VJ
         `--window-size=${this.config.width},${this.config.height}`,
         '--window-position=0,0',
         '--start-fullscreen',

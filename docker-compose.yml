@@ -10,17 +10,17 @@ services:
     env_file:
       - ./brain/.env
     volumes:
-      # Database uses DB_PATH env var pointing to /root/ccwtf/brain/brain.db (via mounted ccwtf dir)
+      # Database uses DB_PATH env var pointing to /Users/claude/ccwtf/brain/brain.db (via mounted ccwtf dir)
       # This ensures host and container share the same WAL files
       # Persist recordings
       - ./brain/recordings:/app/recordings
       # Mount Claude Code CLI
-      - /root/.local/bin:/root/.local/bin:ro
-      - /root/.local/share/claude:/root/.local/share/claude:ro
+      - /Users/claude/.local/bin:/Users/claude/.local/bin:ro
+      - /Users/claude/.local/share/claude:/Users/claude/.local/share/claude:ro
       # Mount ccwtf project for Claude to modify
-      - /root/ccwtf:/root/ccwtf
+      - /Users/claude/ccwtf:/Users/claude/ccwtf
       # Mount git config for authentication
-      - /root/.gitconfig:/root/.gitconfig:ro
+      - /Users/claude/.gitconfig:/Users/claude/.gitconfig:ro
     networks:
       - llphant
     deploy:

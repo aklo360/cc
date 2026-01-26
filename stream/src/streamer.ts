@@ -9,6 +9,7 @@ import { CdpCapture, CaptureConfig } from './cdp-capture.js';
 import { FfmpegPipeline, PipelineConfig } from './ffmpeg-pipeline.js';
 import { loadDestinations, getDestinationNames, DestinationConfig } from './destinations.js';
 import { Director } from './director.js';
+import { getYouTubeAudioUrl } from './youtube-audio.js';
 
 export type StreamerState = 'stopped' | 'starting' | 'streaming' | 'restarting' | 'error';
 
@@ -77,10 +78,20 @@ export class Streamer extends EventEmitter {
 
       console.log(`[streamer] Starting stream to: ${destNames.join(', ')}`);
 
-      // YouTube live streams block datacenter IPs, so we use local lofi audio
-      // The lofi file is mounted at /app/lofi-fallback.mp3 and loops infinitely
-      console.log('[streamer] Using lofi fallback audio (YouTube blocks datacenter IPs)');
-      const audioPipePath: string | null = null;
+      // Try YouTube lofi stream first, fall back to local file
+      let audioUrl: string | null = null;
+      try {
+        audioUrl = await getYouTubeAudioUrl();
+        if (audioUrl) {
+          console.log('[streamer] Using YouTube lofi stream audio');
+        }
+      } catch (error) {
+        console.error('[streamer] YouTube audio fetch failed:', (error as Error).message);
+      }
+
+      if (!audioUrl) {
+        console.log('[streamer] Falling back to local lofi audio file');
+      }
 
       // Create FFmpeg pipeline
       const pipelineConfig: PipelineConfig = {
@@ -88,7 +99,7 @@ export class Streamer extends EventEmitter {
         height: this.config.height,
         fps: this.config.fps,
         bitrate: this.config.bitrate,
-        audioUrl: audioPipePath,
+        audioUrl: audioUrl,
         teeOutput: this.destinationConfig.teeOutput,
       };
 
@@ -119,18 +130,22 @@ export class Streamer extends EventEmitter {
       // Start capture
       await this.cdpCapture.start();
 
-      // Director disabled for now - VJ page doesn't work in headless Chrome
-      // TODO: Create a simpler idle page that works in headless Chrome
-      // const page = this.cdpCapture.getPage();
-      // if (page) {
-      //   this.director = new Director({
-      //     brainUrl: this.config.brainUrl,
-      //     watchUrl: this.config.watchUrl,
-      //     vjUrl: this.config.vjUrl,
-      //     pollInterval: 30000,
-      //   });
-      //   this.director.start(page);
-      // }
+      // Director: switches between /watch and /vj based on brain state
+      // Enabled on macOS (GPU/WebGL works), disabled on Linux Docker
+      const isMacOS = process.platform === 'darwin';
+      const page = this.cdpCapture.getPage();
+      if (page && isMacOS) {
+        console.log('[streamer] Starting Director (macOS GPU mode)');
+        this.director = new Director({
+          brainUrl: this.config.brainUrl,
+          watchUrl: this.config.watchUrl,
+          vjUrl: this.config.vjUrl,
+          pollInterval: 30000, // Check brain status every 30 seconds
+        });
+        this.director.start(page);
+      } else if (page) {
+        console.log('[streamer] Director disabled (Linux/Docker mode - no GPU)');
+      }
 
       this.startTime = Date.now();
       this.setState('streaming');

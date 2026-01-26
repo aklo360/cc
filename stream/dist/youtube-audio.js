@@ -1,94 +1,40 @@
 /**
- * YouTube audio URL fetcher using yt-dlp
- * Extracts direct audio stream URL from YouTube live streams
- * URLs expire after ~6 hours, so we refresh periodically
+ * YouTube audio stream URL fetcher
+ * Uses yt-dlp to get the live stream URL, which FFmpeg can consume directly
  */
-import { spawn } from 'child_process';
-import { existsSync } from 'fs';
-let cache = null;
-// URLs expire after ~6 hours, refresh every 4 hours to be safe
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
+import { exec } from 'child_process';
+import { promisify } from 'util';
+const execAsync = promisify(exec);
+const LOFI_STREAM_URL = 'https://www.youtube.com/watch?v=jfKfPfyJRdk';
 /**
- * Fetch audio stream URL from YouTube using yt-dlp
+ * Get the live stream URL for YouTube lofi radio
+ * Returns the m3u8 URL that FFmpeg can stream directly
  */
-export async function fetchAudioUrl(youtubeUrl) {
-    return new Promise((resolve, reject) => {
-        const cookiesPath = process.env.YOUTUBE_COOKIES_PATH || '/app/cookies.txt';
-        const hasCookies = existsSync(cookiesPath);
-        const args = [
-            '-f', 'bestaudio',
-            '-g', // Get URL only, don't download
-        ];
-        // Add cookies if available (bypasses bot detection)
-        if (hasCookies) {
-            args.push('--cookies', cookiesPath);
-            console.log('[audio] Using cookies for authentication');
+export async function getYouTubeAudioUrl() {
+    try {
+        console.log('[youtube-audio] Fetching stream URL from YouTube...');
+        // Use format 91 (lowest quality with audio) - less bandwidth, still good audio
+        const { stdout, stderr } = await execAsync(`yt-dlp -f 91 -g "${LOFI_STREAM_URL}"`, { timeout: 30000 });
+        const url = stdout.trim();
+        if (!url || !url.startsWith('http')) {
+            console.error('[youtube-audio] Invalid URL returned:', url);
+            if (stderr)
+                console.error('[youtube-audio] stderr:', stderr);
+            return null;
         }
-        else {
-            // Try with some workarounds for bot detection
-            args.push('--extractor-args', 'youtube:player_client=web');
-        }
-        args.push(youtubeUrl);
-        const proc = spawn('yt-dlp', args);
-        let stdout = '';
-        let stderr = '';
-        proc.stdout.on('data', (data) => {
-            stdout += data.toString();
-        });
-        proc.stderr.on('data', (data) => {
-            stderr += data.toString();
-        });
-        proc.on('close', (code) => {
-            if (code === 0) {
-                const url = stdout.trim();
-                if (url) {
-                    resolve(url);
-                }
-                else {
-                    reject(new Error('yt-dlp returned empty URL'));
-                }
-            }
-            else {
-                reject(new Error(`yt-dlp exited with code ${code}: ${stderr}`));
-            }
-        });
-        proc.on('error', (err) => {
-            reject(new Error(`Failed to spawn yt-dlp: ${err.message}`));
-        });
-    });
-}
-/**
- * Get audio URL with caching
- * Returns cached URL if still valid, otherwise fetches a new one
- */
-export async function getAudioUrl(youtubeUrl) {
-    const now = Date.now();
-    // Check if cached URL is still valid
-    if (cache && (now - cache.fetchedAt) < CACHE_TTL_MS) {
-        return cache.url;
+        console.log('[youtube-audio] Got stream URL successfully');
+        return url;
     }
-    // Fetch new URL
-    console.log('[audio] Fetching new audio URL from YouTube...');
-    const url = await fetchAudioUrl(youtubeUrl);
-    cache = {
-        url,
-        fetchedAt: now,
-    };
-    console.log('[audio] Got new audio URL (expires in 4 hours)');
-    return url;
+    catch (error) {
+        console.error('[youtube-audio] Failed to get stream URL:', error.message);
+        return null;
+    }
 }
 /**
- * Clear the cached URL (force refresh on next call)
+ * Refresh the stream URL (YouTube URLs expire after a few hours)
+ * Call this periodically to keep the stream alive
  */
-export function clearAudioCache() {
-    cache = null;
-}
-/**
- * Check if we have a valid cached URL
- */
-export function hasValidCache() {
-    if (!cache)
-        return false;
-    return (Date.now() - cache.fetchedAt) < CACHE_TTL_MS;
+export async function refreshYouTubeUrl() {
+    return getYouTubeAudioUrl();
 }
 //# sourceMappingURL=youtube-audio.js.map

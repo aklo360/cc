@@ -21,8 +21,17 @@ export declare class CdpCapture {
     private browser;
     private page;
     private isCapturing;
+    private healthCheckInterval;
+    private static readonly HEALTH_CHECK_INTERVAL_MS;
     constructor(config: CaptureConfig, events: CaptureEvents);
     start(): Promise<void>;
+    /**
+     * Periodic health check to detect Chrome crashes (Aw, Snap! pages)
+     * Chrome can crash with various error codes (e.g., SIGILL, OOM)
+     * When this happens, we need to trigger a restart
+     */
+    private startHealthCheck;
+    private checkPageHealth;
     stop(): Promise<void>;
     isRunning(): boolean;
     getFrameCount(): number;

@@ -75,13 +75,25 @@ export class Director {
     }
     /**
      * Determine which scene to show based on brain status
+     *
+     * Show /watch when:
+     * - Brain is building (active cycle)
+     * - Brain is generating memes (in_progress)
+     *
+     * Show /vj when:
+     * - Brain is resting (cooldown, no active work)
+     * - Brain is idle
      */
     determineScene(status) {
-        // If there's an active cycle (planning or executing), show watch page
-        if (status.cycle && ['planning', 'executing'].includes(status.cycle.status)) {
+        // Show /watch if actively building
+        if (status.mode === 'building') {
             return 'watch';
         }
-        // Otherwise show VJ (cooldown, completed, or no cycle)
+        // Show /watch if generating memes
+        if (status.memes?.in_progress) {
+            return 'watch';
+        }
+        // Otherwise show VJ (resting or idle)
         return 'vj';
     }
     /**

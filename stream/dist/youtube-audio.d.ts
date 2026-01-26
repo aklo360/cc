@@ -1,23 +1,15 @@
 /**
- * YouTube audio URL fetcher using yt-dlp
- * Extracts direct audio stream URL from YouTube live streams
- * URLs expire after ~6 hours, so we refresh periodically
+ * YouTube audio stream URL fetcher
+ * Uses yt-dlp to get the live stream URL, which FFmpeg can consume directly
  */
 /**
- * Fetch audio stream URL from YouTube using yt-dlp
+ * Get the live stream URL for YouTube lofi radio
+ * Returns the m3u8 URL that FFmpeg can stream directly
  */
-export declare function fetchAudioUrl(youtubeUrl: string): Promise<string>;
+export declare function getYouTubeAudioUrl(): Promise<string | null>;
 /**
- * Get audio URL with caching
- * Returns cached URL if still valid, otherwise fetches a new one
+ * Refresh the stream URL (YouTube URLs expire after a few hours)
+ * Call this periodically to keep the stream alive
  */
-export declare function getAudioUrl(youtubeUrl: string): Promise<string>;
-/**
- * Clear the cached URL (force refresh on next call)
- */
-export declare function clearAudioCache(): void;
-/**
- * Check if we have a valid cached URL
- */
-export declare function hasValidCache(): boolean;
+export declare function refreshYouTubeUrl(): Promise<string | null>;
 //# sourceMappingURL=youtube-audio.d.ts.map

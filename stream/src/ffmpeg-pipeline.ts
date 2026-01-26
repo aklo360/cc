@@ -40,23 +40,46 @@ export class FfmpegPipeline {
       throw new Error('Pipeline already running');
     }
 
-    const display = process.env.DISPLAY || ':99';
+    const isMacOS = process.platform === 'darwin';
     const hasAudio = this.config.audioUrl !== null;
 
-    const args: string[] = [
-      // Input: X11 display capture
-      '-f', 'x11grab',
-      '-video_size', `${this.config.width}x${this.config.height}`,
-      '-framerate', String(this.config.fps),
-      '-i', display,
-    ];
+    const args: string[] = [];
+
+    if (isMacOS) {
+      // macOS: Use avfoundation for screen capture
+      // Capture the main display (index 1) - Chrome window
+      // Note: You may need to grant Screen Recording permission in System Preferences
+      args.push(
+        '-f', 'avfoundation',
+        '-framerate', String(this.config.fps),
+        '-capture_cursor', '0', // Don't capture cursor
+        '-i', '0:none', // Screen 0 (main display), no audio from system
+      );
+    } else {
+      // Linux: Use x11grab
+      const display = process.env.DISPLAY || ':99';
+      args.push(
+        '-f', 'x11grab',
+        '-video_size', `${this.config.width}x${this.config.height}`,
+        '-framerate', String(this.config.fps),
+        '-i', display,
+      );
+    }
 
     // Add audio input
     if (hasAudio) {
-      args.push('-i', this.config.audioUrl!);
+      // YouTube live stream - add reconnect options for reliability
+      args.push(
+        '-reconnect', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '5',
+        '-i', this.config.audioUrl!
+      );
     } else {
       // Use local lofi file on infinite loop as fallback
-      const lofiPath = '/app/lofi-fallback.mp3';
+      const lofiPath = isMacOS
+        ? `${process.cwd()}/lofi-fallback.mp3`
+        : '/app/lofi-fallback.mp3';
       args.push(
         '-stream_loop', '-1', // Infinite loop
         '-i', lofiPath
@@ -64,17 +87,36 @@ export class FfmpegPipeline {
       console.log('[ffmpeg] Using lofi fallback audio (looped)');
     }
 
-    args.push(
-      // Video encoding
-      '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-tune', 'zerolatency',
-      '-b:v', this.config.bitrate,
-      '-maxrate', '3000k',
-      '-bufsize', '6000k',
-      '-pix_fmt', 'yuv420p',
-      '-g', String(this.config.fps * 2), // Keyframe every 2 seconds
+    if (isMacOS) {
+      // macOS: Scale to target resolution and use hardware encoding
+      args.push(
+        // Scale to target size
+        '-vf', `scale=${this.config.width}:${this.config.height}`,
+        // Video encoding - try VideoToolbox (hardware), fall back to libx264
+        '-c:v', 'h264_videotoolbox',
+        '-b:v', this.config.bitrate,
+        '-maxrate', '3000k',
+        '-bufsize', '6000k',
+        '-pix_fmt', 'yuv420p',
+        '-g', String(this.config.fps * 2), // Keyframe every 2 seconds
+        '-profile:v', 'high',
+        '-level', '4.1',
+      );
+    } else {
+      // Linux: Software encoding
+      args.push(
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-b:v', this.config.bitrate,
+        '-maxrate', '3000k',
+        '-bufsize', '6000k',
+        '-pix_fmt', 'yuv420p',
+        '-g', String(this.config.fps * 2), // Keyframe every 2 seconds
+      );
+    }
 
+    args.push(
       // Audio encoding
       '-c:a', 'aac',
       '-b:a', '128k',
@@ -96,7 +138,8 @@ export class FfmpegPipeline {
     }
 
     console.log('[ffmpeg] Starting pipeline...');
-    console.log(`[ffmpeg] Capture: ${display} at ${this.config.width}x${this.config.height}@${this.config.fps}fps`);
+    console.log(`[ffmpeg] Platform: ${isMacOS ? 'macOS (avfoundation + VideoToolbox)' : 'Linux (x11grab + libx264)'}`);
+    console.log(`[ffmpeg] Resolution: ${this.config.width}x${this.config.height}@${this.config.fps}fps`);
     console.log(`[ffmpeg] Audio: ${hasAudio ? 'YouTube stream' : 'lofi fallback (looped)'}`);
     console.log(`[ffmpeg] Output: ${this.config.teeOutput}`);
 

@@ -13,11 +13,15 @@ export interface DirectorConfig {
 }
 export interface BrainStatus {
     brain: string;
+    mode: 'idle' | 'building' | 'resting';
     cycle: {
         id: number;
         status: string;
         project: string;
     } | null;
+    memes?: {
+        in_progress: boolean;
+    };
 }
 type StreamScene = 'watch' | 'vj';
 export declare class Director {
@@ -49,6 +53,14 @@ export declare class Director {
     private fetchBrainStatus;
     /**
      * Determine which scene to show based on brain status
+     *
+     * Show /watch when:
+     * - Brain is building (active cycle)
+     * - Brain is generating memes (in_progress)
+     *
+     * Show /vj when:
+     * - Brain is resting (cooldown, no active work)
+     * - Brain is idle
      */
     private determineScene;
     /**

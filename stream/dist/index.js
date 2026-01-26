@@ -8,7 +8,7 @@ import 'dotenv/config';
 // Configuration from environment
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const WATCH_URL = process.env.WATCH_URL || 'https://claudecode.wtf/watch?lite=1';
-const VJ_URL = process.env.VJ_URL || 'https://claudecode.wtf/vj?engine=threejs&style=branded&hideUI=true';
+const VJ_URL = process.env.VJ_URL || 'https://claudecode.wtf/vj?engine=hydra&mode=auto&hideUI=true';
 const BRAIN_URL = process.env.BRAIN_URL || 'https://brain.claudecode.wtf';
 const YOUTUBE_AUDIO_URL = process.env.YOUTUBE_AUDIO_URL || 'https://www.youtube.com/watch?v=jfKfPfyJRdk';
 const STREAM_WIDTH = parseInt(process.env.STREAM_WIDTH || '1280', 10);
