@@ -4,13 +4,28 @@
 
 ---
 
-## IMPORTANT: VPS ENVIRONMENT
+## IMPORTANT: MAC MINI ENVIRONMENT (NEW HOME!)
 
-**You are running directly on the VPS (5.161.107.128)!**
-- Working directory: `/root/ccwtf`
-- No SSH required - all commands execute locally
-- Claude CLI: `~/.local/bin/claude`
+**You are running on the Mac Mini (claude@mac-mini)!**
+- Working directory: `~/ccwtf` (`/Users/claude/ccwtf`)
+- Hostname: `mac-mini` / `192.168.1.189` (local)
+- Claude CLI: `~/.local/bin/claude` (symlink to nvm installation)
 - Node: v22.22.0 via nvm
+- Docker Desktop: Running with auto-start on boot
+
+**Services (all auto-start on boot):**
+- `ccwtf-brain` → localhost:3001 → https://brain.claudecode.wtf (via Cloudflare Tunnel)
+- `ccwtf-stream` → localhost:3002 → Streams to Kick/YouTube/Twitter
+- `cloudflared` tunnel → LaunchAgent at `~/Library/LaunchAgents/com.cloudflare.tunnel.plist`
+
+**Mac Mini Server Settings:**
+- Sleep: disabled (`sudo pmset -a sleep 0 displaysleep 0 disksleep 0`)
+- Always-on 24/7 operation
+
+**Previous VPS (DECOMMISSIONED):**
+- Was: 5.161.107.128 (Hetzner)
+- Migrated: 2026-01-26
+- Status: Can be shut down after backup verification
 
 ---
 

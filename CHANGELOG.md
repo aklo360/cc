@@ -6,6 +6,41 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-26] - MIGRATION: Hetzner VPS → Mac Mini (New Home!)
+
+### Infrastructure Migration
+Complete migration of all services from Hetzner VPS (5.161.107.128) to a dedicated Mac Mini.
+
+**What was migrated:**
+- Docker containers (brain + stream) with all configurations
+- SQLite database (brain.db) with cycle history and meme stats
+- All .env files with secrets and API keys
+- Git repository with full history
+- Claude Code CLI and MCP server configurations
+- Cloudflare Tunnel (brain.claudecode.wtf)
+
+**Mac Mini Setup:**
+- Username: `claude`
+- Working directory: `/Users/claude/ccwtf`
+- Node.js: v22.22.0 via nvm
+- Docker Desktop: Auto-starts on boot
+- Sleep: Disabled (24/7 server mode)
+- Cloudflare Tunnel: LaunchAgent for auto-start
+
+**Path Updates:**
+- `/root/ccwtf` → `/Users/claude/ccwtf`
+- `/root/.local/bin/claude` → `/Users/claude/.local/bin/claude` (symlink)
+- brain/.env DB_PATH updated for new paths
+
+**Services:**
+- `ccwtf-brain` → localhost:3001 → brain.claudecode.wtf
+- `ccwtf-stream` → localhost:3002 → RTMP to Kick/YouTube/Twitter
+- Cloudflare Tunnel ID: `e3e728e1-cc91-4c7f-837b-b1a139e61562`
+
+**VPS Status:** Decommissioned (keep as backup for 1 week)
+
+---
+
 ## [2026-01-26] - Meme Engine v2: Creative Overhaul + Strict Brand Enforcement
 
 ### Changed - More Creative, More Strict
