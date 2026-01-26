@@ -2,7 +2,7 @@
  * Video Tweet Scheduler - Schedule video tweets over 24 hours
  */
 
-import { db } from './db.js';
+import { db, canTweetGlobally, recordTweet } from './db.js';
 import { postTweetWithVideo, getTwitterCredentials } from './twitter.js';
 import fs from 'fs';
 import path from 'path';
@@ -92,51 +92,59 @@ export function cleanupOldScheduledTweets(): number {
 
 /**
  * Execute any video tweets that are due
+ * Respects global Twitter rate limits (15 tweets/day, 30 min between tweets)
  */
 export async function executeVideoTweets(): Promise<number> {
+  // Check global rate limit first
+  const globalCheck = canTweetGlobally();
+  if (!globalCheck.allowed) {
+    const pending = getPendingVideoTweets();
+    if (pending.length > 0) {
+      console.log(`[Video Scheduler] Global limit: ${globalCheck.reason} (${pending.length} video tweets pending)`);
+    }
+    return 0;
+  }
+
   const tweets = getUnpostedVideoTweets();
   if (tweets.length === 0) {
     return 0;
   }
 
-  console.log(`[Video Scheduler] Found ${tweets.length} video tweet(s) due`);
+  // Only post ONE tweet per execution to respect global rate limits
+  const tweet = tweets[0];
+  console.log(`[Video Scheduler] Posting 1 video tweet (${getPendingVideoTweets().length} total pending)`);
 
-  let posted = 0;
-  for (const tweet of tweets) {
-    try {
-      // Check if video file exists
-      if (!fs.existsSync(tweet.video_path)) {
-        console.error(`  ✗ Video not found: ${tweet.video_path}`);
-        continue;
-      }
-
-      // Read video
-      const videoBuffer = fs.readFileSync(tweet.video_path);
-      const videoBase64 = videoBuffer.toString('base64');
-      const sizeMb = (videoBuffer.length / 1024 / 1024).toFixed(1);
-      console.log(`  📹 Uploading ${path.basename(tweet.video_path)} (${sizeMb} MB)...`);
-
-      // Post tweet with video
-      const credentials = getTwitterCredentials();
-      const result = await postTweetWithVideo(
-        tweet.content,
-        videoBase64,
-        credentials,
-        COMMUNITY_ID
-      );
-
-      markVideoTweetPosted(tweet.id, result.id);
-      console.log(`  ✓ Posted: "${tweet.content.slice(0, 50)}..." (${result.id})`);
-      posted++;
-
-      // Wait between tweets to avoid rate limits
-      if (tweets.indexOf(tweet) < tweets.length - 1) {
-        await new Promise((r) => setTimeout(r, 5000));
-      }
-    } catch (error) {
-      console.error(`  ✗ Failed to post video tweet:`, error);
+  try {
+    // Check if video file exists
+    if (!fs.existsSync(tweet.video_path)) {
+      console.error(`  ✗ Video not found: ${tweet.video_path}`);
+      return 0;
     }
-  }
 
-  return posted;
+    // Read video
+    const videoBuffer = fs.readFileSync(tweet.video_path);
+    const videoBase64 = videoBuffer.toString('base64');
+    const sizeMb = (videoBuffer.length / 1024 / 1024).toFixed(1);
+    console.log(`  📹 Uploading ${path.basename(tweet.video_path)} (${sizeMb} MB)...`);
+
+    // Post tweet with video
+    const credentials = getTwitterCredentials();
+    const result = await postTweetWithVideo(
+      tweet.content,
+      videoBase64,
+      credentials,
+      COMMUNITY_ID
+    );
+
+    markVideoTweetPosted(tweet.id, result.id);
+
+    // Record in global tweet rate limiter
+    recordTweet(result.id, 'video', tweet.content);
+
+    console.log(`  ✓ Posted: "${tweet.content.slice(0, 50)}..." (${result.id})`);
+    return 1;
+  } catch (error) {
+    console.error(`  ✗ Failed to post video tweet:`, error);
+    return 0;
+  }
 }

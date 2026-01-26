@@ -6,6 +6,93 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-26] - Global Twitter Rate Limiting
+
+### Added - Respecting Twitter Free Tier Limits
+Implemented global rate limiting across ALL tweet types to stay within Twitter's Free tier (17 tweets/24 hours).
+
+**New: Global Rate Limiter**
+- Conservative limit: 15 tweets/day (vs Twitter's 17)
+- Minimum 30 minutes between any tweets
+- All tweet types share the same global pool
+
+**Database Changes (`brain/src/db.ts`):**
+- Added `tweet_rate_limit` singleton table (daily count, last tweet time)
+- Added `tweet_log` table (records all tweets with type and content)
+- New functions: `canTweetGlobally()`, `recordTweet()`, `getGlobalTweetStats()`
+- Tweet types: 'meme' | 'announcement' | 'scheduled' | 'video'
+
+**Modified Files:**
+- `brain/src/meme.ts` - Checks global limit before posting, records in limiter
+- `brain/src/cycle.ts` - Announcement + scheduled tweets respect global limits, post ONE at a time
+- `brain/src/video-scheduler.ts` - Video tweets respect global limits, post ONE at a time
+- `brain/src/index.ts` - Added `GET /tweets` endpoint for global stats
+
+**New Endpoint:**
+```bash
+# Check global tweet rate limiting stats
+curl https://brain.claudecode.wtf/tweets
+# Returns: { daily_count, daily_limit, remaining, can_tweet, recent_tweets, ... }
+```
+
+### Rate Limits Summary
+| Type | Daily Limit | Min Interval |
+|------|-------------|--------------|
+| **Global (all tweets)** | 15/day | 30 min |
+| Memes | 16/day | 60 min |
+| Features | 5/day | 4.5 hours |
+
+---
+
+## [2026-01-26] - Unified Central Brain + Meme Generation
+
+### Added - Meme Generation During Cooldowns
+The Central Brain now generates memes during cooldown periods between feature builds, consolidating the previous Cloudflare Worker meme bot into the brain.
+
+**New Files:**
+- `brain/src/meme.ts` - Meme generation engine (~350 lines)
+  - Uses Claude Opus 4.5 for creative prompts and captions
+  - Uses Gemini 2.0 Flash for image generation
+  - Quality gate (score 6+/10 required to post)
+  - Posts to Twitter community with share_with_followers
+- `brain/src/meme-prompts.ts` - 75+ dev-focused meme prompts
+  - Debugging, shipping, code reviews, work life, learning, AI humor
+  - Same prompts from worker/src/prompts.ts
+
+**Modified: `brain/src/db.ts`**
+- Added `memes` table for tracking generated memes
+- Added `meme_state` singleton for rate limiting
+- Added `activity_type` column to build_logs (build/meme/system)
+- New helper functions: getMemeState, updateMemeState, insertMeme, getRecentMemes, getMemeStats, canPostMeme, recordMemePost
+
+**Modified: `brain/src/index.ts`**
+- Added meme cron job (every 15 minutes during cooldown)
+- Added `GET /memes` endpoint for meme stats
+- Added `POST /meme/trigger` endpoint for manual triggering
+- Modified broadcastLog to include activityType
+- Updated /status endpoint with brain mode (building/resting/idle)
+
+**Modified: `brain/src/humor.ts`**
+- Added meme-related humor categories: memeStart, memeSuccess, memeFailed, cooldownActive
+
+**Modified: `app/watch/page.tsx`**
+- Added brain mode status badges (BUILDING/RESTING/IDLE)
+- Added meme activity styling (fuchsia color)
+- Added activityType handling in WebSocket messages
+- Shows meme count during RESTING mode
+
+### Rate Limits
+- Features: 5/day, 4.5h between cycles (unchanged)
+- Memes: 16/day, 60 min minimum between posts
+- Quality gate: Score 6+ required to post (3 retries on failure)
+
+### Brain Modes (visible on /watch)
+- **BUILDING** (green) - Active feature build cycle
+- **RESTING** (fuchsia) - Cooldown, generating memes
+- **IDLE** (amber) - Ready to start new cycle
+
+---
+
 ## [2026-01-26] - Stream Infrastructure & Bug Fixes
 
 ### Added

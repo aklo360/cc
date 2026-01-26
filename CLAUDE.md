@@ -201,7 +201,7 @@ ccwtf/
 │   ├── public/footage/           # Captured gameplay clips
 │   ├── out/                      # Rendered output
 │   └── package.json              # Remotion dependencies
-├── brain/                        # Central Brain v3.1 (full autonomous loop)
+├── brain/                        # Central Brain v4.2 (full autonomous loop + memes)
 │   ├── src/
 │   │   ├── index.ts              # HTTP/WS server + cron (port 3001)
 │   │   ├── cycle.ts              # Full 9-phase cycle orchestration
@@ -211,8 +211,10 @@ ccwtf/
 │   │   ├── homepage.ts           # Homepage button auto-updater
 │   │   ├── recorder.ts           # Puppeteer video capture (fallback)
 │   │   ├── twitter.ts            # OAuth 1.0a + video upload
-│   │   ├── db.ts                 # SQLite database + daily_stats
-│   │   └── humor.ts              # Memecoin dev personality for logs
+│   │   ├── db.ts                 # SQLite database + meme tracking
+│   │   ├── humor.ts              # Memecoin dev personality for logs
+│   │   ├── meme.ts               # Meme generation engine (Claude + Gemini)
+│   │   └── meme-prompts.ts       # 75+ dev-focused meme prompts
 │   ├── brain.db                  # SQLite database file
 │   └── package.json              # Dependencies
 ├── worker/                       # Cloudflare Worker (API + Bot)
@@ -318,7 +320,7 @@ ccwtf/
 - AI captions powered by Claude Opus 4.5 with dev personality ("just wanna code")
 - OAuth 1.0a for everything (v2 API for tweets, v1.1 API for media upload)
 - Quality gate (score 6+/10 required to post)
-- Rate limiting (16 tweets/day max, 85min between posts)
+- **Global rate limiting** (15 tweets/day total, 30 min between ANY tweet)
 - KV storage for bot state + tweet history
 - **Video upload support** (chunked media upload for videos)
 - Admin endpoints:
@@ -362,9 +364,15 @@ ccwtf/
 ### 7. Watch Brain (`/watch`)
 Real-time build log viewer for the Central Brain:
 - WebSocket connection to brain server (`ws://[host]:3001/ws`)
-- Live streaming of all build phases
-- Status panel showing current cycle, scheduled tweets
-- START CYCLE / CANCEL buttons for manual control
+- Live streaming of all build phases and meme generation
+- **Status Panel with Brain Modes:**
+  - **BUILDING** (green badge) - Shows active project name and status
+  - **RESTING** (fuchsia badge) - Shows meme stats and cooldown timer
+  - **IDLE** (amber badge) - Ready to start new cycle
+- **Activity Type Color Coding:**
+  - Build activity: orange (Claude Agent)
+  - Meme activity: fuchsia (with 🎨 emoji)
+  - System messages: default text color
 - GMGN price chart (hidden in lite mode for streaming)
 - **Lite mode** (`?lite=1`): Hides heavy chart iframe to prevent Chrome crashes in headless streaming
 
@@ -442,8 +450,8 @@ docker compose up -d stream
 curl localhost:3002/health
 ```
 
-### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT v4.1
-Continuous shipping agent - ships up to 5 features per day:
+### 8. Central Brain (`/brain`) - FULL AUTONOMOUS AGENT v4.2
+Continuous shipping agent - ships up to 5 features per day + generates memes during cooldowns:
 
 - **Full 10-Phase Autonomous Loop:**
   1. **PLAN** - Claude plans project + 5 tweets for 24 hours
@@ -455,19 +463,28 @@ Continuous shipping agent - ships up to 5 features per day:
   7. **TWEET** - Posts announcement with video to $CC community
   8. **SCHEDULE** - Remaining tweets posted over 24 hours
   9. **HOMEPAGE** - Auto-adds button to homepage for new feature
-  10. **CONTINUE** - After 30min cooldown, starts next cycle (up to 5/day)
+  10. **CONTINUE** - After cooldown, starts next cycle (up to 5/day)
+- **Meme Generation During Cooldowns:**
+  - Every 15 minutes, checks if meme can be generated
+  - Uses Claude Opus 4.5 for creative prompts and captions
+  - Uses Gemini 2.0 Flash for image generation
+  - Quality gate (score 6+/10 required to post)
+  - Rate limits: 16 memes/day, 60 min minimum between posts
+  - Posts to Twitter community with share_with_followers
 - **Continuous Shipping Mode:**
   - 4.5-hour cooldown between cycles (staggered for visibility)
   - Daily limit of 5 features (prevents runaway costs)
   - Auto-starts next cycle after cooldown
+  - Generates memes during cooldown periods
   - Resets at midnight UTC
-- **Strict Rules:**
-  - Projects can ONLY ADD features, never modify/break existing code
-  - Tweets go to Twitter community + everyone (share_with_followers: true)
-  - Automatic cleanup of crashed/incomplete cycles on startup
+- **Brain Modes (visible on /watch):**
+  - **BUILDING** (green) - Active feature build cycle
+  - **RESTING** (fuchsia) - Cooldown, generating memes
+  - **IDLE** (amber) - Ready to start new cycle
 - **Architecture:** Ultra-lean (no Docker)
   - SQLite (brain.db) + node-cron + pm2
   - WebSocket server for real-time log streaming
+  - Activity types: build, meme, system (color-coded on /watch)
 - **Key Files:**
   - `builder.ts` - Claude Agent SDK integration
   - `deployer.ts` - Cloudflare Pages deployment
@@ -475,15 +492,20 @@ Continuous shipping agent - ships up to 5 features per day:
   - `trailer.ts` - Remotion trailer generation
   - `homepage.ts` - Homepage button auto-updater
   - `cycle.ts` - Full autonomous loop orchestration
+  - `meme.ts` - Meme generation engine (Claude + Gemini)
+  - `meme-prompts.ts` - 75+ dev-focused meme prompts
   - `index.ts` - HTTP/WebSocket server
-  - `db.ts` - SQLite database + daily_stats
+  - `db.ts` - SQLite database + daily_stats + meme tracking
 
 **API Endpoints:**
-- `GET /status` - Current cycle status
+- `GET /status` - Current cycle status + brain mode + meme stats
 - `GET /stats` - Daily shipping statistics
+- `GET /tweets` - Global tweet rate limiting stats (15/day, 30 min between)
+- `GET /memes` - Meme generation stats
+- `POST /meme/trigger` - Manually trigger meme generation
 - `POST /go` - Start new cycle
 - `POST /cancel` - Cancel active cycle
-- `WS /ws` - Real-time log streaming
+- `WS /ws` - Real-time log streaming (with activityType)
 
 **VPS Environment (Production):**
 - **Server:** 5.161.107.128 (Hetzner VPS)
@@ -797,14 +819,16 @@ npx wrangler deploy
 | `video/src/scenes/*.tsx` | Motion graphics scenes | ~230 |
 | `video/post-tweet.ts` | Twitter video posting | ~35 |
 | `app/watch/page.tsx` | Brain monitor UI | ~345 |
-| `brain/src/index.ts` | HTTP + WebSocket server | ~320 |
+| `brain/src/index.ts` | HTTP + WebSocket server | ~620 |
 | `brain/src/cycle.ts` | Full autonomous loop | ~410 |
 | `brain/src/builder.ts` | Claude Agent SDK builder | ~180 |
 | `brain/src/deployer.ts` | Cloudflare deployment | ~85 |
 | `brain/src/recorder.ts` | Video capture (Puppeteer) | ~320 |
-| `brain/src/db.ts` | SQLite database | ~380 |
+| `brain/src/db.ts` | SQLite database + meme tracking | ~1100 |
 | `brain/src/twitter.ts` | Twitter API + community | ~300 |
-| `brain/src/humor.ts` | Memecoin dev humor for logs | ~130 |
+| `brain/src/humor.ts` | Memecoin dev humor for logs | ~210 |
+| `brain/src/meme.ts` | Meme generation engine | ~350 |
+| `brain/src/meme-prompts.ts` | 75+ dev meme prompts | ~90 |
 | `app/vj/page.tsx` | VJ page UI | ~250 |
 | `vj/src/index.ts` | VJ orchestrator | ~280 |
 | `vj/src/audio/capture.ts` | System audio capture | ~85 |

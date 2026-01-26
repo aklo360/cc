@@ -23,11 +23,12 @@ import 'dotenv/config';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cron from 'node-cron';
-import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed, getHoursBetweenCycles, seedInitialFeatures, getAllShippedFeatures, getActiveCycle, insertBuildLog, getRecentBuildLogs, cleanupOldBuildLogs } from './db.js';
+import { db, cleanupOnStartup, getTodayStats, getDailyLimit, canShipMore, getTimeUntilNextAllowed, getHoursBetweenCycles, seedInitialFeatures, getAllShippedFeatures, getActiveCycle, insertBuildLog, getRecentBuildLogs, cleanupOldBuildLogs, getMemeStats, canPostMeme as dbCanPostMeme, getGlobalTweetStats, type ActivityType } from './db.js';
 import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
 import { executeVideoTweets, getPendingVideoTweets, cleanupOldScheduledTweets } from './video-scheduler.js';
 import { cleanupOrphanedProcesses, killProcess, registerShutdownHandlers } from './process-manager.js';
 import { getHumor } from './humor.js';
+import { generateAndPostMeme, canPostMeme } from './meme.js';
 
 const PORT = process.env.PORT || 3001;
 
@@ -57,16 +58,16 @@ const BANNER = `
 
 // ============ WebSocket Broadcast ============
 
-function broadcastLog(message: string, persist: boolean = true): void {
+function broadcastLog(message: string, persist: boolean = true, activityType: ActivityType = 'system'): void {
   const timestamp = Date.now();
-  const payload = JSON.stringify({ type: 'log', message, timestamp });
+  const payload = JSON.stringify({ type: 'log', message, timestamp, activityType });
 
   // Persist to database for historical access
   if (persist) {
     try {
       const level = message.includes('Error') || message.includes('Failed') ? 'error' :
                     message.includes('Success') || message.includes('Complete') ? 'success' : 'info';
-      insertBuildLog(message, level);
+      insertBuildLog(message, level, activityType);
     } catch (e) {
       // Don't fail if DB write fails
       console.error('[broadcastLog] Failed to persist log:', e);
@@ -123,6 +124,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'GET /features': 'All shipped features',
         'GET /scheduled-tweets': 'All scheduled tweets',
         'GET /logs': 'Recent build logs (last 24 hours)',
+        'GET /tweets': 'Global tweet rate limiting stats',
+        'GET /memes': 'Meme generation stats',
+        'POST /meme/trigger': 'Manually trigger meme generation',
         'POST /go': 'Start a new 24-hour cycle (full autonomous loop)',
         'POST /cancel': 'Cancel the active cycle',
         'WS /ws': 'Real-time log streaming (WebSocket)',
@@ -136,6 +140,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'Schedule follow-up tweets',
         'Auto-add feature buttons to homepage',
         'Continuous shipping (up to 5/day)',
+        'Generate memes during cooldown periods',
       ],
     });
     return;
@@ -143,8 +148,20 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   if (url === '/status' && method === 'GET') {
     const status = getCycleStatus();
+    const memeStats = getMemeStats();
+    const featureCooldownMs = getTimeUntilNextAllowed();
+
+    // Determine brain mode: building, resting (cooldown), or idle
+    let mode: 'building' | 'resting' | 'idle' = 'idle';
+    if (status.active) {
+      mode = 'building';
+    } else if (featureCooldownMs > 0) {
+      mode = 'resting';
+    }
+
     sendJson(res, 200, {
       brain: 'running',
+      mode,
       wsClients: wsClients.size,
       cycle: status.active
         ? {
@@ -157,6 +174,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
             tweets: status.tweets,
           }
         : null,
+      cooldown: {
+        next_allowed_in_ms: featureCooldownMs,
+        next_allowed_at: featureCooldownMs > 0 ? new Date(Date.now() + featureCooldownMs).toISOString() : null,
+      },
+      memes: {
+        daily_count: memeStats.daily_count,
+        daily_limit: memeStats.daily_limit,
+        can_post: memeStats.can_post,
+        next_allowed_in_ms: memeStats.next_allowed_in_ms,
+        in_progress: memeStats.in_progress,
+      },
     });
     return;
   }
@@ -233,10 +261,69 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       logs: logs.map(l => ({
         message: l.message,
         level: l.level,
+        activityType: l.activity_type,
         timestamp: new Date(l.created_at).getTime(),
         created_at: l.created_at,
       })),
     });
+    return;
+  }
+
+  // Global tweet rate limiting stats
+  if (url === '/tweets' && method === 'GET') {
+    const stats = getGlobalTweetStats();
+    sendJson(res, 200, stats);
+    return;
+  }
+
+  // Meme endpoints
+  if (url === '/memes' && method === 'GET') {
+    const stats = getMemeStats();
+    sendJson(res, 200, stats);
+    return;
+  }
+
+  if (url === '/meme/trigger' && method === 'POST') {
+    // Parse request body for force option
+    let force = false;
+    try {
+      const body = await new Promise<string>((resolve) => {
+        let data = '';
+        req.on('data', chunk => data += chunk);
+        req.on('end', () => resolve(data));
+      });
+      if (body) {
+        const parsed = JSON.parse(body);
+        force = parsed.force === true;
+      }
+    } catch {
+      // No body or invalid JSON, use defaults
+    }
+
+    // Check if there's an active cycle (don't generate memes during builds)
+    const active = getActiveCycle();
+    if (active && !force) {
+      sendJson(res, 409, {
+        success: false,
+        error: 'Cannot generate memes during active build cycle',
+      });
+      return;
+    }
+
+    console.log(`\n🎨 Meme trigger! Starting meme generation...${force ? ' (FORCE MODE)' : ''}\n`);
+    broadcastLog(`🎨 Starting meme generation...${force ? ' (FORCE MODE)' : ''}`, true, 'meme');
+
+    const result = await generateAndPostMeme(force, (msg) => {
+      broadcastLog(`🎨 ${msg}`, true, 'meme');
+    });
+
+    if (result.success) {
+      broadcastLog(`🎨 Meme posted! Tweet ID: ${result.tweet_id}`, true, 'meme');
+      sendJson(res, 200, result);
+    } else {
+      broadcastLog(`🎨 Meme generation failed: ${result.error}`, true, 'meme');
+      sendJson(res, 500, result);
+    }
     return;
   }
 
@@ -396,6 +483,48 @@ async function handleAutoCycle(): Promise<void> {
   }
 }
 
+/**
+ * Meme generator handler - generates memes during cooldown periods
+ * Runs every 15 minutes, only during cooldown (no active cycle)
+ */
+async function handleMemeGenerator(): Promise<void> {
+  try {
+    // Skip if there's an active cycle (focus on building)
+    const active = getActiveCycle();
+    if (active) {
+      return;
+    }
+
+    // Check meme rate limits
+    const canPost = canPostMeme();
+    if (!canPost.allowed) {
+      // Only log if it's not a simple interval check
+      if (!canPost.reason?.includes('wait')) {
+        console.log(`[Meme Generator] Skipped: ${canPost.reason}`);
+      }
+      return;
+    }
+
+    // Generate and post a meme!
+    console.log('\n🎨 [Meme Generator] Starting meme generation during cooldown...');
+    broadcastLog(`🎨 ${getHumor('memeStart')}`, true, 'meme');
+
+    const result = await generateAndPostMeme(false, (msg) => {
+      broadcastLog(`🎨 ${msg}`, true, 'meme');
+    });
+
+    if (result.success) {
+      console.log(`[Meme Generator] Posted! Tweet ID: ${result.tweet_id}`);
+      broadcastLog(`🎨 ${getHumor('memeSuccess')} - Tweet ID: ${result.tweet_id}`, true, 'meme');
+    } else {
+      console.log(`[Meme Generator] Failed: ${result.error}`);
+      broadcastLog(`🎨 ${getHumor('memeFailed')}: ${result.error}`, true, 'meme');
+    }
+  } catch (error) {
+    console.error('[Meme Generator] Error:', error);
+  }
+}
+
 function setupCronJobs(): void {
   console.log('Setting up cron jobs...');
 
@@ -411,6 +540,11 @@ function setupCronJobs(): void {
   // This replaces the broken setTimeout-based scheduling
   cron.schedule('*/10 * * * *', handleAutoCycle);
   console.log('  ✓ Auto-Cycle Checker: every 10 minutes');
+
+  // Meme generator: Every 15 minutes during cooldown
+  // Only runs when no active cycle and meme rate limits allow
+  cron.schedule('*/15 * * * *', handleMemeGenerator);
+  console.log('  ✓ Meme Generator: every 15 minutes (during cooldown)');
 }
 
 // ============ Main ============

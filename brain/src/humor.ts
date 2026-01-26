@@ -145,6 +145,35 @@ const HUMOR = {
     "intermission",
   ],
 
+  // Meme generation
+  memeStart: [
+    "time to make art",
+    "memeing in progress",
+    "generating content",
+    "the meme machine awakens",
+    "art mode activated",
+  ],
+  memeSuccess: [
+    "meme deployed to the timeline",
+    "content created and shipped",
+    "another banger posted",
+    "the people have been blessed",
+    "meme successfully landed",
+  ],
+  memeFailed: [
+    "meme didn't pass the vibe check",
+    "quality gate said no",
+    "the meme wasn't ready",
+    "content rejected, trying again",
+  ],
+  cooldownActive: [
+    "claude is resting",
+    "recharging creative energy",
+    "meme mode activated",
+    "generating memes until next build",
+    "cooldown entertainment mode",
+  ],
+
   // Tweet related
   tweeting: [
     "broadcasting to ct",

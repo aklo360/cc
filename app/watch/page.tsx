@@ -7,10 +7,12 @@ import Link from 'next/link';
 interface LogEntry {
   timestamp: number;
   message: string;
+  activityType?: 'build' | 'meme' | 'system';
 }
 
 interface CycleStatus {
   brain: string;
+  mode: 'building' | 'resting' | 'idle';
   wsClients: number;
   cycle: {
     id: number;
@@ -25,6 +27,17 @@ interface CycleStatus {
       posted: boolean;
     }>;
   } | null;
+  cooldown?: {
+    next_allowed_in_ms: number;
+    next_allowed_at: string | null;
+  };
+  memes?: {
+    daily_count: number;
+    daily_limit: number;
+    can_post: boolean;
+    next_allowed_in_ms: number;
+    in_progress: boolean;
+  };
 }
 
 interface DailyStats {
@@ -209,9 +222,10 @@ function WatchPageContent() {
         const data = await res.json();
         if (data.logs && data.logs.length > 0) {
           // Convert API logs to LogEntry format
-          const historicalLogs: LogEntry[] = data.logs.map((l: { message: string; timestamp: number }) => ({
+          const historicalLogs: LogEntry[] = data.logs.map((l: { message: string; timestamp: number; activityType?: string }) => ({
             timestamp: l.timestamp,
             message: l.message,
+            activityType: (l.activityType || 'system') as 'build' | 'meme' | 'system',
           }));
           // Only set if we don't have logs yet (initial load)
           setLogs(prev => {
@@ -277,13 +291,15 @@ function WatchPageContent() {
             if (data.type === 'log') {
               setLogs(prev => [...prev, {
                 timestamp: data.timestamp || Date.now(),
-                message: data.message
+                message: data.message,
+                activityType: data.activityType || 'system',
               }]);
             } else if (data.type === 'connected' && isFirstConnect) {
               // Only show connected message once
               setLogs(prev => [...prev, {
                 timestamp: data.timestamp || Date.now(),
-                message: data.message
+                message: data.message,
+                activityType: 'system',
               }]);
             }
             // Ignore ping/pong messages
@@ -292,7 +308,8 @@ function WatchPageContent() {
             if (typeof event.data === 'string' && event.data.length > 0) {
               setLogs(prev => [...prev, {
                 timestamp: Date.now(),
-                message: event.data
+                message: event.data,
+                activityType: 'system',
               }]);
             }
           }
@@ -379,25 +396,43 @@ function WatchPageContent() {
                 <div className="text-xs text-text-muted mt-1">autonomous builds</div>
               </div>
 
-              {/* Right: Current Cycle */}
+              {/* Right: Current Status */}
               <div className="border-l border-border pl-4">
-                <h2 className="text-sm text-text-secondary mb-2">CURRENT CYCLE</h2>
-                {status?.cycle ? (
+                <h2 className="text-sm text-text-secondary mb-2">STATUS</h2>
+                {status?.mode === 'building' && status?.cycle ? (
                   <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 text-xs rounded bg-green-500/20 text-green-400">BUILDING</span>
+                    </div>
                     <div className="text-claude-orange font-bold text-sm truncate">{status.cycle.project}</div>
                     <div className="text-xs text-text-secondary">/{status.cycle.slug}</div>
-                    <div className="text-xs text-green-400">{status.cycle.status}</div>
+                  </div>
+                ) : status?.mode === 'resting' ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 text-xs rounded bg-fuchsia-500/20 text-fuchsia-400">RESTING</span>
+                    </div>
+                    <div className="text-fuchsia-400 text-sm">Generating memes</div>
+                    <div className="text-xs text-text-muted">
+                      {status.memes?.daily_count ?? 0}/{status.memes?.daily_limit ?? 16} memes today
+                    </div>
+                    {stats && stats.next_allowed_in_hours > 0 && (
+                      <div className="text-xs text-fuchsia-400/70">
+                        Next build in {stats.next_allowed_in_hours.toFixed(1)}h
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    <div className="text-text-muted text-sm">No active cycle</div>
-                    {stats && stats.next_allowed_in_hours > 0 ? (
-                      <div className="text-xs text-amber-400">
-                        Next in {stats.next_allowed_in_hours.toFixed(1)}h
-                      </div>
-                    ) : stats?.can_ship_more ? (
-                      <div className="text-xs text-green-400">Ready to ship!</div>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 text-xs rounded bg-amber-500/20 text-amber-400">IDLE</span>
+                    </div>
+                    <div className="text-text-muted text-sm">Ready to build</div>
+                    {stats?.can_ship_more ? (
+                      <div className="text-xs text-green-400">Can start cycle</div>
+                    ) : (
+                      <div className="text-xs text-amber-400">Daily limit reached</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -533,6 +568,7 @@ function WatchPageContent() {
               )}
               {logs.map((log, i) => {
                 const isClaudeAgent = log.message.includes('[CLAUDE_AGENT');
+                const isMemeActivity = log.activityType === 'meme' || log.message.startsWith('🎨');
                 let activityEmoji = '🔧';
                 let displayMessage = log.message;
 
@@ -554,7 +590,12 @@ function WatchPageContent() {
                 return (
                   <div key={i} className="flex gap-3 text-sm items-center">
                     <span className="text-text-muted shrink-0">{formatTime(log.timestamp)}</span>
-                    {isClaudeAgent ? (
+                    {isMemeActivity ? (
+                      <span className="text-fuchsia-400 flex items-center gap-1.5">
+                        <img src="/cc.png" alt="" className="w-4 h-4 inline-block opacity-80" />
+                        <span>{displayMessage}</span>
+                      </span>
+                    ) : isClaudeAgent ? (
                       <span className="text-claude-orange flex items-center gap-1.5">
                         <img src="/cc.png" alt="" className="w-4 h-4 inline-block" />
                         <span>{displayMessage}</span>

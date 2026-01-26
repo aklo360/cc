@@ -9,8 +9,8 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Database file in brain directory
-const dbPath = join(__dirname, '..', 'brain.db');
+// Database path - use DB_PATH env var (for Docker) or fallback to relative path
+const dbPath = process.env.DB_PATH || join(__dirname, '..', 'brain.db');
 export const db: DatabaseType = new Database(dbPath);
 
 // Enable WAL mode for better concurrency
@@ -105,10 +105,53 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     message TEXT NOT NULL,
     level TEXT DEFAULT 'info',
+    activity_type TEXT DEFAULT 'system',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE INDEX IF NOT EXISTS idx_build_logs_created_at ON build_logs(created_at);
+
+  -- Memes table for tracking generated memes
+  CREATE TABLE IF NOT EXISTS memes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt TEXT NOT NULL,
+    description TEXT NOT NULL,
+    caption TEXT NOT NULL,
+    quality_score INTEGER NOT NULL,
+    twitter_id TEXT,
+    posted_at TEXT,
+    skipped_reason TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- Meme state singleton for rate limiting
+  CREATE TABLE IF NOT EXISTS meme_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_post_time INTEGER DEFAULT 0,
+    daily_count INTEGER DEFAULT 0,
+    daily_reset_date TEXT,
+    recent_prompts TEXT DEFAULT '[]',
+    in_progress INTEGER DEFAULT 0
+  );
+  INSERT OR IGNORE INTO meme_state (id) VALUES (1);
+
+  -- Global tweet rate limit tracking (Twitter Free tier: 17 tweets/24h)
+  CREATE TABLE IF NOT EXISTS tweet_rate_limit (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    daily_count INTEGER DEFAULT 0,
+    daily_reset_date TEXT,
+    last_tweet_time INTEGER DEFAULT 0
+  );
+  INSERT OR IGNORE INTO tweet_rate_limit (id) VALUES (1);
+
+  -- Tweet log for tracking all tweets (memes, announcements, scheduled)
+  CREATE TABLE IF NOT EXISTS tweet_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tweet_id TEXT NOT NULL,
+    tweet_type TEXT NOT NULL,
+    content TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // ============ Schema Migration ============
@@ -137,6 +180,12 @@ if (!columnExists('cycles', 'error_message')) {
 if (!columnExists('cycles', 'trailer_path')) {
   console.log('  Migrating: Adding trailer_path column to cycles table');
   db.exec('ALTER TABLE cycles ADD COLUMN trailer_path TEXT');
+}
+
+// Migrate build_logs table
+if (!columnExists('build_logs', 'activity_type')) {
+  console.log('  Migrating: Adding activity_type column to build_logs table');
+  db.exec("ALTER TABLE build_logs ADD COLUMN activity_type TEXT DEFAULT 'system'");
 }
 
 console.log('✓ SQLite database initialized');
@@ -790,17 +839,20 @@ export interface BuildLog {
   id: number;
   message: string;
   level: string;
+  activity_type: string;
   created_at: string;
 }
+
+export type ActivityType = 'build' | 'meme' | 'system';
 
 /**
  * Insert a build log entry
  */
-export function insertBuildLog(message: string, level: string = 'info'): number {
+export function insertBuildLog(message: string, level: string = 'info', activityType: ActivityType = 'system'): number {
   const stmt = db.prepare(`
-    INSERT INTO build_logs (message, level) VALUES (?, ?)
+    INSERT INTO build_logs (message, level, activity_type) VALUES (?, ?, ?)
   `);
-  const result = stmt.run(message, level);
+  const result = stmt.run(message, level, activityType);
   return result.lastInsertRowid as number;
 }
 
@@ -829,4 +881,406 @@ export function cleanupOldBuildLogs(daysOld: number = 7): number {
   `);
   const result = stmt.run(daysOld);
   return result.changes;
+}
+
+// ============ Meme Helpers ============
+
+export interface Meme {
+  id: number;
+  prompt: string;
+  description: string;
+  caption: string;
+  quality_score: number;
+  twitter_id: string | null;
+  posted_at: string | null;
+  skipped_reason: string | null;
+  created_at: string;
+}
+
+export interface MemeState {
+  last_post_time: number;
+  daily_count: number;
+  daily_reset_date: string | null;
+  recent_prompts: string[];
+  in_progress: boolean;
+}
+
+// Rate limits for meme posting
+export const MEME_RATE_LIMIT = {
+  maxDaily: 16,
+  minIntervalMs: 60 * 60 * 1000, // 60 minutes
+};
+
+/**
+ * Get the current meme state
+ */
+export function getMemeState(): MemeState {
+  const stmt = db.prepare(`SELECT * FROM meme_state WHERE id = 1`);
+  const row = stmt.get() as {
+    last_post_time: number;
+    daily_count: number;
+    daily_reset_date: string | null;
+    recent_prompts: string;
+    in_progress: number;
+  } | undefined;
+
+  if (!row) {
+    return {
+      last_post_time: 0,
+      daily_count: 0,
+      daily_reset_date: null,
+      recent_prompts: [],
+      in_progress: false,
+    };
+  }
+
+  return {
+    last_post_time: row.last_post_time,
+    daily_count: row.daily_count,
+    daily_reset_date: row.daily_reset_date,
+    recent_prompts: JSON.parse(row.recent_prompts || '[]'),
+    in_progress: row.in_progress === 1,
+  };
+}
+
+/**
+ * Update meme state
+ */
+export function updateMemeState(update: Partial<MemeState>): void {
+  const current = getMemeState();
+  const newState = { ...current, ...update };
+
+  const stmt = db.prepare(`
+    UPDATE meme_state SET
+      last_post_time = ?,
+      daily_count = ?,
+      daily_reset_date = ?,
+      recent_prompts = ?,
+      in_progress = ?
+    WHERE id = 1
+  `);
+  stmt.run(
+    newState.last_post_time,
+    newState.daily_count,
+    newState.daily_reset_date,
+    JSON.stringify(newState.recent_prompts),
+    newState.in_progress ? 1 : 0
+  );
+}
+
+/**
+ * Set meme generation in progress
+ */
+export function setMemeInProgress(inProgress: boolean): void {
+  const stmt = db.prepare(`UPDATE meme_state SET in_progress = ? WHERE id = 1`);
+  stmt.run(inProgress ? 1 : 0);
+}
+
+/**
+ * Insert a new meme record
+ */
+export function insertMeme(meme: {
+  prompt: string;
+  description: string;
+  caption: string;
+  quality_score: number;
+  twitter_id?: string;
+  posted_at?: string;
+  skipped_reason?: string;
+}): number {
+  const stmt = db.prepare(`
+    INSERT INTO memes (prompt, description, caption, quality_score, twitter_id, posted_at, skipped_reason)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const result = stmt.run(
+    meme.prompt,
+    meme.description,
+    meme.caption,
+    meme.quality_score,
+    meme.twitter_id || null,
+    meme.posted_at || null,
+    meme.skipped_reason || null
+  );
+  return result.lastInsertRowid as number;
+}
+
+/**
+ * Get recent memes
+ */
+export function getRecentMemes(limit: number = 10): Meme[] {
+  const stmt = db.prepare(`
+    SELECT * FROM memes ORDER BY created_at DESC LIMIT ?
+  `);
+  return stmt.all(limit) as Meme[];
+}
+
+/**
+ * Get meme stats for today
+ */
+export function getMemeStats(): {
+  daily_count: number;
+  daily_limit: number;
+  last_post_time: number;
+  last_post_at: string | null;
+  can_post: boolean;
+  next_allowed_in_ms: number;
+  recent_memes: Meme[];
+  in_progress: boolean;
+} {
+  const state = getMemeState();
+  const today = new Date().toISOString().split('T')[0];
+
+  // Reset daily count if new day
+  let dailyCount = state.daily_count;
+  if (state.daily_reset_date !== today) {
+    dailyCount = 0;
+  }
+
+  // Calculate time until next allowed post
+  const now = Date.now();
+  const timeSinceLastPost = now - state.last_post_time;
+  const timeUntilAllowed = Math.max(0, MEME_RATE_LIMIT.minIntervalMs - timeSinceLastPost);
+
+  // Can post if under limit, interval elapsed, and not in progress
+  const canPost =
+    dailyCount < MEME_RATE_LIMIT.maxDaily &&
+    timeSinceLastPost >= MEME_RATE_LIMIT.minIntervalMs &&
+    !state.in_progress;
+
+  return {
+    daily_count: dailyCount,
+    daily_limit: MEME_RATE_LIMIT.maxDaily,
+    last_post_time: state.last_post_time,
+    last_post_at: state.last_post_time ? new Date(state.last_post_time).toISOString() : null,
+    can_post: canPost,
+    next_allowed_in_ms: timeUntilAllowed,
+    recent_memes: getRecentMemes(5),
+    in_progress: state.in_progress,
+  };
+}
+
+/**
+ * Check if we can post a meme
+ */
+export function canPostMeme(): { allowed: boolean; reason?: string } {
+  const state = getMemeState();
+  const today = new Date().toISOString().split('T')[0];
+  const now = Date.now();
+
+  // Check if generation is already in progress
+  if (state.in_progress) {
+    return { allowed: false, reason: 'Meme generation already in progress' };
+  }
+
+  // Reset daily count if new day
+  let dailyCount = state.daily_count;
+  if (state.daily_reset_date !== today) {
+    dailyCount = 0;
+    updateMemeState({ daily_count: 0, daily_reset_date: today });
+  }
+
+  // Check daily limit
+  if (dailyCount >= MEME_RATE_LIMIT.maxDaily) {
+    return { allowed: false, reason: `Daily limit reached (${MEME_RATE_LIMIT.maxDaily}/day)` };
+  }
+
+  // Check minimum interval
+  const timeSinceLastPost = now - state.last_post_time;
+  if (timeSinceLastPost < MEME_RATE_LIMIT.minIntervalMs) {
+    const waitMinutes = Math.ceil((MEME_RATE_LIMIT.minIntervalMs - timeSinceLastPost) / 60000);
+    return { allowed: false, reason: `Must wait ${waitMinutes} more minutes` };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Record a successful meme post
+ */
+export function recordMemePost(prompt: string): void {
+  const state = getMemeState();
+  const today = new Date().toISOString().split('T')[0];
+
+  // Reset daily count if new day
+  let dailyCount = state.daily_count;
+  if (state.daily_reset_date !== today) {
+    dailyCount = 0;
+  }
+
+  // Update recent prompts (keep last 10)
+  const recentPrompts = [prompt, ...state.recent_prompts].slice(0, 10);
+
+  updateMemeState({
+    last_post_time: Date.now(),
+    daily_count: dailyCount + 1,
+    daily_reset_date: today,
+    recent_prompts: recentPrompts,
+    in_progress: false,
+  });
+}
+
+// ============ Global Tweet Rate Limiter ============
+// Twitter Free tier: 17 tweets per 24 hours
+// We use 15 as a conservative limit to avoid hitting the wall
+
+export const GLOBAL_TWEET_LIMIT = {
+  maxDaily: 15, // Conservative limit (Twitter allows 17)
+  minIntervalMs: 30 * 60 * 1000, // 30 minutes between any tweets
+};
+
+export type TweetType = 'meme' | 'announcement' | 'scheduled' | 'video';
+
+interface TweetRateLimitState {
+  daily_count: number;
+  daily_reset_date: string | null;
+  last_tweet_time: number;
+}
+
+/**
+ * Get global tweet rate limit state
+ */
+export function getTweetRateLimitState(): TweetRateLimitState {
+  const stmt = db.prepare(`SELECT * FROM tweet_rate_limit WHERE id = 1`);
+  const row = stmt.get() as {
+    daily_count: number;
+    daily_reset_date: string | null;
+    last_tweet_time: number;
+  } | undefined;
+
+  if (!row) {
+    return {
+      daily_count: 0,
+      daily_reset_date: null,
+      last_tweet_time: 0,
+    };
+  }
+
+  return row;
+}
+
+/**
+ * Check if we can tweet (global rate limit)
+ */
+export function canTweetGlobally(): { allowed: boolean; reason?: string; daily_count?: number; daily_limit?: number } {
+  const state = getTweetRateLimitState();
+  const today = new Date().toISOString().split('T')[0];
+  const now = Date.now();
+
+  // Reset daily count if new day
+  let dailyCount = state.daily_count;
+  if (state.daily_reset_date !== today) {
+    dailyCount = 0;
+    // Update the reset date
+    const updateStmt = db.prepare(`UPDATE tweet_rate_limit SET daily_count = 0, daily_reset_date = ? WHERE id = 1`);
+    updateStmt.run(today);
+  }
+
+  // Check daily limit
+  if (dailyCount >= GLOBAL_TWEET_LIMIT.maxDaily) {
+    return {
+      allowed: false,
+      reason: `Daily tweet limit reached (${dailyCount}/${GLOBAL_TWEET_LIMIT.maxDaily})`,
+      daily_count: dailyCount,
+      daily_limit: GLOBAL_TWEET_LIMIT.maxDaily,
+    };
+  }
+
+  // Check minimum interval
+  const timeSinceLastTweet = now - state.last_tweet_time;
+  if (state.last_tweet_time > 0 && timeSinceLastTweet < GLOBAL_TWEET_LIMIT.minIntervalMs) {
+    const waitMinutes = Math.ceil((GLOBAL_TWEET_LIMIT.minIntervalMs - timeSinceLastTweet) / 60000);
+    return {
+      allowed: false,
+      reason: `Must wait ${waitMinutes} more minutes between tweets`,
+      daily_count: dailyCount,
+      daily_limit: GLOBAL_TWEET_LIMIT.maxDaily,
+    };
+  }
+
+  return {
+    allowed: true,
+    daily_count: dailyCount,
+    daily_limit: GLOBAL_TWEET_LIMIT.maxDaily,
+  };
+}
+
+/**
+ * Record a tweet (call after successful post)
+ */
+export function recordTweet(tweetId: string, tweetType: TweetType, content?: string): void {
+  const today = new Date().toISOString().split('T')[0];
+  const now = Date.now();
+
+  // Get current state
+  const state = getTweetRateLimitState();
+  let dailyCount = state.daily_count;
+  if (state.daily_reset_date !== today) {
+    dailyCount = 0;
+  }
+
+  // Update rate limit state
+  const updateStmt = db.prepare(`
+    UPDATE tweet_rate_limit SET
+      daily_count = ?,
+      daily_reset_date = ?,
+      last_tweet_time = ?
+    WHERE id = 1
+  `);
+  updateStmt.run(dailyCount + 1, today, now);
+
+  // Log the tweet
+  const logStmt = db.prepare(`
+    INSERT INTO tweet_log (tweet_id, tweet_type, content) VALUES (?, ?, ?)
+  `);
+  logStmt.run(tweetId, tweetType, content || null);
+}
+
+/**
+ * Get global tweet stats
+ */
+export function getGlobalTweetStats(): {
+  daily_count: number;
+  daily_limit: number;
+  remaining: number;
+  can_tweet: boolean;
+  last_tweet_time: number;
+  last_tweet_at: string | null;
+  next_allowed_in_ms: number;
+  recent_tweets: Array<{ tweet_id: string; tweet_type: string; created_at: string }>;
+} {
+  const state = getTweetRateLimitState();
+  const today = new Date().toISOString().split('T')[0];
+  const now = Date.now();
+
+  // Reset daily count if new day
+  let dailyCount = state.daily_count;
+  if (state.daily_reset_date !== today) {
+    dailyCount = 0;
+  }
+
+  // Calculate time until next allowed
+  const timeSinceLastTweet = now - state.last_tweet_time;
+  const timeUntilAllowed = state.last_tweet_time > 0
+    ? Math.max(0, GLOBAL_TWEET_LIMIT.minIntervalMs - timeSinceLastTweet)
+    : 0;
+
+  // Get recent tweets
+  const recentStmt = db.prepare(`
+    SELECT tweet_id, tweet_type, created_at FROM tweet_log
+    ORDER BY created_at DESC LIMIT 10
+  `);
+  const recentTweets = recentStmt.all() as Array<{ tweet_id: string; tweet_type: string; created_at: string }>;
+
+  const canTweet = dailyCount < GLOBAL_TWEET_LIMIT.maxDaily && timeUntilAllowed === 0;
+
+  return {
+    daily_count: dailyCount,
+    daily_limit: GLOBAL_TWEET_LIMIT.maxDaily,
+    remaining: Math.max(0, GLOBAL_TWEET_LIMIT.maxDaily - dailyCount),
+    can_tweet: canTweet,
+    last_tweet_time: state.last_tweet_time,
+    last_tweet_at: state.last_tweet_time ? new Date(state.last_tweet_time).toISOString() : null,
+    next_allowed_in_ms: timeUntilAllowed,
+    recent_tweets: recentTweets,
+  };
 }

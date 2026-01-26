@@ -46,6 +46,10 @@ import {
   setCycleError,
   setCycleTrailer,
   getCycleTrailer,
+  // Global tweet rate limiter
+  canTweetGlobally,
+  recordTweet,
+  getGlobalTweetStats,
 } from './db.js';
 import { postTweetToCommunity, postTweetWithVideo, getTwitterCredentials, CC_COMMUNITY_ID } from './twitter.js';
 import { buildProject, buildEvents, type BuildResult } from './builder.js';
@@ -652,32 +656,45 @@ Return ONLY the JSON object, no other text.`;
 
   if (announcementTweet) {
     try {
-      const credentials = getTwitterCredentials();
-      const tweetContent = announcementTweet.content.includes('claudecode.wtf')
-        ? announcementTweet.content
-        : `${announcementTweet.content}\n\n${deployUrl}`;
-
-      if (trailerResult.success && trailerResult.videoBase64) {
-        log('📹 Posting announcement with trailer...');
-        const result = await postTweetWithVideo(
-          tweetContent,
-          trailerResult.videoBase64,
-          credentials,
-          CC_COMMUNITY_ID
-        );
-        announcementTweetId = result.id;
-        log(`✅ Announcement posted with trailer: ${result.id}`);
-        log(formatHumor('tweetSuccess'));
+      // Check global tweet rate limit
+      const globalCheck = canTweetGlobally();
+      if (!globalCheck.allowed) {
+        log(`⚠️ Global tweet limit reached: ${globalCheck.reason}`);
+        log(`   Skipping announcement tweet to respect Twitter policy`);
       } else {
-        log('📝 Posting announcement (no video)...');
-        const result = await postTweetToCommunity(tweetContent, credentials);
-        announcementTweetId = result.id;
-        log(`✅ Announcement posted: ${result.id}`);
-        log(formatHumor('tweetSuccess'));
-      }
+        const credentials = getTwitterCredentials();
+        const tweetContent = announcementTweet.content.includes('claudecode.wtf')
+          ? announcementTweet.content
+          : `${announcementTweet.content}\n\n${deployUrl}`;
 
-      // Record in DB
-      insertTweet(tweetContent, 'announcement', announcementTweetId);
+        if (trailerResult.success && trailerResult.videoBase64) {
+          log('📹 Posting announcement with trailer...');
+          const result = await postTweetWithVideo(
+            tweetContent,
+            trailerResult.videoBase64,
+            credentials,
+            CC_COMMUNITY_ID
+          );
+          announcementTweetId = result.id;
+          log(`✅ Announcement posted with trailer: ${result.id}`);
+          log(formatHumor('tweetSuccess'));
+
+          // Record in global rate limiter
+          recordTweet(result.id, 'announcement', tweetContent);
+        } else {
+          log('📝 Posting announcement (no video)...');
+          const result = await postTweetToCommunity(tweetContent, credentials);
+          announcementTweetId = result.id;
+          log(`✅ Announcement posted: ${result.id}`);
+          log(formatHumor('tweetSuccess'));
+
+          // Record in global rate limiter
+          recordTweet(result.id, 'announcement', tweetContent);
+        }
+
+        // Record in DB
+        insertTweet(tweetContent, 'announcement', announcementTweetId);
+      }
 
       // Checkpoint: Phase 7 complete (TWEET)
       updateCyclePhase(cycleId, 7);
@@ -815,31 +832,36 @@ export async function executeScheduledTweets(): Promise<number> {
     return 0;
   }
 
-  log(`[Tweet Executor] Found ${unpostedTweets.length} tweets ready to post`);
-
-  let posted = 0;
-  for (const tweet of unpostedTweets) {
-    try {
-      const credentials = getTwitterCredentials();
-      // Post to the $CC community
-      const result = await postTweetToCommunity(tweet.content, credentials);
-
-      markTweetPosted(tweet.id, result.id);
-      insertTweet(tweet.content, tweet.tweet_type, result.id);
-
-      log(`  ✓ Posted to community: "${tweet.content.slice(0, 50)}..." (${result.id})`);
-      posted++;
-
-      // Wait a bit between tweets to avoid rate limits
-      if (unpostedTweets.indexOf(tweet) < unpostedTweets.length - 1) {
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    } catch (error) {
-      log(`  ✗ Failed to post tweet: ${error}`);
-    }
+  // Check global rate limit FIRST - only post ONE tweet per execution
+  const globalCheck = canTweetGlobally();
+  if (!globalCheck.allowed) {
+    log(`[Tweet Executor] Global limit: ${globalCheck.reason} (${unpostedTweets.length} tweets pending)`);
+    return 0;
   }
 
-  return posted;
+  log(`[Tweet Executor] Found ${unpostedTweets.length} tweets ready to post`);
+  const tweetStats = getGlobalTweetStats();
+  log(`[Tweet Executor] Global tweets today: ${tweetStats.daily_count}/${tweetStats.daily_limit}`);
+
+  // Only post ONE tweet per execution to respect global rate limits
+  const tweet = unpostedTweets[0];
+  try {
+    const credentials = getTwitterCredentials();
+    // Post to the $CC community
+    const result = await postTweetToCommunity(tweet.content, credentials);
+
+    markTweetPosted(tweet.id, result.id);
+    insertTweet(tweet.content, tweet.tweet_type, result.id);
+
+    // Record in global rate limiter
+    recordTweet(result.id, 'scheduled', tweet.content);
+
+    log(`  ✓ Posted to community: "${tweet.content.slice(0, 50)}..." (${result.id})`);
+    return 1;
+  } catch (error) {
+    log(`  ✗ Failed to post tweet: ${error}`);
+    return 0;
+  }
 }
 
 export function getCycleStatus(): {
