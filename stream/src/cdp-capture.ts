@@ -25,6 +25,8 @@ export class CdpCapture {
   private browser: Browser | null = null;
   private page: Page | null = null;
   private isCapturing = false;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private static readonly HEALTH_CHECK_INTERVAL_MS = 30000; // Check every 30 seconds
 
   constructor(config: CaptureConfig, events: CaptureEvents) {
     this.config = config;
@@ -88,11 +90,88 @@ export class CdpCapture {
 
     this.isCapturing = true;
     console.log('[cdp] Browser ready on Xvfb display');
+
+    // Start health check interval to detect Chrome crashes
+    this.startHealthCheck();
+  }
+
+  /**
+   * Periodic health check to detect Chrome crashes (Aw, Snap! pages)
+   * Chrome can crash with various error codes (e.g., SIGILL, OOM)
+   * When this happens, we need to trigger a restart
+   */
+  private startHealthCheck(): void {
+    this.healthCheckInterval = setInterval(async () => {
+      try {
+        await this.checkPageHealth();
+      } catch (error) {
+        console.error('[cdp] Health check failed:', (error as Error).message);
+        this.events.onError(new Error(`Health check failed: ${(error as Error).message}`));
+      }
+    }, CdpCapture.HEALTH_CHECK_INTERVAL_MS);
+  }
+
+  private async checkPageHealth(): Promise<void> {
+    if (!this.page || !this.isCapturing) {
+      return;
+    }
+
+    try {
+      // Check if page is still connected
+      if (this.page.isClosed()) {
+        throw new Error('Page is closed');
+      }
+
+      // Check page title and content for crash indicators
+      const healthCheck = await this.page.evaluate(() => {
+        const title = document.title || '';
+        const bodyText = document.body?.innerText || '';
+
+        // Chrome crash page indicators
+        const crashIndicators = [
+          'Aw, Snap!',
+          'something went wrong',
+          'ERR_',
+          'This page isn\'t working',
+          'crashed',
+        ];
+
+        const isCrashed = crashIndicators.some(indicator =>
+          title.toLowerCase().includes(indicator.toLowerCase()) ||
+          bodyText.toLowerCase().includes(indicator.toLowerCase())
+        );
+
+        return {
+          title,
+          isCrashed,
+          hasContent: bodyText.length > 100,
+        };
+      });
+
+      if (healthCheck.isCrashed) {
+        console.error(`[cdp] Chrome crash detected! Title: "${healthCheck.title}"`);
+        throw new Error('Chrome crashed - page shows error');
+      }
+
+      if (!healthCheck.hasContent) {
+        console.warn('[cdp] Page appears empty, may be loading or crashed');
+      }
+
+    } catch (error) {
+      // If evaluate fails, the page is likely crashed or disconnected
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
     console.log('[cdp] Stopping browser...');
     this.isCapturing = false;
+
+    // Clear health check interval
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
 
     if (this.page) {
       await this.page.close().catch(() => {});

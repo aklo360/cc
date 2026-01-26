@@ -48,6 +48,8 @@ export class Streamer extends EventEmitter {
   private restartCount: number = 0;
   private lastError: string | null = null;
   private isShuttingDown: boolean = false;
+  private restartResetTimer: NodeJS.Timeout | null = null;
+  private static readonly RESTART_RESET_AFTER_MS = 5 * 60 * 1000; // Reset counter after 5 min stable
 
   constructor(config: StreamerConfig) {
     super();
@@ -132,6 +134,14 @@ export class Streamer extends EventEmitter {
       this.setState('streaming');
       console.log('[streamer] Stream is live!');
 
+      // Reset restart counter after stable streaming for 5 minutes
+      this.restartResetTimer = setTimeout(() => {
+        if (this.state === 'streaming' && this.restartCount > 0) {
+          console.log(`[streamer] Stream stable for 5 min, resetting restart counter (was ${this.restartCount})`);
+          this.restartCount = 0;
+        }
+      }, Streamer.RESTART_RESET_AFTER_MS);
+
     } catch (error) {
       this.lastError = (error as Error).message;
       this.setState('error');
@@ -143,6 +153,12 @@ export class Streamer extends EventEmitter {
     console.log('[streamer] Stopping stream...');
     this.isShuttingDown = true;
     this.setState('stopped');
+
+    // Clear restart reset timer
+    if (this.restartResetTimer) {
+      clearTimeout(this.restartResetTimer);
+      this.restartResetTimer = null;
+    }
 
     if (this.director) {
       this.director.stop();
@@ -196,11 +212,12 @@ export class Streamer extends EventEmitter {
   }
 
   private async attemptRestart(): Promise<void> {
+    // Never give up permanently - reset counter and use longer delay after max restarts
     if (this.restartCount >= this.config.maxRestarts) {
-      console.error(`[streamer] Max restarts (${this.config.maxRestarts}) reached. Giving up.`);
-      this.setState('error');
+      console.log(`[streamer] Max restarts (${this.config.maxRestarts}) reached. Waiting 60s before resetting counter and trying again...`);
       this.emit('maxRestartsReached');
-      return;
+      await new Promise((resolve) => setTimeout(resolve, 60000)); // Wait 60 seconds
+      this.restartCount = 0; // Reset counter
     }
 
     this.restartCount++;
