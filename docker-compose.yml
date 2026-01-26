@@ -10,8 +10,8 @@ services:
     env_file:
       - ./brain/.env
     volumes:
-      # Persist SQLite database
-      - ./brain/brain.db:/app/brain.db
+      # Database uses DB_PATH env var pointing to /root/ccwtf/brain/brain.db (via mounted ccwtf dir)
+      # This ensures host and container share the same WAL files
       # Persist recordings
       - ./brain/recordings:/app/recordings
       # Mount Claude Code CLI

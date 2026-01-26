@@ -174,6 +174,12 @@ export default function Home() {
             </svg>
             VJ Mode
           </a>
+          <a href="/translate" className="inline-flex items-center gap-2 bg-bg-secondary border border-teal-500 text-teal-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-teal-500 hover:text-white">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2v3M22 22l-5-10-5 10M14 18h6"/>
+            </svg>
+            Code Translator
+          </a>
         </section>
 
         {/* Terminal + Info Cards - grouped together */}

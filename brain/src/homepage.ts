@@ -20,6 +20,10 @@ const __dirname = dirname(__filename);
 
 // Get project root dynamically
 function getProjectRoot(): string {
+  // Use PROJECT_ROOT env var (set in Docker), fallback to relative path
+  if (process.env.PROJECT_ROOT) {
+    return process.env.PROJECT_ROOT;
+  }
   // brain/src/homepage.ts -> brain/src -> brain -> ccwtf
   return join(__dirname, '..', '..');
 }
