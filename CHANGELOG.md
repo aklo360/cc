@@ -6,6 +6,31 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ## [Unreleased]
 
+## [2026-01-26] - Native Mac Mini Streaming with YouTube Lofi Audio
+
+### Stream Service Overhaul
+Complete rewrite of streaming service to run natively on Mac Mini (not Docker) for GPU acceleration.
+
+**Audio System:**
+- Primary: YouTube lofi hip hop radio (`jfKfPfyJRdk`) via yt-dlp
+- Fallback: Local `lofi-fallback.mp3` if YouTube fails
+- FFmpeg reconnect options for reliable live stream consumption
+
+**GPU Acceleration:**
+- Chrome with Metal (`--use-angle=metal`) for WebGL rendering
+- VideoToolbox (`h264_videotoolbox`) for hardware H.264 encoding
+- avfoundation for native macOS screen capture
+
+**Director System:**
+- Auto-switches between `/watch` and `/vj` based on brain state
+- Shows `/watch` during BUILDING mode or meme generation
+- Shows `/vj` (Hydra auto mode) during RESTING/IDLE
+
+**New Files:**
+- `stream/src/youtube-audio.ts` - yt-dlp URL fetcher
+
+---
+
 ## [2026-01-26] - MIGRATION: Hetzner VPS → Mac Mini (New Home!)
 
 ### Infrastructure Migration
