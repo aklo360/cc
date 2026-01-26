@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { StandupGenerator } from './components/StandupGenerator';
 import { StandupOutput } from './components/StandupOutput';
 
@@ -20,24 +21,37 @@ export default function StandupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white">
-      <div className="container mx-auto px-4 py-12 max-w-6xl">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            Claude's Daily Standup
-          </h1>
-          <p className="text-xl text-gray-300 mb-2">
-            AI-Powered Standup Generator
-          </p>
-          <p className="text-gray-400 max-w-2xl mx-auto">
+    <div className="min-h-screen w-full flex items-center justify-center py-4 sm:py-8 px-[5%]">
+      <div className="max-w-[1200px] w-[90%]">
+
+        {/* HEADER: Traffic lights + icon LINK to homepage, title is PLAIN TEXT */}
+        <header className="flex items-center gap-3 py-3 mb-6">
+          {/* Traffic lights - Link to homepage */}
+          <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
+            <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+            <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+            <div className="w-3 h-3 rounded-full bg-[#28c840]" />
+          </Link>
+          {/* CC Icon - Link to homepage */}
+          <Link href="/" className="hover:opacity-80 transition-opacity">
+            <img src="/cc.png" alt="$CC" width={24} height={24} />
+          </Link>
+          {/* Title - PLAIN TEXT, NOT a link */}
+          <span className="text-claude-orange font-semibold text-sm">Claude's Daily Standup</span>
+          {/* Tagline - right aligned */}
+          <span className="text-text-muted text-xs ml-auto">AI-Powered Standup Generator</span>
+        </header>
+
+        {/* Description */}
+        <div className="mb-6 text-center">
+          <p className="text-text-secondary text-sm max-w-2xl mx-auto">
             Transform your boring commits and PRs into hilariously realistic standup updates.
             Because "pushed code" doesn't sound as impressive as "architected a robust solution."
           </p>
         </div>
 
         {/* Main Content */}
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid md:grid-cols-2 gap-6 mb-6">
           {/* Input Side */}
           <StandupGenerator
             onGenerate={handleGenerate}
@@ -52,12 +66,12 @@ export default function StandupPage() {
         </div>
 
         {/* Examples Section */}
-        <div className="mt-16 p-8 bg-gray-800/50 rounded-xl border border-gray-700">
-          <h2 className="text-2xl font-bold mb-4 text-purple-400">💡 Pro Tips</h2>
+        <div className="mb-6 p-6 bg-bg-secondary rounded-lg border border-border">
+          <h2 className="text-lg font-bold mb-4 text-claude-orange">💡 Pro Tips</h2>
           <div className="grid md:grid-cols-3 gap-6">
             <div>
-              <h3 className="font-semibold text-white mb-2">📝 What to Input</h3>
-              <ul className="text-sm text-gray-300 space-y-1">
+              <h3 className="font-semibold text-text-primary mb-2 text-sm">📝 What to Input</h3>
+              <ul className="text-xs text-text-secondary space-y-1">
                 <li>• Git commit messages</li>
                 <li>• PR descriptions</li>
                 <li>• Quick work notes</li>
@@ -65,8 +79,8 @@ export default function StandupPage() {
               </ul>
             </div>
             <div>
-              <h3 className="font-semibold text-white mb-2">🎭 Choose Your Vibe</h3>
-              <ul className="text-sm text-gray-300 space-y-1">
+              <h3 className="font-semibold text-text-primary mb-2 text-sm">🎭 Choose Your Vibe</h3>
+              <ul className="text-xs text-text-secondary space-y-1">
                 <li>• Professional: Impress your boss</li>
                 <li>• Casual: Keep it real</li>
                 <li>• Dramatic: Maximum impact</li>
@@ -74,8 +88,8 @@ export default function StandupPage() {
               </ul>
             </div>
             <div>
-              <h3 className="font-semibold text-white mb-2">⚡ Quick Actions</h3>
-              <ul className="text-sm text-gray-300 space-y-1">
+              <h3 className="font-semibold text-text-primary mb-2 text-sm">⚡ Quick Actions</h3>
+              <ul className="text-xs text-text-secondary space-y-1">
                 <li>• One-click copy to clipboard</li>
                 <li>• Regenerate with different tone</li>
                 <li>• Adjust length on the fly</li>
@@ -85,10 +99,16 @@ export default function StandupPage() {
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="mt-8 text-center text-gray-500 text-sm">
-          <p>Made with 💜 by Claude • All processing happens in your browser</p>
-        </div>
+        {/* FOOTER: "← back" link REQUIRED */}
+        <footer className="py-4 mt-6 text-center">
+          <Link href="/" className="text-claude-orange hover:underline text-sm">
+            ← back
+          </Link>
+          <p className="text-text-muted text-xs mt-2">
+            claudecode.wtf · 100% of fees to @bcherny
+          </p>
+        </footer>
+
       </div>
     </div>
   );

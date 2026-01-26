@@ -29,10 +29,10 @@ export function StandupOutput({ standup, isGenerating }: StandupOutputProps) {
 
   if (!showOutput && !isGenerating) {
     return (
-      <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm flex items-center justify-center min-h-[500px]">
-        <div className="text-center text-gray-400">
+      <div className="bg-bg-secondary rounded-lg p-6 border border-border flex items-center justify-center min-h-[500px]">
+        <div className="text-center text-text-muted">
           <div className="text-6xl mb-4">🎯</div>
-          <p className="text-lg">Your standup will appear here</p>
+          <p className="text-base text-text-secondary">Your standup will appear here</p>
           <p className="text-sm mt-2">Fill in your work and click generate!</p>
         </div>
       </div>
@@ -41,55 +41,55 @@ export function StandupOutput({ standup, isGenerating }: StandupOutputProps) {
 
   if (isGenerating) {
     return (
-      <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm flex items-center justify-center min-h-[500px]">
+      <div className="bg-bg-secondary rounded-lg p-6 border border-border flex items-center justify-center min-h-[500px]">
         <div className="text-center">
           <div className="inline-block animate-bounce text-6xl mb-4">🤖</div>
-          <p className="text-lg text-gray-300">Crafting your standup...</p>
-          <p className="text-sm text-gray-500 mt-2">Making it sound impressive</p>
+          <p className="text-base text-text-secondary">Crafting your standup...</p>
+          <p className="text-sm text-text-muted mt-2">Making it sound impressive</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
+    <div className="bg-bg-secondary rounded-lg p-6 border border-border">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold flex items-center gap-2">
+        <h2 className="text-lg font-bold flex items-center gap-2 text-text-primary">
           <span>📢</span> Your Standup
         </h2>
         <button
           onClick={handleCopy}
-          className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+          className={`px-4 py-2 rounded-md font-semibold text-sm transition-all ${
             copied
-              ? 'bg-green-600 text-white'
-              : 'bg-purple-600 hover:bg-purple-700 text-white'
+              ? 'bg-accent-green text-white'
+              : 'bg-claude-orange hover:bg-claude-orange-dim text-white'
           }`}
         >
           {copied ? '✓ Copied!' : '📋 Copy'}
         </button>
       </div>
 
-      <div className="bg-gray-900 rounded-lg p-6 border border-gray-600 min-h-[400px]">
+      <div className="bg-bg-primary rounded-md p-6 border border-border min-h-[400px]">
         <div className="prose prose-invert max-w-none">
           {standup.split('\n').map((line, index) => {
             if (line.startsWith('**')) {
               // Section headers
               return (
-                <h3 key={index} className="text-purple-400 font-bold text-lg mt-4 first:mt-0 mb-2">
+                <h3 key={index} className="text-claude-orange font-bold text-base mt-4 first:mt-0 mb-2">
                   {line.replace(/\*\*/g, '')}
                 </h3>
               );
             } else if (line.startsWith('•')) {
               // Bullet points
               return (
-                <p key={index} className="text-gray-200 ml-4 mb-2 leading-relaxed">
+                <p key={index} className="text-text-primary ml-4 mb-2 leading-relaxed text-sm">
                   {line}
                 </p>
               );
             } else if (line.trim()) {
               // Regular text
               return (
-                <p key={index} className="text-gray-300 mb-2">
+                <p key={index} className="text-text-secondary mb-2 text-sm">
                   {line}
                 </p>
               );
@@ -103,7 +103,7 @@ export function StandupOutput({ standup, isGenerating }: StandupOutputProps) {
       <div className="mt-4 flex gap-2">
         <button
           onClick={handleCopy}
-          className="flex-1 py-2 px-4 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-all"
+          className="flex-1 py-2 px-4 bg-bg-tertiary border border-border text-text-primary rounded-md text-sm hover:border-claude-orange hover:text-claude-orange transition-colors"
         >
           📋 Copy to Clipboard
         </button>
@@ -117,31 +117,31 @@ export function StandupOutput({ standup, isGenerating }: StandupOutputProps) {
             a.click();
             URL.revokeObjectURL(url);
           }}
-          className="flex-1 py-2 px-4 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-all"
+          className="flex-1 py-2 px-4 bg-bg-tertiary border border-border text-text-primary rounded-md text-sm hover:border-claude-orange hover:text-claude-orange transition-colors"
         >
           💾 Download
         </button>
       </div>
 
       {/* Stats */}
-      <div className="mt-4 grid grid-cols-3 gap-4 pt-4 border-t border-gray-700">
+      <div className="mt-4 grid grid-cols-3 gap-4 pt-4 border-t border-border">
         <div className="text-center">
-          <div className="text-2xl font-bold text-purple-400">
+          <div className="text-2xl font-bold text-claude-orange">
             {standup.split('\n').filter(l => l.startsWith('•')).length}
           </div>
-          <div className="text-xs text-gray-400">Accomplishments</div>
+          <div className="text-xs text-text-muted">Accomplishments</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-purple-400">
+          <div className="text-2xl font-bold text-claude-orange">
             {standup.split(' ').length}
           </div>
-          <div className="text-xs text-gray-400">Words</div>
+          <div className="text-xs text-text-muted">Words</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-purple-400">
+          <div className="text-2xl font-bold text-claude-orange">
             {Math.ceil(standup.split(' ').length / 150)}
           </div>
-          <div className="text-xs text-gray-400">Min Read</div>
+          <div className="text-xs text-text-muted">Min Read</div>
         </div>
       </div>
     </div>

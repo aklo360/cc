@@ -28,21 +28,21 @@ export function StandupGenerator({ onGenerate, isGenerating }: StandupGeneratorP
   };
 
   return (
-    <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur-sm">
-      <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+    <div className="bg-bg-secondary rounded-lg p-6 border border-border">
+      <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-text-primary">
         <span>📋</span> Your Work Input
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Text Input */}
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+          <label className="block text-xs uppercase tracking-wider text-text-secondary mb-2">
             Paste your commits, PRs, or work notes:
           </label>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            className="w-full h-48 px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none font-mono text-sm"
+            className="w-full h-48 px-3 py-2 bg-bg-primary border border-border rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:border-claude-orange transition-colors resize-none font-mono text-sm"
             placeholder="e.g.,
 fix: resolved authentication bug
 feat: added dark mode toggle
@@ -51,7 +51,7 @@ chore: updated dependencies"
           <button
             type="button"
             onClick={loadExample}
-            className="mt-2 text-xs text-purple-400 hover:text-purple-300 underline"
+            className="mt-2 text-xs text-claude-orange hover:underline"
           >
             Load example input
           </button>
@@ -59,7 +59,7 @@ chore: updated dependencies"
 
         {/* Tone Selector */}
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+          <label className="block text-xs uppercase tracking-wider text-text-secondary mb-2">
             Choose your tone:
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -73,14 +73,14 @@ chore: updated dependencies"
                 key={option.value}
                 type="button"
                 onClick={() => setTone(option.value)}
-                className={`p-3 rounded-lg border-2 transition-all text-left ${
+                className={`p-3 rounded-md border transition-all text-left ${
                   tone === option.value
-                    ? 'border-purple-500 bg-purple-500/20'
-                    : 'border-gray-600 bg-gray-900 hover:border-gray-500'
+                    ? 'border-claude-orange bg-claude-orange/10 text-claude-orange'
+                    : 'border-border bg-bg-tertiary text-text-primary hover:border-claude-orange'
                 }`}
               >
                 <div className="font-semibold text-sm">{option.label}</div>
-                <div className="text-xs text-gray-400">{option.desc}</div>
+                <div className="text-xs opacity-70">{option.desc}</div>
               </button>
             ))}
           </div>
@@ -88,7 +88,7 @@ chore: updated dependencies"
 
         {/* Length Selector */}
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+          <label className="block text-xs uppercase tracking-wider text-text-secondary mb-2">
             Standup length:
           </label>
           <div className="flex gap-2">
@@ -101,14 +101,14 @@ chore: updated dependencies"
                 key={option.value}
                 type="button"
                 onClick={() => setLength(option.value)}
-                className={`flex-1 p-3 rounded-lg border-2 transition-all ${
+                className={`flex-1 p-3 rounded-md border transition-all ${
                   length === option.value
-                    ? 'border-purple-500 bg-purple-500/20'
-                    : 'border-gray-600 bg-gray-900 hover:border-gray-500'
+                    ? 'border-claude-orange bg-claude-orange/10 text-claude-orange'
+                    : 'border-border bg-bg-tertiary text-text-primary hover:border-claude-orange'
                 }`}
               >
                 <div className="font-semibold text-sm">{option.label}</div>
-                <div className="text-xs text-gray-400">{option.desc}</div>
+                <div className="text-xs opacity-70">{option.desc}</div>
               </button>
             ))}
           </div>
@@ -118,11 +118,7 @@ chore: updated dependencies"
         <button
           type="submit"
           disabled={isGenerating}
-          className={`w-full py-4 rounded-lg font-bold text-lg transition-all ${
-            isGenerating
-              ? 'bg-gray-600 cursor-not-allowed'
-              : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 transform hover:scale-[1.02] active:scale-[0.98]'
-          }`}
+          className="w-full bg-claude-orange text-white font-semibold py-3 px-4 rounded-md text-sm hover:bg-claude-orange-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isGenerating ? (
             <span className="flex items-center justify-center gap-2">
