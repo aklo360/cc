@@ -906,9 +906,11 @@ export interface MemeState {
 }
 
 // Rate limits for meme posting
+// Note: Global limit is 15 tweets/day, so meme limit must be lower
+// to leave room for announcements, scheduled tweets, and video tweets
 export const MEME_RATE_LIMIT = {
-  maxDaily: 16,
-  minIntervalMs: 60 * 60 * 1000, // 60 minutes
+  maxDaily: 10, // Max 10 memes/day (leaves 5 slots for other tweets)
+  minIntervalMs: 90 * 60 * 1000, // 90 minutes between memes (staggered throughout day)
 };
 
 /**
