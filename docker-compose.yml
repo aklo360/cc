@@ -14,9 +14,10 @@ services:
       # This ensures host and container share the same WAL files
       # Persist recordings
       - ./brain/recordings:/app/recordings
-      # Mount Claude Code CLI
+      # Mount Claude Code CLI (symlink + actual binary location via nvm)
       - /Users/claude/.local/bin:/Users/claude/.local/bin:ro
       - /Users/claude/.local/share/claude:/Users/claude/.local/share/claude:ro
+      - /Users/claude/.nvm:/Users/claude/.nvm:ro
       # Mount ccwtf project for Claude to modify
       - /Users/claude/ccwtf:/Users/claude/ccwtf
       # Mount git config for authentication
