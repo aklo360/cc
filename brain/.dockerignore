@@ -1,0 +1,8 @@
+node_modules
+dist
+*.log
+.env
+brain.db
+brain.db-wal
+brain.db-shm
+recordings/
