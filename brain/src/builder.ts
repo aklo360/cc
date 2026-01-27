@@ -272,11 +272,19 @@ PROJECT: ${spec.idea}
 SLUG: ${spec.slug}
 DESCRIPTION: ${spec.description}
 
+⚠️ MANDATORY FIRST STEP - DO THIS BEFORE WRITING ANY CODE:
+Read app/_template/page.tsx - this is the EXACT template you must follow.
+Your page MUST use the IDENTICAL structure, colors, and patterns from that template.
+
 REQUIREMENTS:
-1. Create app/${spec.slug}/page.tsx as the main entry point
-2. Add any helper components in app/${spec.slug}/components/ if needed
-3. Make it visually polished with the dark theme
-4. Include fun, engaging interactivity
+1. First: READ app/_template/page.tsx to understand the exact UI pattern
+2. Create app/${spec.slug}/page.tsx copying the EXACT structure from the template
+3. Use ONLY these Tailwind classes for colors:
+   - bg-bg-primary, bg-bg-secondary, bg-bg-tertiary (backgrounds)
+   - text-text-primary, text-text-secondary, text-text-muted (text)
+   - text-claude-orange, bg-claude-orange (accent)
+   - border-border (borders)
+4. NO gradients, NO bg-gray-*, NO generic Tailwind colors
 5. Must work as static HTML (no server-side code)
 
 CRITICAL UX REQUIREMENTS (to pass functional verification):
@@ -291,7 +299,8 @@ After creating the files:
 2. If there are errors, fix them
 3. Report success or failure
 
-Remember: ONLY create NEW files. Never modify existing files.`;
+Remember: ONLY create NEW files. Never modify existing files.
+The page MUST look like it belongs on claudecode.wtf - same dark theme, same header, same footer.`;
   }
 
   try {
