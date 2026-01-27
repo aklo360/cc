@@ -165,9 +165,10 @@ export async function cleanupOrphanedProcesses(): Promise<{ claude: number; chro
   let chromeKilled = 0;
 
   try {
-    // Find orphaned Claude processes
+    // Find orphaned Claude processes (check both old VPS path and Mac Mini path)
+    const claudePath = process.env.CLAUDE_PATH || '/Users/claude/.local/bin/claude';
     const { stdout: claudeOutput } = await execAsync(
-      "pgrep -f '/root/.local/bin/claude' || true"
+      `pgrep -f '${claudePath}' || true`
     );
 
     const claudePids = claudeOutput.trim().split('\n').filter(Boolean).map(Number);
