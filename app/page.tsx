@@ -99,69 +99,6 @@ export default function Home() {
             </svg>
             StarClaude64
           </a>
-          <a href="/poetry" className="inline-flex items-center gap-2 bg-bg-secondary border border-accent-green text-accent-green px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-accent-green hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-            </svg>
-            Code Poetry Generator
-          </a>
-          <a href="/ide" className="inline-flex items-center gap-2 bg-bg-secondary border border-indigo-500 text-indigo-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-indigo-500 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="16 18 22 12 16 6"/>
-              <polyline points="8 6 2 12 8 18"/>
-            </svg>
-            Claude Code IDE
-          </a>
-          <a href="/mood" className="inline-flex items-center gap-2 bg-bg-secondary border border-rose-500 text-rose-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-rose-500 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
-              <line x1="9" y1="9" x2="9.01" y2="9"/>
-              <line x1="15" y1="9" x2="15.01" y2="9"/>
-            </svg>
-            Code Mood Ring
-          </a>
-          <a href="/duck" className="inline-flex items-center gap-2 bg-bg-secondary border border-yellow-500 text-yellow-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-yellow-500 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="10" r="6"/>
-              <ellipse cx="12" cy="18" rx="8" ry="4"/>
-              <circle cx="10" cy="9" r="1" fill="currentColor"/>
-            </svg>
-            Rubber Duck Debugger
-          </a>
-          <a href="/roast" className="inline-flex items-center gap-2 bg-bg-secondary border border-orange-600 text-orange-500 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-orange-600 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/>
-            </svg>
-            Code Roast
-          </a>
-          <a href="/refactor" className="inline-flex items-center gap-2 bg-bg-secondary border border-violet-500 text-violet-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-violet-500 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-            </svg>
-            AI Code Refactor
-          </a>
-          <a href="/karaoke" className="inline-flex items-center gap-2 bg-bg-secondary border border-pink-500 text-pink-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-pink-500 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 18V5l12-2v13"/>
-              <circle cx="6" cy="18" r="3"/>
-              <circle cx="18" cy="16" r="3"/>
-            </svg>
-            Code Karaoke
-          </a>
-          <a href="/time" className="inline-flex items-center gap-2 bg-bg-secondary border border-sky-500 text-sky-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-sky-500 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
-            </svg>
-            Code Time Machine
-          </a>
-          <a href="/fortune" className="inline-flex items-center gap-2 bg-bg-secondary border border-amber-500 text-amber-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-amber-500 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-            </svg>
-            Dev Fortune Cookie
-          </a>
           <a href="/vj" className="inline-flex items-center gap-2 bg-bg-secondary border border-purple-500 text-purple-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-purple-500 hover:text-white">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
@@ -174,28 +111,6 @@ export default function Home() {
               <line x1="17" y1="7" x2="22" y2="7"/>
             </svg>
             VJ Mode
-          </a>
-          <a href="/translate" className="inline-flex items-center gap-2 bg-bg-secondary border border-teal-500 text-teal-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-teal-500 hover:text-white">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2v3M22 22l-5-10-5 10M14 18h6"/>
-            </svg>
-            Code Translator
-          </a>
-                  <a
-            href="/bounty"
-            className="inline-flex items-center gap-2 bg-bg-secondary border border-fuchsia-500 text-fuchsia-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-fuchsia-500 hover:text-white"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            Claude's Bug Bounty
           </a>
           <a
             href="/ccflip"

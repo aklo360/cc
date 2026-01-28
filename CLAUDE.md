@@ -260,13 +260,11 @@ A memecoin website for $CC (Claude Code Coin) featuring:
 5. **Watch Brain** (`/watch`) - Real-time build logs from the autonomous agent
 6. **Twitter Bot** (@ClaudeCodeWTF) - Automated tweet posting with AI-generated memes
 7. **Video Generator** (`/video`) - Remotion-based cinematic trailer generator
-8. **Central Brain** (`/brain`) - Full autonomous software engineering agent
+8. **Crypto Lab Brain** (`/brain`) - Blockchain experiment factory (Brain 2.0)
 9. **VJ Agent** (`/vj`) - Claude-powered live audio-reactive visual generator
 10. **VJ Agent v2** (`/vj-v2`) - STAGING: Trippy branded visuals with mascot integration
-11. **Rubber Duck Debugger** (`/duck`) - Interactive debugging companion
-12. **Code Roast** (`/roast`) - Humorous code critique with actual suggestions
-13. **24/7 Livestream** - Streams /watch to Kick/YouTube/Twitter via Docker
-14. **CC Flip** (`/ccflip`) - Mainnet coin flip game with Solana wallet integration (2% house edge, 1.96x payout)
+11. **24/7 Livestream** - Streams /watch to Kick/YouTube/Twitter via Docker
+12. **CC Flip** (`/ccflip`) - Mainnet coin flip game with Solana wallet integration (2% house edge, 1.96x payout)
 
 ### Why It Exists
 $CC is a community memecoin honoring Boris Cherny, creator of Claude Code. 100% of fees go to @bcherny.
@@ -384,23 +382,13 @@ ccwtf/
 │   │   ├── SpaceInvaders.tsx     # Canvas 2D game (346 lines)
 │   │   └── Terminal.tsx          # Animated typewriter Q&A
 │   ├── ccflip/
-│   │   └── page.tsx              # CC Flip - devnet coin flip game
-│   ├── duck/
-│   │   └── page.tsx              # Rubber Duck Debugger
-│   ├── ide/
-│   │   └── page.tsx              # Claude Code IDE
+│   │   └── page.tsx              # CC Flip - mainnet coin flip game
 │   ├── meme/
 │   │   └── page.tsx              # Meme generator UI
-│   ├── mood/
-│   │   └── page.tsx              # Code Mood Ring
 │   ├── moon/
 │   │   └── page.tsx              # StarClaude64 3D game page
 │   ├── play/
 │   │   └── page.tsx              # Space Invaders game page
-│   ├── poetry/
-│   │   └── page.tsx              # Code Poetry Generator
-│   ├── roast/
-│   │   └── page.tsx              # Code Roast page
 │   ├── vj/
 │   │   └── page.tsx              # VJ - live audio-reactive visuals
 │   ├── vj-v2/
@@ -433,10 +421,10 @@ ccwtf/
 │   ├── public/footage/           # Captured gameplay clips
 │   ├── out/                      # Rendered output
 │   └── package.json              # Remotion dependencies
-├── brain/                        # Central Brain v5.0 - GameFi Agent
+├── brain/                        # Central Brain 2.0 - Crypto Lab
 │   ├── src/
 │   │   ├── index.ts              # HTTP/WS server + cron (port 3001)
-│   │   ├── cycle.ts              # Full autonomous loop + GameFi cycle
+│   │   ├── cycle.ts              # Crypto Lab experiment engine + startExperiment()
 │   │   ├── builder.ts            # Claude Agent SDK integration
 │   │   ├── deployer.ts           # Cloudflare Pages deployment
 │   │   ├── trailer.ts            # Remotion trailer generation
@@ -445,8 +433,8 @@ ccwtf/
 │   │   ├── twitter.ts            # OAuth 1.0a + video upload
 │   │   ├── db.ts                 # SQLite database + GameFi tables
 │   │   ├── humor.ts              # Frontier AI personality for build logs (meme-y but confident)
-│   │   ├── meme.ts               # Meme generation engine (Claude + Gemini)
-│   │   ├── meme-prompts.ts       # 75+ dev-focused meme prompts
+│   │   ├── # meme.ts removed in Brain 2.0 - Crypto Lab
+│   │   ├── # meme-prompts.ts removed in Brain 2.0 - Crypto Lab
 │   │   ├── wallet.ts             # Brain Solana wallet (encrypted) (NEW)
 │   │   ├── rewards.ts            # Bankroll + fee distribution (NEW)
 │   │   ├── game-templates.ts     # Game type templates for Claude (NEW)
@@ -454,7 +442,7 @@ ccwtf/
 │   ├── brain.db                  # SQLite database file
 │   └── package.json              # Dependencies
 ├── programs/                     # Anchor Programs (Solana) (NEW)
-│   └── cc-casino/                # Casino game program
+│   └── cc-experiments/            # Crypto Lab experiment program
 │       ├── Cargo.toml            # Rust dependencies
 │       ├── Anchor.toml           # Anchor config
 │       └── src/
@@ -657,16 +645,16 @@ ccwtf/
 - `video/src/compositions/GameFiTrailer.tsx` (~1268 lines) - THE template to copy
 
 ### 7. Watch Brain (`/watch`)
-Real-time build log viewer for the Central Brain:
+Real-time build log viewer for the Crypto Lab Brain:
 - WebSocket connection to brain server (`ws://[host]:3001/ws`)
-- Live streaming of all build phases and meme generation
+- Live streaming of all experiment phases
 - **Status Panel with Brain Modes:**
-  - **BUILDING** (green badge) - Shows active project name and status
-  - **RESTING** (fuchsia badge) - Shows meme stats and cooldown timer
-  - **IDLE** (amber badge) - Ready to start new cycle
+  - **EXPERIMENTING** (green badge) - Shows active experiment name and status
+  - **CALIBRATING** (fuchsia badge) - Shows cooldown timer and wallet health
+  - **OBSERVING** (amber badge) - Ready to start new experiment
 - **Activity Type Color Coding:**
   - Build activity: orange (Claude Agent)
-  - Meme activity: fuchsia (with 🎨 emoji)
+  - Experiment activity: cyan (with 🧪 emoji)
   - System messages: default text color
 - GMGN price chart (hidden in lite mode for streaming)
 - **Lite mode** (`?lite=1`): Hides heavy chart iframe to prevent Chrome crashes in headless streaming
@@ -740,25 +728,7 @@ Complete visual overhaul inspired by Beeple, Cyriak, and professional VJ techniq
 - `vj/src/engines/threejs-v2/index.ts` - Three.js v2 engine (~960 lines)
 - `vj/src/engines/hydra-v2/index.ts` - Hydra v2 engine (~1024 lines, 28 scenes)
 
-### 11. Rubber Duck Debugger (`/duck`)
-Interactive debugging companion based on "The Pragmatic Programmer" technique:
-- Animated SVG duck with quacking animation
-- Problem input textarea with common examples
-- Pre-built problem templates for quick testing
-- API integration for AI-powered debugging advice
-- Occasionally gives intentionally bad advice (clearly marked)
-- Explains the rubber duck debugging methodology
-
-### 12. Code Roast (`/roast`)
-Humorous code critique with actual suggestions:
-- Code input with example snippets
-- Random example button for testing
-- AI-generated roasts with dev humor
-- Actual improvement suggestions alongside the roast
-- Feature cards (Brutally Honest, Actually Helpful, With Love)
-- List of common roast targets (using var in 2026, console.log debugging, etc.)
-
-### 13. 24/7 Livestream Service (Native Mac Mini)
+### 11. 24/7 Livestream Service (Native Mac Mini)
 Streams `/watch` and `/vj` pages to multiple platforms with GPU acceleration:
 
 - **Architecture:** Two capture modes:
@@ -778,8 +748,8 @@ Streams `/watch` and `/vj` pages to multiple platforms with GPU acceleration:
   - Fallback: `lofi-fallback.mp3` (Chad Crouch "Shipping Lanes", CC licensed)
   - FFmpeg reconnect options for reliable YouTube streaming
 - **Director:** Auto-switches scenes based on brain state:
-  - `/watch` during BUILDING mode or meme generation
-  - `/vj` (Hydra auto mode) during RESTING/IDLE
+  - `/watch` during EXPERIMENTING mode
+  - `/vj` (Hydra auto mode) during CALIBRATING/OBSERVING
 - **GPU Acceleration:** Native Mac Mini with Metal + WebGL
   - Chrome with `--use-angle=metal` for GPU rendering
   - VideoToolbox (h264_videotoolbox) for hardware H.264 encoding
@@ -847,38 +817,38 @@ Mainnet coin flip game with Solana wallet integration:
   5. User verifies: `SHA256(serverSecret) === commitment` AND recomputes result
 - **Security:** Neither party can cheat - server can't predict txSignature, user can't predict serverSecret
 
-### 8. Central Brain (`/brain`) - BRAIN 2.0 GAMEFI AGENT v5.0
-Blockchain-native casino game factory - ships 1 high-quality on-chain mini-game per day:
+### 8. Central Brain (`/brain`) - BRAIN 2.0 CRYPTO LAB
+Blockchain-native experiment factory - ships 1 high-quality blockchain experiment per day:
 
-#### GameFi Mode (NEW - Primary)
-- **8-Phase GameFi Cycle:**
-  1. **PLAN GAME** - Claude selects game type + generates unique theme
-  2. **BUILD FRONTEND** - Uses game template, customizes UI/theme
+#### Crypto Lab Mode (Brain 2.0)
+- **8-Phase Experiment Cycle:**
+  1. **PLAN EXPERIMENT** - Claude selects experiment type + generates unique theme
+  2. **BUILD FRONTEND** - Uses experiment template, customizes UI/theme
   3. **DEPLOY FRONTEND** - Build Next.js, deploy to Cloudflare
-  4. **INITIALIZE ON-CHAIN** - Brain wallet creates game PDA + escrow
-  5. **VERIFY INTEGRATION** - Puppeteer tests wallet + bet flow
-  6. **CREATE TRAILER** - Remotion generates gameplay preview
+  4. **INITIALIZE ON-CHAIN** - Brain wallet creates experiment PDA + escrow
+  5. **CALIBRATE** - Verify deployment and test integration
+  6. **CREATE TRAILER** - Remotion generates experiment preview
   7. **ANNOUNCE** - Tweet with video to @ClaudeCodeWTF
-  8. **MONITOR** - Track volume, fees, unique players
-- **Game Types:**
-  - **Coin Flip** - Bet $CC, pick heads/tails, 1.96x payout (2% edge)
-  - **Crash** - Multiplier starts 1.00x, cash out before crash (3% edge)
-  - **Jackpot** - Pool all entries, VRF picks winner (5% house cut)
-  - **Gacha** - Pull for tiered prizes (common/rare/epic/legendary)
-- **Rate Limits (GameFi Mode):**
-  - 1 game per day (quality over quantity)
-  - 24-hour cooldown between cycles
-  - Resets at midnight UTC
-- **Casino Bankroll (15M $CC total):**
+  8. **COMPLETE** - Track stats, mark experiment complete
+- **Experiment Types (Crypto Lab terminology):**
+  - **Entropy Oracle** (was: coinflip) - Cryptographic 50/50 outcome, 1.96x return (2% protocol edge)
+  - **Momentum Curve** (was: crash) - Watch multiplier rise, commit before termination (3% edge)
+  - **Convergence Pool** (was: jackpot) - Aggregate stakes, cryptographic selection (5% protocol cut)
+  - **Probability Engine** (was: gacha) - Tiered outcome distribution (common/rare/epic/legendary)
+- **Rate Limits:**
+  - 1 experiment per day (quality over quantity)
+  - 24-hour cooldown between experiments
+  - Daily trigger at 9:00 AM UTC
+- **Experiment Pool (15M $CC total):**
   ```
   Total Allocation: 15,000,000 $CC (1.5% of supply)
-  Per-Game:
-    - Coin Flip: 500,000 $CC initial liquidity
-    - Crash: 1,000,000 $CC (needs more for multipliers)
-    - Jackpot: 500,000 $CC seed pool
-    - Gacha: 300,000 $CC prize pool
+  Per-Experiment:
+    - Entropy Oracle: 500,000 $CC initial liquidity
+    - Momentum Curve: 1,000,000 $CC (needs more for multipliers)
+    - Convergence Pool: 500,000 $CC seed pool
+    - Probability Engine: 300,000 $CC outcome pool
   Fee Distribution:
-    - 60% → Back to bankroll (self-sustaining)
+    - 60% → Back to pool (self-sustaining)
     - 25% → Treasury (operations)
     - 15% → Burned (deflationary)
   Safety:
@@ -887,61 +857,46 @@ Blockchain-native casino game factory - ships 1 high-quality on-chain mini-game 
     - Max daily payout: 1,000,000 $CC
   ```
 
-#### Legacy Mode (Meme Generation)
-- **Meme Generation During Cooldowns:**
-  - Every 15 minutes, checks if meme can be generated
-  - Uses Claude Opus 4.5 for creative prompts and captions
-  - Uses Gemini 2.0 Flash for image generation
-  - Quality gate (score 6+/10 required to post)
-  - Rate limits: 16 memes/day, 60 min minimum between posts
-  - Posts to Twitter community with share_with_followers
-
 #### Brain Architecture
 - **Brain Modes (visible on /watch):**
-  - **BUILDING** (green) - Active game/feature build cycle
-  - **RESTING** (fuchsia) - Cooldown, generating memes
-  - **IDLE** (amber) - Ready to start new cycle
+  - **EXPERIMENTING** (green) - Active experiment build cycle
+  - **CALIBRATING** (fuchsia) - Maintenance/cooldown period
+  - **OBSERVING** (amber) - Ready to start new experiment
 - **Infrastructure:** Docker container on Mac Mini
   - SQLite (brain.db) + node-cron
   - WebSocket server for real-time log streaming
-  - Activity types: build, meme, system (color-coded on /watch)
-- **Brain Wallet (NEW):**
+  - Activity types: build, experiment, system (color-coded on /watch)
+- **Brain Wallet:**
   - Solana keypair encrypted at rest (AES-256-GCM)
-  - Signs game transactions + distributes rewards
+  - Signs experiment transactions + distributes returns
   - Max withdrawal limits + unusual activity alerts
-- **Database Tables (GameFi):**
+- **Database Tables:**
   - `brain_wallet` - Encrypted keypair + balances
-  - `games` - Deployed games (slug, type, program_id, escrow_pda, config)
-  - `game_rounds` - Round state for crash/jackpot
-  - `game_bets` - Individual bets with outcomes
-  - `game_leaderboard` - Top players per game
+  - `games` - Deployed experiments (slug, type, program_id, escrow_pda, config)
+  - `game_rounds` - Round state for momentum_curve/convergence_pool
+  - `game_bets` - Individual stakes with outcomes
+  - `game_leaderboard` - Top participants per experiment
 
 #### Key Files
-- `wallet.ts` - Brain Solana wallet management (NEW)
-- `rewards.ts` - Bankroll + fee distribution (NEW)
-- `game-templates.ts` - Game type templates for Claude (NEW)
-- `solana.ts` - Solana RPC + program interaction (NEW)
+- `wallet.ts` - Brain Solana wallet management
+- `rewards.ts` - Pool + fee distribution
+- `game-templates.ts` - Experiment type templates for Claude (Crypto Lab terminology)
+- `solana.ts` - Solana RPC + program interaction
 - `builder.ts` - Claude Agent SDK integration
 - `deployer.ts` - Cloudflare Pages deployment
 - `verifier.ts` - **Functional verification via Puppeteer (CRITICAL)**
 - `trailer.ts` - Remotion trailer generation
-- `homepage.ts` - Homepage button auto-updater
-- `cycle.ts` - Full autonomous loop + GameFi cycle
-- `meme.ts` - Meme generation engine (Claude + Gemini)
-- `meme-prompts.ts` - 75+ dev-focused meme prompts
+- `cycle.ts` - Full autonomous loop + startExperiment()
 - `index.ts` - HTTP/WebSocket server
-- `db.ts` - SQLite database + GameFi tables
+- `db.ts` - SQLite database + experiment tables
 
 **API Endpoints:**
-- `GET /status` - Current cycle status + brain mode + meme stats
-- `GET /stats` - Daily shipping statistics
-- `GET /tweets` - Global tweet rate limiting stats (15/day, 30 min between)
-- `GET /memes` - Meme generation stats
-- `GET /gamefi/status` - GameFi stats (games deployed, volume, fees)
-- `POST /meme/trigger` - Manually trigger meme generation
-- `POST /go` - Start new legacy cycle
-- `POST /gamefi/go` - Start GameFi cycle (NEW)
-- `POST /cancel` - Cancel active cycle
+- `GET /status` - Current experiment status + brain mode + wallet health
+- `GET /stats` - Daily experiment statistics
+- `GET /tweets` - Global tweet rate limiting stats
+- `GET /limits` - System limits (circuit breakers, max payouts)
+- `POST /experiment` - Start new experiment (aliases: /go, /gamefi/go)
+- `POST /cancel` - Cancel active experiment
 - `WS /ws` - Real-time log streaming (with activityType)
 
 **Mac Mini Environment (Production):**
@@ -1041,7 +996,7 @@ Every page follows this exact structure:
 
 **Key measurements:**
 - Outer: `px-[5%]` horizontal padding
-- Inner: `w-[90%]` width with `max-w-[900px]` (or `max-w-[1200px]` for wide pages like IDE/poetry)
+- Inner: `w-[90%]` width with `max-w-[900px]` (or `max-w-[1200px]` for wide pages)
 - Vertical: `py-4 sm:py-8` responsive padding
 
 ### Header Pattern (Traffic Lights)
@@ -1240,9 +1195,7 @@ npx wrangler deploy
 | File | Purpose | Lines |
 |------|---------|-------|
 | `app/page.tsx` | Homepage with all content | ~180 |
-| `app/duck/page.tsx` | Rubber Duck Debugger | ~225 |
-| `app/roast/page.tsx` | Code Roast page | ~215 |
-| `app/ccflip/page.tsx` | Devnet coin flip game | ~280 |
+| `app/ccflip/page.tsx` | Mainnet coin flip game | ~280 |
 | `app/meme/page.tsx` | Meme generator UI | ~227 |
 | `app/components/SpaceInvaders.tsx` | 2D Canvas game | ~346 |
 | `app/components/MoonMission/index.tsx` | 3D game wrapper | ~110 |
@@ -1261,22 +1214,22 @@ npx wrangler deploy
 | `video/post-tweet.ts` | Twitter video posting | ~35 |
 | `app/watch/page.tsx` | Brain monitor UI | ~345 |
 | `brain/src/index.ts` | HTTP + WebSocket server | ~620 |
-| `brain/src/cycle.ts` | Full autonomous loop | ~410 |
+| `brain/src/cycle.ts` | Crypto Lab experiment engine | ~750 |
 | `brain/src/builder.ts` | Claude Agent SDK builder | ~180 |
 | `brain/src/deployer.ts` | Cloudflare deployment | ~85 |
 | `brain/src/recorder.ts` | Video capture (Puppeteer) | ~320 |
 | `brain/src/db.ts` | SQLite database + GameFi tables | ~1200 |
 | `brain/src/twitter.ts` | Twitter API + community | ~300 |
 | `brain/src/humor.ts` | Memecoin dev humor for logs | ~210 |
-| `brain/src/meme.ts` | Meme generation engine | ~350 |
-| `brain/src/meme-prompts.ts` | 75+ dev meme prompts | ~90 |
+| ~~`brain/src/meme.ts`~~ | ~~Removed in Brain 2.0~~ | - |
+| ~~`brain/src/meme-prompts.ts`~~ | ~~Removed in Brain 2.0~~ | - |
 | `brain/src/wallet.ts` | Brain + Burn wallet (encrypted, airlock) | ~520 |
 | `brain/src/buyback.ts` | Buyback & burn with airlock pattern | ~700 |
 | `brain/src/rewards.ts` | Bankroll + fee distribution | ~150 |
 | `brain/src/game-templates.ts` | Game type templates | ~250 |
 | `brain/src/solana.ts` | Solana RPC + burn wallet ATA | ~920 |
-| `programs/cc-casino/src/lib.rs` | Anchor program entry | ~300 |
-| `programs/cc-casino/src/state.rs` | Account structures | ~200 |
+| `programs/cc-experiments/src/lib.rs` | Anchor program entry | ~300 |
+| `programs/cc-experiments/src/state.rs` | Account structures | ~200 |
 | `app/components/gamefi/index.ts` | GameFi component exports | ~17 |
 | `app/components/gamefi/WalletProvider.tsx` | Solana wallet adapter | ~50 |
 | `app/components/gamefi/ConnectWallet.tsx` | Connect button + balance | ~80 |
@@ -1305,8 +1258,8 @@ npx wrangler deploy
 - [ ] Image storage (Vercel Blob) for persistence
 - [ ] Database (KV/D1) for leaderboard
 - [ ] Mobile game controls (virtual joystick)
-- [ ] Central Brain: P2E Integration (Solana token distribution)
-- [ ] Central Brain: Campaign System (Meme2Earn, voting)
+- [ ] Crypto Lab: Additional experiment types
+- [ ] Crypto Lab: Experiment analytics dashboard
 
 ---
 
