@@ -41,6 +41,8 @@ export interface ProjectSpec {
   retryAttempt?: number;
   /** Cycle ID for PID tracking and cleanup */
   cycleId?: number;
+  /** Additional context for GameFi builds (game template prompt) */
+  additionalContext?: string;
 }
 
 // Build timeout: 10 minutes per attempt
@@ -301,6 +303,11 @@ After creating the files:
 
 Remember: ONLY create NEW files. Never modify existing files.
 The page MUST look like it belongs on claudecode.wtf - same dark theme, same header, same footer.`;
+  }
+
+  // Append additional context for GameFi builds if provided
+  if (spec.additionalContext) {
+    buildPrompt += `\n\n=== ADDITIONAL CONTEXT (GAMEFI BUILD) ===\n${spec.additionalContext}`;
   }
 
   try {

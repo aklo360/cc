@@ -63,6 +63,7 @@ export default function Home() {
         </section>
 
         {/* All Buttons - unified section */}
+        {/* Feature Buttons - RIGHT BELOW JOIN COMMUNITY */}
         <section className="flex flex-wrap gap-2 justify-center">
           <a href="https://x.com/i/communities/2014131779628618154" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-bg-secondary border border-border text-text-primary px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm transition-colors hover:bg-bg-tertiary hover:border-claude-orange hover:text-claude-orange">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -179,6 +180,39 @@ export default function Home() {
               <path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2v3M22 22l-5-10-5 10M14 18h6"/>
             </svg>
             Code Translator
+          </a>
+                  <a
+            href="/bounty"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-fuchsia-500 text-fuchsia-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-fuchsia-500 hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            Claude's Bug Bounty
+          </a>
+          <a
+            href="/ccflip"
+            className="inline-flex items-center gap-2 bg-bg-secondary border border-purple-500 text-purple-400 px-4 py-2 sm:px-6 sm:py-3 rounded-md text-sm font-semibold transition-colors hover:bg-purple-500 hover:text-white"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v2M12 16v2M6 12h2M16 12h2"/>
+            </svg>
+            CC Flip
           </a>
         </section>
 

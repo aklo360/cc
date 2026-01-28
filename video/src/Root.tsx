@@ -6,6 +6,7 @@ import { CodeReviewTrailer } from "./compositions/CodeReviewTrailer";
 import { RealFootageTrailer } from "./compositions/RealFootageTrailer";
 import { WebappTrailer } from "./compositions/WebappTrailer";
 import { GameTrailer } from "./compositions/GameTrailer";
+import { GameFiTrailer, GameFiTrailerProps } from "./compositions/GameFiTrailer";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -78,6 +79,37 @@ export const RemotionRoot: React.FC = () => {
         fps={30}
         width={1920}
         height={1080}
+      />
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+       * GAMEFI TRAILER - GOLD STANDARD TEMPLATE
+       * ═══════════════════════════════════════════════════════════════════════
+       * This is the template for ALL future game trailers. Key patterns:
+       * - 15 seconds (450 frames) - snappy, not slow
+       * - 8 scenes: intro → connect → choice → bet → flip → result → balance → cta
+       * - UI recreation (not generic boxes)
+       * - Orange coin with 3D flip, confetti on win
+       * - Cursor with click effects at exact positions
+       *
+       * When creating new game trailers, COPY THIS PATTERN.
+       */}
+      <Composition
+        id="GameFiTrailer"
+        component={GameFiTrailer}
+        durationInFrames={15 * 30} // 15 seconds at 30fps (snappy!)
+        fps={30}
+        width={1920}
+        height={1080}
+        defaultProps={{
+          featureName: "CC Flip",
+          featureSlug: "ccflip",
+          network: "mainnet",
+          initialBalance: 10000,
+          betAmount: 1000,
+          multiplier: 1.96,
+          coinChoice: "heads",
+          flipResult: "heads",
+        } as GameFiTrailerProps}
       />
     </>
   );

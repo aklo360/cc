@@ -83,7 +83,6 @@ export function analyze(capture: AudioCapture): AudioFeatures {
   const fftSize = analyser.fftSize;
 
   // Get fresh FFT data
-  // @ts-expect-error - TS strict mode issue with Float32Array generic
   analyser.getFloatFrequencyData(frequencyData);
 
   // Calculate frequency bands
@@ -175,7 +174,6 @@ export function analyze(capture: AudioCapture): AudioFeatures {
  * Get raw frequency data for custom visualizations
  */
 export function getRawFrequencyData(capture: AudioCapture): Float32Array<ArrayBufferLike> {
-  // @ts-expect-error - TS strict mode issue with Float32Array generic
   capture.analyser.getFloatFrequencyData(capture.frequencyData);
   return capture.frequencyData;
 }
@@ -184,7 +182,6 @@ export function getRawFrequencyData(capture: AudioCapture): Float32Array<ArrayBu
  * Get raw time domain data (waveform)
  */
 export function getTimeDomainData(capture: AudioCapture): Float32Array<ArrayBufferLike> {
-  // @ts-expect-error - TS strict mode issue with Float32Array generic
   capture.analyser.getFloatTimeDomainData(capture.timeDomainData);
   return capture.timeDomainData;
 }

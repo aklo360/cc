@@ -1,11 +1,14 @@
 FROM node:22-slim
 
-# Install git, CA certificates (for HTTPS), and Chromium for Puppeteer
+# Install git, CA certificates (for HTTPS), Chromium for Puppeteer, and emoji fonts
 RUN apt-get update && apt-get install -y \
     git \
     ca-certificates \
     chromium \
     fonts-liberation \
+    fonts-noto-color-emoji \
+    fonts-noto-core \
+    fonts-symbola \
     libnss3 \
     libxss1 \
     libasound2 \
@@ -20,7 +23,8 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxrandr2 \
     --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
 
 # Tell Puppeteer to use system Chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
@@ -40,8 +44,12 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Expose port
 EXPOSE 3001
 
-# Run the server
-CMD ["node", "dist/index.js"]
+# Use entrypoint script (installs video deps on first run if needed)
+CMD ["/app/entrypoint.sh"]

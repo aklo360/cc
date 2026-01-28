@@ -61,6 +61,32 @@ export async function deployToCloudflare(): Promise<DeployResult> {
     log(`📁 Project root: ${projectRoot}`);
     log(`🔑 Cloudflare token: ${cfToken.slice(0, 10)}...`);
 
+    // Step 0.5: Ensure node_modules are installed for this platform (Linux in Docker)
+    // This is needed because the mounted ccwtf dir may have macOS node_modules
+    const isDocker = process.env.PROJECT_ROOT?.startsWith('/Users/claude');
+    if (isDocker) {
+      log('🔧 Ensuring node_modules are installed for Linux...');
+      try {
+        // Check if we need to reinstall by testing lightningcss
+        await execWithTimeout('node -e "require(\'lightningcss\')"', {
+          cwd: projectRoot,
+          timeout: 10000,
+          env: execEnv,
+          description: 'Check lightningcss',
+        });
+        log('   ✓ Dependencies OK');
+      } catch {
+        log('   ⚠️ Reinstalling dependencies for Linux...');
+        await execWithTimeout('rm -rf node_modules && npm install', {
+          cwd: projectRoot,
+          timeout: 300000, // 5 minutes
+          env: execEnv,
+          description: 'npm install',
+        });
+        log('   ✓ Dependencies reinstalled');
+      }
+    }
+
     // Step 1: Build the Next.js static export
     log('📦 Building Next.js static export...');
     try {

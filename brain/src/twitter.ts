@@ -60,13 +60,13 @@ async function hmacSha1(key: string, data: string): Promise<string> {
 
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    keyData,
+    keyData as BufferSource,
     { name: 'HMAC', hash: 'SHA-1' },
     false,
     ['sign']
   );
 
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, dataToSign);
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, dataToSign as BufferSource);
 
   const bytes = new Uint8Array(signature);
   let binary = '';

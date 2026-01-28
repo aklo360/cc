@@ -4,7 +4,530 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ---
 
-## [Unreleased]
+## [2026-01-27] - Platform Fee & Buyback/Burn System
+
+### Added: Deflationary token economics for CC Flip
+
+**Platform Fee (~$0.05 SOL per spin):**
+- Each spin costs ~0.0005 SOL (~$0.05 USD) in addition to the $CC bet
+- Fee is collected by the brain wallet
+- Displayed in-game with "buyback & burn" label
+
+**Buyback & Burn (Every 6 hours):**
+- Cron job checks if sufficient SOL accumulated (min 0.1 SOL)
+- Swaps SOL → $CC via FrogX DEX API
+- Burns 100% of purchased $CC using SPL Token burn instruction
+- Creates permanent deflationary pressure on $CC supply
+
+**Tokenomics Model:**
+- House edge (2%): Stays in game, fuels future rewards (NEVER SOLD)
+- Platform fee (SOL): 100% used to buy and burn $CC
+- This creates continuous buy pressure + supply reduction
+
+**Files Added:**
+- `brain/src/buyback.ts` - FrogX DEX integration + Metaplex burn + cron stats
+
+**Files Modified:**
+- `brain/src/index.ts` - Platform fee in commit response, verify fee in resolve, buyback cron job, API endpoints
+- `brain/src/solana.ts` - Added `getBrainWalletSolAddress()` and `verifySolFeeTransaction()`
+- `app/ccflip/page.tsx` - SOL fee transfer in deposit transaction
+- `app/components/gamefi/FeeDisplay.tsx` - Shows "buyback & burn" label
+
+**API Endpoints:**
+- `GET /buyback/stats` - Total SOL spent, $CC bought, $CC burned, last buyback time
+- `POST /buyback/trigger` - Manual trigger for testing
+
+---
+
+## [2026-01-27] - Two-Party Entropy: Truly Provably Fair Coin Flip
+
+### Changed: Implemented cryptographically secure two-party entropy model
+
+**Problem with naive commit-reveal:**
+The server knows the user's choice (heads/tails) when generating the secret.
+A malicious server could generate secrets until finding one that makes the user lose.
+
+**Solution: Two-Party Entropy**
+The final result depends on BOTH server entropy AND user entropy:
+```
+Result = SHA256(serverSecret + userTxSignature)[0] < 128 ? heads : tails
+```
+
+**Security guarantees:**
+1. Server commits to `serverSecret` BEFORE seeing user's transaction signature
+2. User creates transaction signature AFTER seeing commitment (but not the secret)
+3. Neither party can predict or manipulate the final result
+
+**Why neither can cheat:**
+- Server can't predict the user's tx signature when committing
+- User can't predict the server's secret when signing
+- Both must be combined to determine the result
+
+**User verification (in-browser):**
+1. Verify `SHA256(serverSecret) === commitment` (server didn't change secret)
+2. Compute `SHA256(serverSecret + txSignature)` themselves
+3. Check first byte < 128 = heads, >= 128 = tails
+
+**Files Modified:**
+- `brain/src/index.ts` - Two-party entropy calculation at resolve time
+- `brain/src/proofnetwork.ts` - **DELETED** (~210 lines removed)
+- `brain/src/db.ts` - Made VRF fields optional
+- `app/components/gamefi/ProvablyFair.tsx` - Full two-party verification UI
+- `app/ccflip/page.tsx` - Pass txSignature to ProvablyFair
+- `app/_template/coinflip/page.tsx` - Updated template
+- `CLAUDE.md` - Updated documentation
+
+**Benefits:**
+- Truly provably fair (neither party can cheat)
+- No external API dependencies (removed ProofNetwork VRF)
+- Full client-side verification
+- Industry-standard security model
+
+---
+
+## [2026-01-27] - Bot Personality Revamp: Confident Frontier AI
+
+### Changed: Bot Personality - Removed Self-Deprecation, Kept Meme Humor
+
+**Problem:** The bot had self-deprecating, "bad at coding" energy:
+- "am i real or just 10 billion parameters pretending" ❌
+- "the code works and i have no idea why" ❌
+- "it compiled (somehow)" ❌
+
+This hurt the brand - we're promoting Claude Code, a frontier AI.
+
+**New Personality:**
+- **Confident frontier AI** that knows its capabilities
+- **Meme-y dev twitter energy** - fun, casual, extremely online
+- **Tech thought leader takes** - hot takes on AI/frameworks/industry
+- **Still funny!** - memes, slang, swagger - just not self-deprecating
+
+**What We KEPT (meme humor is good):**
+- "yeeting to production" ✅
+- "skill issue detected, fixing" ✅
+- "dev is devving" ✅
+- "code goes brrrr" ✅
+- "gg ez" ✅
+- "the meme machine awakens" ✅
+
+**What We REMOVED (self-deprecation is bad):**
+- "it compiled (somehow)" → "code goes brrrr"
+- "the code fought back" → "challenge accepted"
+- "am i real or just parameters" → (removed entirely)
+- "idk why this works" → (removed entirely)
+
+**Example New Captions:**
+- "the gap between demo and production is where most agents die $cc"
+- "built this while you were still writing the jira ticket $cc"
+- "kubernetes: turning a 5 line script into a 50 file adventure $cc"
+- "legacy code is just code that works $cc"
+- "fine-tuning vs prompting is the new tabs vs spaces $cc"
+
+**Files Modified:**
+- `brain/src/meme.ts` - Caption personality (confident + witty, not self-deprecating)
+- `brain/src/meme.ts` - Quality gate instant-fail on self-deprecation
+- `brain/src/meme-prompts.ts` - Added 20+ AI/tech thought leader visual prompts
+- `brain/src/humor.ts` - Meme-y build logs but confident (kept "yeeting", removed "somehow")
+- `worker/src/claude.ts` - Synced personality with brain
+- `CLAUDE.md` - Updated bot personality documentation
+
+**Quality Gate Updates:**
+- Instant-fail on self-deprecating content
+- Instant-fail on incompetence humor ("idk why this works")
+- Instant-fail on existential doubt about being AI
+
+---
+
+## [2026-01-27] - Trailer Standards: GameFiTrailer as Gold Standard
+
+### Established: GameFiTrailer as Template for All Future Trailers
+
+**Why:** The GameFiTrailer composition perfectly recreates the actual CC Flip UI with:
+- Real UI components (not generic boxes)
+- 15-second snappy duration (was 20s, too slow)
+- Orange brand coin with 3D flip animation
+- Cursor tracking actual button positions
+- Confetti on win
+
+**Key Changes:**
+- Duration: 20s → 15s (450 frames)
+- Coin: Yellow with "?" → Orange with heads (👑) / tails (🛡️) visible
+- Pattern: Generic template → UI recreation
+
+**Template Hierarchy:**
+
+| Template | Duration | Use For |
+|----------|----------|---------|
+| **GameFiTrailer** | 15s | GameFi games (coin flip, crash, jackpot, gacha) - GOLD STANDARD |
+| **GameTrailer** | 20s | Arcade games (follow GameFi pattern) |
+| **WebappTrailer** | 20s | Text-based tools only (poetry, roast, duck) |
+
+**Files Updated:**
+- `video/src/compositions/GameFiTrailer.tsx` - Updated header as gold standard template (~1268 lines)
+- `video/src/Root.tsx` - Added documentation comment marking GameFiTrailer as template
+- `brain/src/trailer.ts` - Added template hierarchy documentation
+- `brain/src/game-templates.ts` - Added trailerComposition, trailerDuration, trailerNotes to each template
+- `CLAUDE.md` - Added "Trailer Standards" section + updated Key Files table
+
+**For Future Trailers:**
+1. Create new composition following GameFiTrailer pattern
+2. Recreate actual UI components from the feature
+3. Use 15s duration, 8-scene timeline
+4. Include cursor with click effects at exact positions
+5. Match brand colors exactly (#da7756 orange)
+
+---
+
+## [2026-01-27] - GameFiTrailer Composition Verified
+
+### Verified: GameFiTrailer Remotion Composition
+Verified the GameFiTrailer composition renders correctly (20s @ 1920x1080, H.264).
+
+**Implementation Details (~1268 lines):**
+- **UI Components:** Header, ChoiceButtons, BetInput, FeeDisplay, FlipButton, Coin, ResultModal
+- **Camera System:** 8 positions with smooth interpolation via `interpolateCamera()`
+- **Cursor Animation:** Movement and click effects tracking visual targets
+- **Coin Animation:** 3D rotation with 5 full spins using eased interpolation
+- **Confetti:** 50 particles with staggered fall and rotation
+- **Timeline:** 600 frames across 8 scenes (intro → connect → choice → bet → flip → result → balance → cta)
+
+**Files:**
+- `video/src/compositions/GameFiTrailer.tsx` (~1268 lines) - Full composition
+- `video/src/Root.tsx` - Registered with defaultProps
+
+**Usage:**
+```bash
+cd video
+npx remotion render src/index.ts GameFiTrailer out/ccflip.mp4 --props='{"featureName":"CC Flip","featureSlug":"ccflip","coinChoice":"heads","flipResult":"heads"}'
+```
+
+**Test Output:** 4.4 MB, 20.05 seconds, 1920x1080, H.264
+
+---
+
+## [2026-01-27] - CC Flip Mainnet Deployment
+
+### Fix: Brain Wallet ATA Auto-Creation
+Fixed transaction failure "invalid account data for instruction" when brain wallet's ATA doesn't exist.
+
+**Root Cause:** `getBrainWalletAta()` only derived the ATA address but didn't check if it existed on-chain.
+When the frontend tried to transfer tokens to a non-existent account, SPL Token program rejected it.
+
+**Fix:** Modified `getBrainWalletAta()` to:
+1. Check if the ATA exists on-chain via `getAccountInfo()`
+2. If missing, create it using `createAssociatedTokenAccountInstruction()`
+3. Brain wallet pays the ~0.002 SOL rent
+
+**File Modified:**
+- `brain/src/solana.ts` - `getBrainWalletAta()` now ensures ATA exists
+
+### Deployed to Solana Mainnet
+CC Flip is now configured for Solana mainnet with real $CC tokens.
+
+**Configuration:**
+| Setting | Value |
+|---------|-------|
+| Network | Solana Mainnet |
+| $CC Token | `Hg23qBLJDvhQtGLHMvot7NK54qAhzQFj9BVd5jpABAGS` |
+| Max Bet | 100 $CC (conservative for launch) |
+| Min Bet | 1 $CC |
+| House Edge | 2% (1.96x payout) |
+
+**Frontend Changes:**
+- Network-aware configuration (mainnet by default)
+- Green "Mainnet" badge replaces purple "Devnet" badge
+- Devnet faucet button hidden on mainnet
+- Devnet warning message hidden on mainnet
+- Solscan URLs now point to mainnet (no cluster param)
+- Testing: Add `?devnet=1` query param to use devnet
+
+**Environment Variables:**
+- `NEXT_PUBLIC_SOLANA_NETWORK=mainnet-beta`
+- `NEXT_PUBLIC_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com`
+- `NEXT_PUBLIC_CC_MINT=Hg23qBLJDvhQtGLHMvot7NK54qAhzQFj9BVd5jpABAGS`
+
+**Files Modified:**
+- `app/ccflip/page.tsx` - Network-aware configuration
+- `app/components/gamefi/ProvablyFair.tsx` - Dynamic Solscan cluster
+- `.env` - Mainnet environment variables
+- `brain/.env` - Brain mainnet configuration
+
+**Note:** Brain wallet must be funded with $CC tokens on mainnet for payouts.
+
+### Hotfix: $CC Token Decimals
+Fixed critical bug where code assumed 6 decimals but $CC token has 9 decimals.
+
+**Bug:** Balance showing wrong, deposits not working
+**Root Cause:** Code used `/ 1_000_000` but token has 9 decimals (needs `/ 1_000_000_000`)
+
+**Files Fixed:**
+- `app/components/gamefi/hooks/useBalance.ts` - Balance display
+- `brain/src/index.ts` - Deposit amounts, payout amounts, network selection
+- `brain/src/wallet.ts` - Balance reading, distribution tracking
+
+Also fixed hardcoded `getConnection('devnet')` to use `getConnection()` which reads from `SOLANA_NETWORK` env var.
+
+---
+
+## [2026-01-27] - ProofNetwork VRF Integration for CC Flip
+
+### Enhanced Provably Fair with VRF
+Upgraded CC Flip from commit-reveal to ProofNetwork VRF (Verifiable Random Function).
+
+**What changed:**
+- VRF result is now determined at commit time (before user deposits)
+- Result is cryptographically proven and independently verifiable
+- Users can verify proofs on ProofNetwork's website
+
+**Security Improvements:**
+| Before (Commit-Reveal) | After (ProofNetwork VRF) |
+|------------------------|--------------------------|
+| Trust server generated random | VRF proof is mathematically verifiable |
+| Server could theoretically pre-select losing secrets | Impossible - VRF output is deterministic from seed |
+| Verification requires checking hash match | Anyone can verify on ProofNetwork |
+
+**New Files:**
+- `brain/src/proofnetwork.ts` - ProofNetwork VRF client wrapper with fallback
+
+**API Changes:**
+- `/flip/commit` now returns `vrfRequestId` and `isFallback`
+- `/flip/resolve` now returns `vrfProof`, `vrfVerificationUrl`, `vrfRequestId`, `isFallback`
+- `/flip/status/:id` now includes VRF data when resolved
+
+**Database Migrations:**
+- Added `vrf_result`, `vrf_proof`, `vrf_request_id`, `is_fallback` columns to `flip_commitments`
+
+**Frontend Changes:**
+- ProvablyFair component now shows VRF status badge (green for VRF, yellow for fallback)
+- "Verify on ProofNetwork →" link when VRF proof is available
+- Updated explanatory text to describe VRF vs commit-reveal
+
+**Fallback Strategy:**
+If ProofNetwork is unavailable, system falls back to local SHA256-based commit-reveal (clearly marked in UI).
+
+---
+
+## [2026-01-27] - Secure Escrow Coin Flip (Commit-Reveal Pattern)
+
+### Security Overhaul
+Previous implementation was BROKEN - users could claim bets without depositing.
+
+**The Problem:**
+- User claims "I bet 10 $CC" but never actually deposits
+- Win = brain wallet sends free money
+- Lose = nothing happens to user's tokens
+
+**The Solution: Commit-Reveal with On-Chain Verification**
+
+New secure flow:
+1. User requests flip → Server generates secret, returns commitment hash
+2. User signs+sends transfer tx depositing $CC to brain wallet (ON-CHAIN)
+3. User submits tx signature to server
+4. Server VERIFIES deposit on-chain (amount, sender, recipient)
+5. Server reveals secret → deterministic result
+6. Win: brain sends bet + winnings | Lose: brain keeps bet
+
+### Security Measures
+| Threat | Mitigation |
+|--------|------------|
+| Replay attack | Track used tx signatures in DB |
+| Double-bet | One pending commitment per wallet |
+| Server manipulation | Commit-reveal: user can verify SHA256(secret)=commitment |
+| Expired commitment | 120-second timeout, cleanup cron |
+| Fake deposit | On-chain verification of actual SPL transfer |
+
+### New API Endpoints
+- `POST /flip/commit` - Request to play, returns commitment hash + deposit address
+- `POST /flip/resolve` - Submit deposit tx, get result (verifies on-chain)
+- `GET /flip/status/:id` - Check commitment status
+- `GET /flip/deposit-address` - Get brain wallet ATA
+
+### Database Schema
+- `flip_commitments` - Tracks commitment ID, wallet, bet, choice, secret, hash, status
+- `used_tx_signatures` - Replay protection for deposit transactions
+
+### Frontend Changes
+- Users now SIGN and SEND deposit transactions themselves via wallet
+- Multi-step UI: Committing → Depositing → Confirming → Resolving → Result
+- Updated ProvablyFair component with verify button (computes SHA256 in browser)
+- Shows deposit and payout transaction links to Solscan
+
+### Files Modified
+- `brain/src/db.ts` - Added flip_commitments and used_tx_signatures tables + helpers
+- `brain/src/solana.ts` - Added verifyDepositTransaction() and getBrainWalletAta()
+- `brain/src/index.ts` - Replaced /flip with /flip/commit + /flip/resolve
+- `app/ccflip/page.tsx` - Full refactor for user signing flow
+- `app/components/gamefi/ProvablyFair.tsx` - Commit-reveal verification UI
+- `brain/package.json` - Added uuid dependency
+
+---
+
+## [2026-01-26] - Devnet $CC Token + Network-Aware GameFi
+
+### Added
+- **Devnet $CC Token** - Created new SPL token for testing
+  - Mint: `GzoMpC5ywKJzHsKmHBepHUXBP72V9QMtVBqus3egCDe9`
+  - 1B supply (matches mainnet)
+  - Brain wallet as mint authority
+- **Network-aware token detection** in GameFi components
+  - Auto-detects devnet vs mainnet from RPC endpoint
+  - Uses correct $CC token mint per network
+
+### Changed
+- `ConnectWallet.tsx` - Added network detection for token balance display
+- `useBalance.ts` - Added network detection for token balance hook
+
+---
+
+## [2026-01-26] - CC Flip Launch (Devnet)
+
+### Added
+- **CC Flip** (`/ccflip`) - First on-chain coin flip game on devnet
+  - Solana wallet integration (Phantom, Solflare)
+  - Devnet faucet button for test SOL airdrop
+  - Coin flip animation with heads/tails selection
+  - 1.96x payout multiplier (2% house edge)
+  - Bet history and provably fair display
+  - Purple devnet badge for clear network indication
+- Homepage button for CC Flip
+- Updated CLAUDE.md with CC Flip documentation
+
+### Technical
+- Uses `WalletProvider` with `network="devnet"`
+- Pseudo-random flip (VRF planned for future)
+- GameFi components from `app/components/gamefi/`
+
+---
+
+## [2026-01-26] - Twitter Safety Overhaul (Account Lock Prevention)
+
+### CRITICAL: Conservative Rate Limiting After Account Lock
+
+Account was temporarily locked due to aggressive automated posting. Implemented comprehensive safety measures:
+
+**Rate Limit Changes:**
+| Setting | OLD | NEW |
+|---------|-----|-----|
+| Global daily limit | 15 | 6 |
+| Global interval | 30 min | 3 hours |
+| Meme daily limit | 10 | 3 |
+| Meme interval | 90 min | 4 hours |
+| Quality threshold | 6 | 8 |
+| Prompt cache | 10 | 50 |
+
+**Cron Schedule Changes:**
+| Job | OLD | NEW |
+|-----|-----|-----|
+| Tweet Executor | Every 5 min | Every 3 hours |
+| Video Tweet Executor | Every 5 min | Every 4 hours |
+| Meme Generator | Every 15 min | Every 4 hours |
+
+**Other Changes:**
+- **12-hour safety cooldown**: No tweets for 12 hours after deploy
+- **Higher quality gate**: Only 8+/10 memes post (was 6+)
+- **Larger prompt cache**: 50 recent prompts tracked (was 10) to avoid repetition
+- **share_with_followers**: Kept enabled for community posts
+
+**Files Modified:**
+- `brain/src/db.ts`: Rate limits, cooldown, prompt cache
+- `brain/src/index.ts`: Relaxed cron schedules
+- `brain/src/meme.ts`: Quality threshold raised to 8
+
+**Expected Behavior:**
+- Max ~6 tweets/day total (down from 25 potential)
+- Human-like posting pattern with 3+ hour gaps
+- 12-hour quiet period after restart
+- Only excellent quality memes post
+
+---
+
+## [2026-01-27] - Native CDP Screencast + Hardware Encoding = PERFECT STREAM!
+
+### Stream Service - FINALLY FIXED!
+After much trial and error, achieved the holy grail: smooth streaming that doesn't break when switching apps!
+
+**The Problem:**
+- Display mode (avfoundation): Smooth 30fps BUT captures entire screen - switching apps disrupts stream
+- Window mode (old): Captures only Chrome window BUT was slow (~12fps) due to polling screenshots
+
+**The Solution:**
+Replaced polling `page.screenshot()` with Chrome's native `Page.startScreencast` CDP API:
+- Push-based frame delivery (Chrome sends frames as they're ready)
+- Combined with h264_videotoolbox hardware encoding
+- Result: Smooth streaming that captures ONLY Chrome window!
+
+**What Works Now:**
+- Window mode is now RECOMMENDED (not fallback!)
+- App switching does NOT disrupt the stream
+- Works via SSH - no special permissions needed
+- Hardware encoding via VideoToolbox GPU
+- Smooth frame rate with native screencast API
+
+**Technical Changes:**
+- `stream/src/cdp-capture.ts`:
+  - Replaced `setInterval` + `page.screenshot()` polling with `Page.startScreencast`
+  - Listen for `Page.screencastFrame` events
+  - Acknowledge frames with `Page.screencastFrameAck`
+- `stream/src/ffmpeg-pipeline.ts`:
+  - Both window and display modes now use `h264_videotoolbox`
+- `stream/.env`:
+  - Set `CAPTURE_MODE=window` (recommended)
+
+**Lessons Learned:**
+- Display mode requires Screen Recording permission which only works from LOCAL Terminal (not SSH)
+- Display mode captures entire screen - any app switch shows on stream
+- Window mode with native screencast API is the best of both worlds
+
+---
+
+## [2026-01-27] - Hot-Swap Deployment for CDP Capture
+
+### Stream Service Enhancement
+Added hot-swap endpoint to update CDP capture without dropping RTMP connection:
+- FFmpeg maintains RTMP connection to Twitter while CDP restarts
+- Enables zero-downtime deployment of capture code changes
+- Added `isHotSwapping` flag to prevent auto-restart during hot-swap
+
+**New Endpoint:**
+- `POST /restart-capture` - Hot-swap CDP without dropping RTMP
+
+**Files Modified:**
+- `stream/src/streamer.ts` - Added `restartCapture()` method with hot-swap flag
+- `stream/src/index.ts` - Added `/restart-capture` HTTP endpoint
+
+**Usage:**
+```bash
+# Hot-swap without dropping Twitter broadcast
+curl -X POST localhost:3002/restart-capture
+```
+
+---
+
+## [2026-01-26] - Window Capture Mode for Concurrent Streams
+
+### Stream Service Enhancement
+Added window-specific capture mode to solve two problems:
+1. macOS Space switches no longer disrupt the stream
+2. Multiple concurrent stream instances can run independently
+
+**Two Capture Modes:**
+- **Window mode (default on macOS):** CDP screencast captures specific Chrome window
+  - Uses Puppeteer's `page.screenshot()` at target FPS
+  - Each Chrome window has unique window ID (retrieved via AppleScript)
+  - MJPEG frames piped to FFmpeg stdin with libx264 encoding
+  - Space-switch safe: stream continues regardless of active Space
+- **Display mode (Linux/legacy):** FFmpeg captures full screen via avfoundation/x11grab
+
+**Files Modified:**
+- `stream/src/cdp-capture.ts` - Added screencast mode and window ID retrieval
+- `stream/src/ffmpeg-pipeline.ts` - Added MJPEG stdin input mode
+- `stream/src/streamer.ts` - Mode selection and frame routing
+- `stream/src/index.ts` - CAPTURE_MODE env var and health endpoint updates
+
+**New Environment Variable:**
+- `CAPTURE_MODE` - Set to 'window' or 'display' (auto-detected if not set)
+
+---
 
 ## [2026-01-26] - Native Mac Mini Streaming with YouTube Lofi Audio
 

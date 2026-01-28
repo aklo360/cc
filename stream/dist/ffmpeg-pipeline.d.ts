@@ -1,7 +1,10 @@
 /**
  * FFmpeg pipeline for encoding and streaming
- * Captures from X11 display (Xvfb), adds audio, outputs to RTMP destinations
+ * Supports two capture modes:
+ * 1. Display mode - Captures from display (x11grab on Linux, avfoundation on macOS)
+ * 2. Window mode - Receives JPEG frames via stdin (for window-specific capture)
  */
+export type PipelineMode = 'display' | 'window';
 export interface PipelineConfig {
     width: number;
     height: number;
@@ -9,6 +12,7 @@ export interface PipelineConfig {
     bitrate: string;
     audioUrl: string | null;
     teeOutput: string;
+    mode?: PipelineMode;
 }
 export interface PipelineEvents {
     onError: (error: Error) => void;
@@ -26,7 +30,11 @@ export declare class FfmpegPipeline {
     private rtmpConnected;
     constructor(config: PipelineConfig, events: PipelineEvents);
     start(): void;
-    writeFrame(_frameBuffer: Buffer): boolean;
+    /**
+     * Write a frame to FFmpeg stdin (window mode only)
+     * Returns true if frame was written, false if pipeline not ready
+     */
+    writeFrame(frameBuffer: Buffer): boolean;
     stop(): void;
     isActive(): boolean;
     getFrameCount(): number;

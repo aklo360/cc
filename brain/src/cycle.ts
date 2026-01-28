@@ -922,3 +922,446 @@ export async function cancelActiveCycle(): Promise<Cycle | null> {
 
 // Re-export buildEvents for the WebSocket server
 export { buildEvents };
+
+// ============ BRAIN 2.0 GAMEFI CYCLE ============
+
+import {
+  createGame,
+  getGameBySlug,
+  updateGameOnChainInfo,
+  type GameType,
+  type GameConfig,
+} from './db.js';
+import {
+  GAME_TEMPLATES,
+  getRandomGameType,
+  getRandomTheme,
+  generateGameSlug,
+  getGameBuildPrompt,
+} from './game-templates.js';
+import { DEFAULT_GAME_CONFIGS, CASINO_BANKROLL } from './rewards.js';
+
+const GAMEFI_SYSTEM_PROMPT = `You are the Central Brain 2.0 for $CC Casino, a blockchain-native gambling platform.
+
+You are about to plan a GameFi cycle - building and deploying an on-chain casino game.
+
+AVAILABLE GAME TYPES:
+1. COIN FLIP - 50/50 double or nothing, instant resolution
+2. CRASH - Watch multiplier rise, cash out before crash
+3. JACKPOT - Pool bets, one winner takes all
+4. GACHA - Pull for tiered prizes (common/rare/epic/legendary)
+
+YOUR TASK:
+1. Select a game type (weighted: 40% coinflip, 25% crash, 25% gacha, 10% jackpot)
+2. Create a unique theme/skin for the game
+3. Plan the announcement tweet
+
+THEMING GUIDELINES:
+- Keep $CC brand colors (orange #da7756 as accent)
+- Match the site's terminal/dark aesthetic
+- Add creative visuals and animations
+- Make it memorable and shareable
+
+EXAMPLE THEMES:
+- "Cosmic Coin Flip" - Space/galaxy theme with stars
+- "Degen Crash: Moon Edition" - Rocket going to the moon
+- "Mystery Capsule" - Sci-fi gacha machine
+- "The Pot: Pirate's Bounty" - Treasure chest jackpot
+
+Return a JSON object with this structure:
+{
+  "game": {
+    "type": "coinflip|crash|jackpot|gacha",
+    "theme": "Theme Name",
+    "slug": "theme-slug-xxxx",
+    "description": "One sentence description",
+    "tagline": "Catchy tagline for the game"
+  },
+  "tweet": {
+    "content": "Announcement tweet (max 280 chars, include link)",
+    "type": "announcement"
+  }
+}`;
+
+interface GameFiPlan {
+  game: {
+    type: GameType;
+    theme: string;
+    slug: string;
+    description: string;
+    tagline: string;
+  };
+  tweet: {
+    content: string;
+    type: string;
+  };
+}
+
+interface GameFiCycleResult {
+  cycleId: number;
+  plan: GameFiPlan;
+  gameId?: number;
+  deployUrl?: string;
+  onChainInitialized?: boolean;
+  trailerResult?: TrailerResult;
+  tweetId?: string;
+}
+
+/**
+ * Start a new GameFi cycle - builds and deploys an on-chain casino game
+ *
+ * 8-Phase Flow:
+ * 1. PLAN GAME - Claude selects game type and theme
+ * 2. BUILD FRONTEND - Uses game template to build frontend
+ * 3. DEPLOY FRONTEND - Deploy to Cloudflare Pages
+ * 4. INITIALIZE ON-CHAIN - Brain wallet initializes game on-chain
+ * 5. VERIFY INTEGRATION - Test wallet connection and bet flow
+ * 6. CREATE TRAILER - Generate gameplay preview
+ * 7. ANNOUNCE - Tweet with video
+ * 8. MONITOR - Track game activity
+ */
+export async function startGameFiCycle(options?: { force?: boolean }): Promise<GameFiCycleResult | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    log('[GameFi Cycle] No ANTHROPIC_API_KEY - cannot start cycle');
+    return null;
+  }
+
+  // Check cooldown (24 hours between game builds)
+  const cooldownMs = getTimeUntilNextAllowed();
+  if (cooldownMs > 0 && !options?.force) {
+    const cooldownHours = (cooldownMs / 3600000).toFixed(1);
+    log(`[GameFi Cycle] Cooldown active - ${cooldownHours} hours remaining`);
+    return null;
+  }
+
+  // Atomically start new cycle
+  const cycleId = startCycleAtomic();
+  if (cycleId === null) {
+    const activeCycle = getActiveCycle();
+    log(`[GameFi Cycle] Active cycle already exists (id: ${activeCycle?.id})`);
+    return null;
+  }
+
+  markCycleStarted();
+
+  log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  log('🎰 STARTING GAMEFI CYCLE');
+  log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  log(`📋 Created cycle #${cycleId}`);
+
+  // ============ PHASE 1: PLAN GAME ============
+  log('\n▸ PHASE 1: PLANNING GAME');
+
+  const client = new Anthropic({ apiKey });
+
+  let plan: GameFiPlan;
+
+  try {
+    log('[CLAUDE_AGENT:PLANNING] Selecting game type and theme...');
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      system: GAMEFI_SYSTEM_PROMPT,
+      messages: [{
+        role: 'user',
+        content: `Plan a new casino game for $CC. Current time: ${new Date().toISOString()}
+
+Pick a game type and create a unique, memorable theme. Make it fun and shareable.
+
+Return ONLY the JSON object, no other text.`,
+      }],
+    });
+
+    const textContent = response.content.find((c) => c.type === 'text');
+    if (!textContent || textContent.type !== 'text') {
+      log('[GameFi Cycle] No text response from Claude');
+      return null;
+    }
+
+    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      log('[GameFi Cycle] No JSON found in response');
+      return null;
+    }
+
+    plan = JSON.parse(jsonMatch[0]) as GameFiPlan;
+    log(`✅ Game planned`);
+    log(`   Type: ${plan.game.type}`);
+    log(`   Theme: "${plan.game.theme}"`);
+    log(`   Slug: /${plan.game.slug}`);
+
+    updateCycleProject(cycleId, plan.game.theme, plan.game.slug);
+    updateCyclePhase(cycleId, 1);
+  } catch (error) {
+    log(`❌ Planning failed: ${error}`);
+    setCycleError(cycleId, `Planning failed: ${error}`);
+    completeCycle(cycleId);
+    return null;
+  }
+
+  // ============ PHASE 2: BUILD FRONTEND ============
+  log('\n▸ PHASE 2: BUILDING FRONTEND');
+
+  const template = GAME_TEMPLATES[plan.game.type];
+  const config = DEFAULT_GAME_CONFIGS[plan.game.type];
+
+  // Create game record in database
+  const gameId = createGame(
+    plan.game.slug,
+    plan.game.theme,
+    plan.game.type,
+    config,
+    plan.game.theme
+  );
+  log(`   📋 Created game record: #${gameId}`);
+
+  // Build the frontend using the game template
+  const buildPrompt = getGameBuildPrompt(plan.game.type, plan.game.theme);
+
+  const buildResult = await buildProject({
+    idea: plan.game.theme,
+    slug: plan.game.slug,
+    description: plan.game.description,
+    cycleId,
+    // Pass additional context for GameFi builds
+    additionalContext: buildPrompt,
+  });
+
+  if (!buildResult.success) {
+    log(`❌ Build failed: ${buildResult.error}`);
+    setCycleError(cycleId, `Build failed: ${buildResult.error}`);
+    completeCycle(cycleId);
+    return { cycleId, plan, gameId };
+  }
+
+  log(`✅ Frontend built`);
+  updateCyclePhase(cycleId, 2);
+
+  // ============ PHASE 3: DEPLOY FRONTEND ============
+  log('\n▸ PHASE 3: DEPLOYING FRONTEND');
+
+  const deployResult = await deployToCloudflare();
+  if (!deployResult.success) {
+    log(`❌ Deploy failed: ${deployResult.error}`);
+    setCycleError(cycleId, `Deploy failed: ${deployResult.error}`);
+    completeCycle(cycleId);
+    return { cycleId, plan, gameId };
+  }
+
+  const deployUrl = `https://claudecode.wtf/${plan.game.slug}`;
+  log(`✅ Deployed to: ${deployUrl}`);
+  updateCyclePhase(cycleId, 3);
+
+  // ============ PHASE 4: INITIALIZE ON-CHAIN ============
+  log('\n▸ PHASE 4: INITIALIZING ON-CHAIN');
+  log('   ⚠️ Note: On-chain initialization requires funded brain wallet');
+
+  // Check if brain wallet is configured
+  const walletKey = process.env.BRAIN_WALLET_KEY;
+  let onChainInitialized = false;
+
+  if (!walletKey) {
+    log('   ⏭️ Skipping on-chain init (BRAIN_WALLET_KEY not set)');
+    log('   → Game will work in "demo mode" without real betting');
+  } else {
+    try {
+      // Import solana module dynamically
+      const { getConnection, initializeGame: initGameOnChain, fundEscrow } = await import('./solana.js');
+      const { loadWallet } = await import('./wallet.js');
+
+      const connection = getConnection();
+      const wallet = loadWallet(walletKey);
+
+      log('   🔗 Initializing game on Solana...');
+
+      // Initialize game on-chain
+      const { gameStatePda, escrowPda, signature } = await initGameOnChain(
+        connection,
+        wallet,
+        plan.game.slug,
+        plan.game.type,
+        {
+          minBet: BigInt(config.minBet),
+          maxBet: BigInt(config.maxBet),
+          houseEdgeBps: config.houseEdgeBps,
+          platformFeeLamports: BigInt(config.platformFeeLamports),
+        }
+      );
+
+      log(`   ✓ Game initialized: ${gameStatePda.toBase58()}`);
+      log(`   ✓ Escrow: ${escrowPda.toBase58()}`);
+      log(`   ✓ Tx: ${signature}`);
+
+      // Fund escrow with initial allocation
+      const allocation = CASINO_BANKROLL.perGameAllocation[plan.game.type];
+      log(`   💰 Funding escrow with ${allocation.toLocaleString()} $CC...`);
+
+      const fundTx = await fundEscrow(
+        connection,
+        wallet,
+        plan.game.slug,
+        BigInt(allocation * 1_000_000) // Convert to lamports
+      );
+
+      log(`   ✓ Escrow funded: ${fundTx}`);
+
+      // Update game record with on-chain info
+      updateGameOnChainInfo(gameId, gameStatePda.toBase58(), escrowPda.toBase58());
+      onChainInitialized = true;
+
+    } catch (error) {
+      log(`   ⚠️ On-chain init failed: ${error}`);
+      log('   → Game will work in "demo mode" without real betting');
+    }
+  }
+
+  updateCyclePhase(cycleId, 4);
+
+  // ============ PHASE 5: VERIFY INTEGRATION ============
+  log('\n▸ PHASE 5: VERIFYING INTEGRATION');
+
+  // Verify deployment is accessible
+  let verified = false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    log(`   Verification attempt ${attempt}/3...`);
+    verified = await verifyDeployment(deployUrl);
+    if (verified) {
+      log(`✅ Deployment verified!`);
+      break;
+    }
+    if (attempt < 3) {
+      log(`   Waiting 30s before retry...`);
+      await new Promise(r => setTimeout(r, 30000));
+    }
+  }
+
+  if (!verified) {
+    log('❌ Deployment verification failed');
+    setCycleError(cycleId, 'Deployment verification failed');
+  }
+
+  updateCyclePhase(cycleId, 5);
+
+  // ============ PHASE 6: CREATE TRAILER ============
+  log('\n▸ PHASE 6: CREATING TRAILER');
+
+  const trailerResult = await generateTrailer(
+    {
+      name: plan.game.theme,
+      slug: plan.game.slug,
+      description: plan.game.description,
+      cycleId,
+    },
+    deployUrl
+  );
+
+  if (!trailerResult.success) {
+    log(`⚠️ Trailer generation failed: ${trailerResult.error}`);
+  } else {
+    log(`✅ Trailer created: ${trailerResult.durationSec}s`);
+  }
+
+  updateCyclePhase(cycleId, 6);
+
+  // ============ PHASE 7: ANNOUNCE ============
+  log('\n▸ PHASE 7: ANNOUNCING');
+
+  let tweetId: string | undefined;
+
+  // Check tweet rate limit
+  const globalCheck = canTweetGlobally();
+  if (!globalCheck.allowed) {
+    log(`⚠️ Tweet rate limit: ${globalCheck.reason}`);
+  } else {
+    try {
+      const credentials = getTwitterCredentials();
+      const tweetContent = plan.tweet.content.includes('claudecode.wtf')
+        ? plan.tweet.content
+        : `${plan.tweet.content}\n\n${deployUrl}`;
+
+      if (trailerResult.success && trailerResult.videoBase64) {
+        log('📹 Posting announcement with trailer...');
+        const result = await postTweetWithVideo(
+          tweetContent,
+          trailerResult.videoBase64,
+          credentials,
+          CC_COMMUNITY_ID
+        );
+        tweetId = result.id;
+        recordTweet(result.id, 'announcement', tweetContent);
+      } else {
+        log('📝 Posting announcement (no video)...');
+        const result = await postTweetToCommunity(tweetContent, credentials);
+        tweetId = result.id;
+        recordTweet(result.id, 'announcement', tweetContent);
+      }
+
+      log(`✅ Announcement posted: ${tweetId}`);
+      insertTweet(tweetContent, 'announcement', tweetId);
+    } catch (error) {
+      log(`❌ Tweet failed: ${error}`);
+    }
+  }
+
+  updateCyclePhase(cycleId, 7);
+
+  // ============ PHASE 8: COMPLETE ============
+  log('\n▸ PHASE 8: COMPLETING CYCLE');
+
+  // Complete cycle atomically
+  const stats = completeCycleAtomic(
+    cycleId,
+    plan.game.slug,
+    plan.game.theme,
+    plan.game.description
+  );
+
+  updateCyclePhase(cycleId, 8);
+
+  log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  log('🎰 GAMEFI CYCLE COMPLETED');
+  log(`   Game: ${plan.game.theme} (${plan.game.type})`);
+  log(`   URL: ${deployUrl}`);
+  log(`   On-chain: ${onChainInitialized ? 'Yes' : 'Demo mode'}`);
+  log(`   Games today: ${stats.features_shipped}/${getDailyLimit()}`);
+  log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  return {
+    cycleId,
+    plan,
+    gameId,
+    deployUrl,
+    onChainInitialized,
+    trailerResult,
+    tweetId,
+  };
+}
+
+/**
+ * Get GameFi cycle status
+ */
+export function getGameFiStatus(): {
+  totalGames: number;
+  activeGames: number;
+  todayGames: number;
+  dailyLimit: number;
+  canBuildMore: boolean;
+  cooldownMs: number;
+} {
+  const stats = getTodayStats();
+  const cooldownMs = getTimeUntilNextAllowed();
+
+  // Import db functions for game stats
+  const { getActiveGames, getAllGamesStats } = require('./db.js');
+  const allStats = getAllGamesStats();
+
+  return {
+    totalGames: allStats.totalGames,
+    activeGames: allStats.activeGames,
+    todayGames: stats.features_shipped,
+    dailyLimit: getDailyLimit(),
+    canBuildMore: canShipMore() && cooldownMs === 0,
+    cooldownMs,
+  };
+}

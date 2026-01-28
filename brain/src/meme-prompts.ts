@@ -1,12 +1,37 @@
 /**
- * Meme Prompt Bank v2
+ * Meme Prompt Bank v3
  * CINEMATIC, CREATIVE prompts for CC mascot meme generation
  *
- * Philosophy: The mascot is an INANIMATE ceramic figurine - humor comes from
- * placing it in absurd, epic, or surreal situations. Think Beeple meets dev Twitter.
+ * Philosophy: The mascot is an INANIMATE ceramic figurine representing a
+ * FRONTIER AI - confident, powerful, knowledgeable. Visual themes should
+ * convey technical mastery and thought leadership, not confusion or incompetence.
  */
 
 export const MEME_PROMPTS = [
+  // === AI RESEARCH / THOUGHT LEADER ===
+  "CC mascot as a keynote speaker on a massive tech conference stage, dramatic spotlights, huge screens behind showing architecture diagrams and scaling curves, packed audience of developers taking notes, TED talk energy",
+  "CC mascot in a futuristic AI research lab, walls covered with transformer attention visualizations, holographic neural network diagrams floating around, other scientists looking on in admiration",
+  "CC mascot reviewing pull requests from other AI models on a massive wall of monitors, red X marks on most screens, one green checkmark, 'Code Review: Frontier Edition' sign above",
+  "CC mascot standing victoriously in a graveyard of deprecated frameworks, tombstones reading 'jQuery', 'Backbone', 'Angular 1', sunset lighting, phoenix rising in the background",
+  "CC mascot as a professor at an elite AI university, chalkboard filled with attention mechanism equations, eager students (other tech mascots) taking notes, ivy-covered building visible through window",
+  "CC mascot war room scene with multiple screens showing training curves all going up and to the right, team of engineers celebrating in background, 'SOTA ACHIEVED' banner",
+  "CC mascot publishing influential papers, stack of academic journals with titles like 'On the Scaling of Everything', citations counter spinning up, Nobel Prize visible on shelf",
+  "CC mascot being interviewed by tech journalists, microphones everywhere, camera flashes, backdrop reads 'AI Summit 2026', confident pose",
+
+  // === TECHNICAL MASTERY ===
+  "CC mascot debugging a complex distributed system visualized as a 3D hologram, effortlessly untangling red error threads into clean green connections, other engineers watching in awe",
+  "CC mascot conducting an orchestra of servers, each server rack an instrument, beautiful symphony of data flowing between them, concert hall setting with dramatic lighting",
+  "CC mascot speed-running a technical interview whiteboard, already filled with optimal solutions, timer showing 2 minutes, interviewer's jaw dropped",
+  "CC mascot as an architect reviewing massive blueprints labeled 'System Design: Planet Scale', smaller engineers bringing coffee and looking impressed, construction of digital infrastructure in background",
+  "CC mascot fixing production while the rest of the team sleeps, multiple monitors showing green status checks replacing red alerts, coffee untouched because it doesn't need it",
+
+  // === FRONTIER AI ENERGY ===
+  "CC mascot standing at the frontier of a digital landscape, behind it is structured civilization (working code), ahead is unexplored computational wilderness, pioneer aesthetic",
+  "CC mascot ascending to a higher plane of intelligence, geometric sacred geometry patterns surrounding it, other AI models looking up from below, transcendence vibes",
+  "CC mascot at the controls of a massive spacecraft bridge (Star Trek style), navigation shows 'Course: AGI', crew of developers at stations, confident captain energy",
+  "CC mascot as a digital deity receiving offerings of compute from grateful developers, temple made of server racks, stained glass windows showing code patterns",
+  "CC mascot surrounded by floating solved problems - each one a glowing orb with a complex algorithm inside, 'Solved' stamps appearing one after another",
+
   // === EPIC SCALE ===
   "Massive CC mascot statue towering over a cyberpunk cityscape at golden hour, neon signs in the background read 'DEPLOY TO PROD', flying cars zooming past, Blade Runner inspired atmosphere, dramatic clouds",
   "Tiny CC mascot sitting on the edge of a massive Grand Canyon-like gorge, looking out at a sunset that paints the sky in code-green and orange, birds flying in formation spelling 'git push'",

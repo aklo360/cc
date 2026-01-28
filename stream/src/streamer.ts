@@ -5,8 +5,8 @@
  */
 
 import { EventEmitter } from 'events';
-import { CdpCapture, CaptureConfig } from './cdp-capture.js';
-import { FfmpegPipeline, PipelineConfig } from './ffmpeg-pipeline.js';
+import { CdpCapture, CaptureConfig, CaptureMode } from './cdp-capture.js';
+import { FfmpegPipeline, PipelineConfig, PipelineMode } from './ffmpeg-pipeline.js';
 import { loadDestinations, getDestinationNames, DestinationConfig } from './destinations.js';
 import { Director } from './director.js';
 import { getYouTubeAudioUrl } from './youtube-audio.js';
@@ -25,6 +25,7 @@ export interface StreamerConfig {
   jpegQuality: number;
   maxRestarts: number;
   restartDelayMs: number;
+  captureMode?: CaptureMode; // 'display' (default) or 'window' for window-specific capture
 }
 
 export interface StreamerStats {
@@ -35,6 +36,8 @@ export interface StreamerStats {
   destinations: string[];
   lastError: string | null;
   currentScene: 'watch' | 'vj';
+  captureMode: CaptureMode;
+  windowId: number | null;
 }
 
 export class Streamer extends EventEmitter {
@@ -49,6 +52,7 @@ export class Streamer extends EventEmitter {
   private restartCount: number = 0;
   private lastError: string | null = null;
   private isShuttingDown: boolean = false;
+  private isHotSwapping: boolean = false;
   private restartResetTimer: NodeJS.Timeout | null = null;
   private streamHealthInterval: NodeJS.Timeout | null = null;
   private static readonly RESTART_RESET_AFTER_MS = 5 * 60 * 1000; // Reset counter after 5 min stable
@@ -76,7 +80,12 @@ export class Streamer extends EventEmitter {
         throw new Error('No RTMP destinations configured. Set RTMP_*_KEY env vars.');
       }
 
+      // Determine capture mode: 'window' for macOS (Space-switch safe), 'display' for Linux
+      const captureMode: CaptureMode = this.config.captureMode ||
+        (process.platform === 'darwin' ? 'window' : 'display');
+
       console.log(`[streamer] Starting stream to: ${destNames.join(', ')}`);
+      console.log(`[streamer] Capture mode: ${captureMode}`);
 
       // Try YouTube lofi stream first, fall back to local file
       let audioUrl: string | null = null;
@@ -101,6 +110,7 @@ export class Streamer extends EventEmitter {
         bitrate: this.config.bitrate,
         audioUrl: audioUrl,
         teeOutput: this.destinationConfig.teeOutput,
+        mode: captureMode, // Pass capture mode to pipeline
       };
 
       this.ffmpegPipeline = new FfmpegPipeline(pipelineConfig, {
@@ -119,6 +129,7 @@ export class Streamer extends EventEmitter {
         height: this.config.height,
         fps: this.config.fps,
         quality: this.config.jpegQuality,
+        mode: captureMode, // Pass capture mode to CDP
       };
 
       this.cdpCapture = new CdpCapture(captureConfig, {
@@ -228,7 +239,8 @@ export class Streamer extends EventEmitter {
   private handleDisconnect(source: string): void {
     console.log(`[streamer] ${source} disconnected`);
 
-    if (!this.isShuttingDown && this.state === 'streaming') {
+    // Don't auto-restart during hot-swap or shutdown
+    if (!this.isShuttingDown && !this.isHotSwapping && this.state === 'streaming') {
       this.lastError = `${source} disconnected`;
       this.attemptRestart();
     }
@@ -349,9 +361,14 @@ export class Streamer extends EventEmitter {
   }
 
   getStats(): StreamerStats {
+    // Get frame count from either CDP (window mode) or FFmpeg (display mode)
+    const cdpFrameCount = this.cdpCapture?.getFrameCount() ?? -1;
+    const ffmpegFrameCount = this.ffmpegPipeline?.getFrameCount() ?? 0;
+    const frameCount = cdpFrameCount >= 0 ? cdpFrameCount : ffmpegFrameCount;
+
     return {
       state: this.state,
-      frameCount: this.ffmpegPipeline?.getFrameCount() ?? 0,
+      frameCount,
       uptime: this.state === 'streaming' ? Date.now() - this.startTime : 0,
       restarts: this.restartCount,
       destinations: this.destinationConfig
@@ -359,10 +376,100 @@ export class Streamer extends EventEmitter {
         : [],
       lastError: this.lastError,
       currentScene: this.director?.getScene() ?? 'watch',
+      captureMode: this.cdpCapture?.getMode() ?? 'display',
+      windowId: this.cdpCapture?.getWindowId() ?? null,
     };
   }
 
   getState(): StreamerState {
     return this.state;
+  }
+
+  /**
+   * Manually switch to a specific scene (watch or vj)
+   * This is a manual override - the director will continue polling
+   * but won't auto-switch until brain state changes
+   */
+  async setScene(scene: 'watch' | 'vj'): Promise<void> {
+    if (this.director) {
+      await this.director.forceScene(scene);
+    } else {
+      throw new Error('Director not available (only available on macOS)');
+    }
+  }
+
+  /**
+   * Hot-swap CDP capture without dropping RTMP connection
+   * FFmpeg continues running and maintains the Twitter broadcast
+   * Only CDP (Chrome) is restarted with new capture mode
+   */
+  async restartCapture(): Promise<void> {
+    if (this.state !== 'streaming') {
+      throw new Error('Cannot restart capture: not streaming');
+    }
+
+    // Prevent auto-restart during hot-swap
+    this.isHotSwapping = true;
+
+    try {
+      console.log('[streamer] Hot-swapping CDP capture (RTMP stays connected)...');
+
+      // Stop director (scene switching)
+      if (this.director) {
+        this.director.stop();
+        this.director = null;
+      }
+
+      // Stop only CDP capture (NOT FFmpeg - RTMP connection stays alive)
+      if (this.cdpCapture) {
+        await this.cdpCapture.stop();
+        this.cdpCapture = null;
+      }
+
+      // Brief pause for Chrome cleanup
+      await new Promise(r => setTimeout(r, 1000));
+
+      // Determine capture mode (will now use 'window' on macOS)
+      const captureMode: CaptureMode = this.config.captureMode ||
+        (process.platform === 'darwin' ? 'window' : 'display');
+
+      console.log(`[streamer] New capture mode: ${captureMode}`);
+
+      // Create new CDP capture with updated mode
+      const captureConfig: CaptureConfig = {
+        url: this.config.watchUrl,
+        width: this.config.width,
+        height: this.config.height,
+        fps: this.config.fps,
+        quality: this.config.jpegQuality,
+        mode: captureMode,
+      };
+
+      this.cdpCapture = new CdpCapture(captureConfig, {
+        onFrame: (buffer) => this.handleFrame(buffer),
+        onError: (error) => this.handleError('cdp', error),
+        onDisconnect: () => this.handleDisconnect('cdp'),
+      });
+
+      await this.cdpCapture.start();
+
+      // Restart director on macOS
+      const page = this.cdpCapture.getPage();
+      if (page && process.platform === 'darwin') {
+        console.log('[streamer] Restarting Director');
+        this.director = new Director({
+          brainUrl: this.config.brainUrl,
+          watchUrl: this.config.watchUrl,
+          vjUrl: this.config.vjUrl,
+          pollInterval: 30000,
+        });
+        this.director.start(page);
+      }
+
+      console.log('[streamer] Hot-swap complete! Capture mode:', captureMode);
+      console.log('[streamer] Window ID:', this.cdpCapture.getWindowId() ?? 'N/A');
+    } finally {
+      this.isHotSwapping = false;
+    }
   }
 }

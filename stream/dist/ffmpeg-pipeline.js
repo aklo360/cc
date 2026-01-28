@@ -1,6 +1,8 @@
 /**
  * FFmpeg pipeline for encoding and streaming
- * Captures from X11 display (Xvfb), adds audio, outputs to RTMP destinations
+ * Supports two capture modes:
+ * 1. Display mode - Captures from display (x11grab on Linux, avfoundation on macOS)
+ * 2. Window mode - Receives JPEG frames via stdin (for window-specific capture)
  */
 import { spawn } from 'child_process';
 export class FfmpegPipeline {
@@ -22,16 +24,23 @@ export class FfmpegPipeline {
         }
         const isMacOS = process.platform === 'darwin';
         const hasAudio = this.config.audioUrl !== null;
+        const mode = this.config.mode || 'display';
         const args = [];
-        if (isMacOS) {
-            // macOS: Use avfoundation for screen capture
-            // Capture the main display (index 1) - Chrome window
+        if (mode === 'window') {
+            // Window mode: Receive JPEG frames via stdin
+            // This allows window-specific capture regardless of macOS Space switches
+            args.push('-f', 'mjpeg', // Motion JPEG input
+            '-framerate', String(this.config.fps), '-i', 'pipe:0');
+        }
+        else if (isMacOS) {
+            // Display mode on macOS: Use avfoundation for screen capture
+            // Capture the main display (index 0)
             // Note: You may need to grant Screen Recording permission in System Preferences
             args.push('-f', 'avfoundation', '-framerate', String(this.config.fps), '-capture_cursor', '0', // Don't capture cursor
             '-i', '0:none');
         }
         else {
-            // Linux: Use x11grab
+            // Display mode on Linux: Use x11grab
             const display = process.env.DISPLAY || ':99';
             args.push('-f', 'x11grab', '-video_size', `${this.config.width}x${this.config.height}`, '-framerate', String(this.config.fps), '-i', display);
         }
@@ -49,8 +58,14 @@ export class FfmpegPipeline {
             '-i', lofiPath);
             console.log('[ffmpeg] Using lofi fallback audio (looped)');
         }
-        if (isMacOS) {
-            // macOS: Scale to target resolution and use hardware encoding
+        if (mode === 'window') {
+            // Window mode: MJPEG input, use VideoToolbox hardware encoding
+            // Scale to ensure consistent output size
+            args.push('-vf', `scale=${this.config.width}:${this.config.height}`, '-c:v', 'h264_videotoolbox', '-b:v', this.config.bitrate, '-maxrate', '3000k', '-bufsize', '6000k', '-pix_fmt', 'yuv420p', '-g', String(this.config.fps * 2), // Keyframe every 2 seconds
+            '-profile:v', 'high', '-level', '4.1');
+        }
+        else if (isMacOS) {
+            // macOS display mode: Scale to target resolution and use hardware encoding
             args.push(
             // Scale to target size
             '-vf', `scale=${this.config.width}:${this.config.height}`, 
@@ -59,7 +74,7 @@ export class FfmpegPipeline {
             '-profile:v', 'high', '-level', '4.1');
         }
         else {
-            // Linux: Software encoding
+            // Linux display mode: Software encoding
             args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-b:v', this.config.bitrate, '-maxrate', '3000k', '-bufsize', '6000k', '-pix_fmt', 'yuv420p', '-g', String(this.config.fps * 2));
         }
         args.push(
@@ -78,7 +93,12 @@ export class FfmpegPipeline {
             args.push('-f', 'flv', rtmpUrl);
         }
         console.log('[ffmpeg] Starting pipeline...');
-        console.log(`[ffmpeg] Platform: ${isMacOS ? 'macOS (avfoundation + VideoToolbox)' : 'Linux (x11grab + libx264)'}`);
+        if (mode === 'window') {
+            console.log('[ffmpeg] Mode: window (MJPEG stdin + VideoToolbox)');
+        }
+        else {
+            console.log(`[ffmpeg] Mode: display (${isMacOS ? 'avfoundation + VideoToolbox' : 'x11grab + libx264'})`);
+        }
         console.log(`[ffmpeg] Resolution: ${this.config.width}x${this.config.height}@${this.config.fps}fps`);
         console.log(`[ffmpeg] Audio: ${hasAudio ? 'YouTube stream' : 'lofi fallback (looped)'}`);
         console.log(`[ffmpeg] Output: ${this.config.teeOutput}`);
@@ -150,9 +170,27 @@ export class FfmpegPipeline {
         this.isRunning = true;
         console.log('[ffmpeg] Pipeline started');
     }
-    // Not used in x11grab mode
-    writeFrame(_frameBuffer) {
-        return false;
+    /**
+     * Write a frame to FFmpeg stdin (window mode only)
+     * Returns true if frame was written, false if pipeline not ready
+     */
+    writeFrame(frameBuffer) {
+        if (!this.isRunning || !this.process?.stdin || this.config.mode !== 'window') {
+            return false;
+        }
+        try {
+            // Write JPEG frame to stdin
+            const written = this.process.stdin.write(frameBuffer);
+            if (!written) {
+                // Buffer is full, frame will be dropped
+                // This is expected under high load
+            }
+            return true;
+        }
+        catch (error) {
+            // Stdin closed or process crashed
+            return false;
+        }
     }
     stop() {
         console.log('[ffmpeg] Stopping pipeline...');

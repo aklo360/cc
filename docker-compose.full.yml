@@ -1,0 +1,192 @@
+# Full Docker Compose for ccwtf
+# Everything runs in containers - nothing on host except Docker
+
+# Shared network for all services
+networks:
+  ccwtf:
+    driver: bridge
+
+# Named volumes for persistent data
+volumes:
+  # Brain agent volumes (one per agent)
+  brain-1-data:
+  brain-2-data:
+  brain-3-data:
+  # Shared volumes
+  node-modules-cache:
+  cargo-cache:
+
+services:
+  # ===========================================
+  # BASE IMAGE BUILD
+  # ===========================================
+  base:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.base
+    image: ccwtf-base:latest
+
+  # ===========================================
+  # BRAIN AGENTS (can run multiple)
+  # ===========================================
+  brain-1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.brain
+      platforms:
+        - linux/amd64
+    image: ccwtf-brain:latest
+    container_name: ccwtf-brain-1
+    networks:
+      - ccwtf
+    ports:
+      - "3001:3001"
+    volumes:
+      - brain-1-data:/data
+    environment:
+      - AGENT_NAME=brain-1
+      - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TWITTER_API_KEY=${TWITTER_API_KEY}
+      - TWITTER_API_SECRET=${TWITTER_API_SECRET}
+      - TWITTER_ACCESS_TOKEN=${TWITTER_ACCESS_TOKEN}
+      - TWITTER_ACCESS_SECRET=${TWITTER_ACCESS_SECRET}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+      - DEVNET_CC_MINT=${DEVNET_CC_MINT:-HqJE8wjbeKBAa36tEw7cwEmNWxsqxKhJvFVjMxbHeCX2}
+      - CASINO_PROGRAM_ID=${CASINO_PROGRAM_ID:-3SwtsjFgrxEN6At94hzEx5Tkdh7A6XqQMEyKUQdT7EBT}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Additional brain agents (uncomment to enable)
+  # brain-2:
+  #   build:
+  #     context: .
+  #     dockerfile: docker/Dockerfile.brain
+  #   image: ccwtf-brain:latest
+  #   container_name: ccwtf-brain-2
+  #   depends_on:
+  #     - base
+  #   networks:
+  #     - ccwtf
+  #   ports:
+  #     - "3011:3001"
+  #   volumes:
+  #     - brain-2-data:/data
+  #   environment:
+  #     - AGENT_NAME=brain-2
+  #     - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+  #     # ... same env vars
+
+  # ===========================================
+  # WEB (Next.js)
+  # ===========================================
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      target: production
+    image: ccwtf-web:latest
+    container_name: ccwtf-web
+    networks:
+      - ccwtf
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+  web-dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      target: development
+    image: ccwtf-web-dev:latest
+    container_name: ccwtf-web-dev
+    networks:
+      - ccwtf
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./app:/app/app
+      - ./public:/app/public
+      - node-modules-cache:/app/node_modules
+    environment:
+      - NODE_ENV=development
+    profiles:
+      - dev
+
+  # ===========================================
+  # STREAM (24/7 Livestream)
+  # ===========================================
+  stream:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.stream
+    image: ccwtf-stream:latest
+    container_name: ccwtf-stream
+    depends_on:
+      - brain-1
+    networks:
+      - ccwtf
+    ports:
+      - "3002:3002"
+    environment:
+      - BRAIN_URL=http://brain-1:3001
+      - KICK_RTMP_URL=${KICK_RTMP_URL}
+      - KICK_STREAM_KEY=${KICK_STREAM_KEY}
+      - YOUTUBE_RTMP_URL=${YOUTUBE_RTMP_URL}
+      - YOUTUBE_STREAM_KEY=${YOUTUBE_STREAM_KEY}
+      - TWITTER_RTMP_URL=${TWITTER_RTMP_URL}
+      - TWITTER_STREAM_KEY=${TWITTER_STREAM_KEY}
+    restart: unless-stopped
+
+  # ===========================================
+  # DEVELOPMENT CONTAINER
+  # ===========================================
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+      platforms:
+        - linux/amd64
+    image: ccwtf-dev:latest
+    container_name: ccwtf-dev
+    networks:
+      - ccwtf
+    volumes:
+      # Mount entire repo for development
+      - .:/home/claude/ccwtf
+      # Persist Solana config
+      - ./docker/volumes/solana:/home/claude/.config/solana
+      # Persist SSH keys
+      - ./docker/volumes/ssh:/home/claude/.ssh
+      # Cache layers
+      - node-modules-cache:/home/claude/ccwtf/node_modules
+      - cargo-cache:/usr/local/cargo/registry
+    environment:
+      - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    stdin_open: true
+    tty: true
+    profiles:
+      - dev
+
+  # ===========================================
+  # CLOUDFLARE TUNNEL
+  # ===========================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ccwtf-tunnel
+    networks:
+      - ccwtf
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      - brain-1
+      - web

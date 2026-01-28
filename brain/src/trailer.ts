@@ -1,14 +1,39 @@
 /**
- * Trailer Generator - Creates 20-second CINEMATIC 3D trailers for features
+ * Trailer Generator - Creates cinematic trailers for features
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * TEMPLATE HIERARCHY (USE THE RIGHT ONE!)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * 1. **GameFiTrailer (15s)** - GOLD STANDARD for ALL GameFi games
+ *    - Coin flip, crash, jackpot, gacha
+ *    - Recreates ACTUAL UI components (not generic boxes)
+ *    - 8-scene timeline: intro → connect → choice → bet → action → result → balance → cta
+ *    - Orange coin with 3D flip (#da7756)
+ *    - Cursor with click effects at exact button positions
+ *    - Confetti (50 particles) on win
+ *    - **FOLLOW THIS PATTERN FOR NEW GAME TRAILERS**
+ *
+ * 2. **GameTrailer (20s)** - For arcade games (Space Invaders, etc.)
+ *    - Should follow GameFiTrailer pattern
+ *    - Recreates actual game UI, not generic templates
+ *
+ * 3. **WebappTrailer (20s)** - For text-based tools ONLY
+ *    - Poetry generator, code roast, rubber duck
+ *    - Generic input → processing → output flow
+ *    - 3D tilted terminal with camera movements
+ *    - Use ONLY for non-game features
+ *
+ * KEY PRINCIPLE: Recreate the ACTUAL UI. No generic templates for games.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
  *
  * ARCHITECTURE:
- * - Uses WebappTrailer composition (3D tilted terminal with camera movements)
- * - ALL trailers are 20 seconds (universal format)
  * - Screen recording ONLY for WebGL/Three.js (detected from manifest)
  * - Uses manifest ground truth for content
  *
- * CINEMATIC FEATURES (from WebappTrailer):
- * - 3D perspective with tilted terminal window
+ * CINEMATIC FEATURES:
+ * - 3D perspective with camera movements
  * - Dolly ins/zooms on active elements
  * - Cursor with click animations
  * - Typewriter text animation
@@ -25,7 +50,8 @@ import { getCycleTrailer, setCycleTrailer } from './db.js';
 
 // Paths
 const projectRoot = process.env.PROJECT_ROOT || process.cwd().replace('/brain', '');
-const VIDEO_DIR = path.join(projectRoot, 'video');
+// Use container-specific video path if set (Linux deps), otherwise use mounted path
+const VIDEO_DIR = process.env.VIDEO_CONTAINER_PATH || path.join(projectRoot, 'video');
 const OUTPUT_DIR = path.join(projectRoot, 'brain/recordings');
 
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });

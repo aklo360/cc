@@ -22,6 +22,8 @@ services:
       - /Users/claude/ccwtf:/Users/claude/ccwtf
       # Mount git config for authentication
       - /Users/claude/.gitconfig:/Users/claude/.gitconfig:ro
+      # Mount Solana wallet for GameFi transactions
+      - /Users/claude/.config/solana:/data/wallet:ro
     networks:
       - llphant
     deploy:

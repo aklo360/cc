@@ -49,3 +49,24 @@ video/public/footage
 
 # Claude plans
 .claude
+
+# Rust target (large)
+programs/*/target
+
+# Database files
+*.db
+*.db-journal
+brain/brain.db
+
+# Recordings
+brain/recordings
+stream/recordings
+
+# Secrets
+*.pem
+*.key
+keypair.json
+*-keypair.json
+
+# Docker volumes
+docker/volumes

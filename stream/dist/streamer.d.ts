@@ -4,6 +4,7 @@
  * Director switches between /watch and /vj based on brain state
  */
 import { EventEmitter } from 'events';
+import { CaptureMode } from './cdp-capture.js';
 export type StreamerState = 'stopped' | 'starting' | 'streaming' | 'restarting' | 'error';
 export interface StreamerConfig {
     watchUrl: string;
@@ -17,6 +18,7 @@ export interface StreamerConfig {
     jpegQuality: number;
     maxRestarts: number;
     restartDelayMs: number;
+    captureMode?: CaptureMode;
 }
 export interface StreamerStats {
     state: StreamerState;
@@ -26,6 +28,8 @@ export interface StreamerStats {
     destinations: string[];
     lastError: string | null;
     currentScene: 'watch' | 'vj';
+    captureMode: CaptureMode;
+    windowId: number | null;
 }
 export declare class Streamer extends EventEmitter {
     private config;
@@ -38,6 +42,7 @@ export declare class Streamer extends EventEmitter {
     private restartCount;
     private lastError;
     private isShuttingDown;
+    private isHotSwapping;
     private restartResetTimer;
     private streamHealthInterval;
     private static readonly RESTART_RESET_AFTER_MS;
@@ -60,5 +65,17 @@ export declare class Streamer extends EventEmitter {
     private setState;
     getStats(): StreamerStats;
     getState(): StreamerState;
+    /**
+     * Manually switch to a specific scene (watch or vj)
+     * This is a manual override - the director will continue polling
+     * but won't auto-switch until brain state changes
+     */
+    setScene(scene: 'watch' | 'vj'): Promise<void>;
+    /**
+     * Hot-swap CDP capture without dropping RTMP connection
+     * FFmpeg continues running and maintains the Twitter broadcast
+     * Only CDP (Chrome) is restarted with new capture mode
+     */
+    restartCapture(): Promise<void>;
 }
 //# sourceMappingURL=streamer.d.ts.map

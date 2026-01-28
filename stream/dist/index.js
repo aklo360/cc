@@ -15,6 +15,9 @@ const STREAM_WIDTH = parseInt(process.env.STREAM_WIDTH || '1280', 10);
 const STREAM_HEIGHT = parseInt(process.env.STREAM_HEIGHT || '720', 10);
 const STREAM_FPS = parseInt(process.env.STREAM_FPS || '30', 10);
 const STREAM_BITRATE = process.env.STREAM_BITRATE || '2500k';
+// Capture mode: 'window' (default on macOS) captures specific Chrome window
+// 'display' captures full screen (legacy mode, affected by Space switches)
+const CAPTURE_MODE = process.env.CAPTURE_MODE || undefined;
 // Create streamer
 const streamerConfig = {
     watchUrl: WATCH_URL,
@@ -28,6 +31,7 @@ const streamerConfig = {
     jpegQuality: 80,
     maxRestarts: 10,
     restartDelayMs: 5000,
+    captureMode: CAPTURE_MODE,
 };
 const streamer = new Streamer(streamerConfig);
 // Event logging
@@ -70,6 +74,8 @@ function handleRequest(req, res) {
                 restarts: stats.restarts,
                 destinations: stats.destinations,
                 lastError: stats.lastError,
+                captureMode: stats.captureMode,
+                windowId: stats.windowId,
             },
             config: {
                 watchUrl: WATCH_URL,
@@ -78,6 +84,7 @@ function handleRequest(req, res) {
                 resolution: `${STREAM_WIDTH}x${STREAM_HEIGHT}`,
                 fps: STREAM_FPS,
                 bitrate: STREAM_BITRATE,
+                captureMode: CAPTURE_MODE || 'auto (window on macOS, display on Linux)',
             },
             memory: {
                 heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
@@ -126,6 +133,72 @@ function handleRequest(req, res) {
         });
         return;
     }
+    // Route: POST /restart-capture (hot-swap CDP without dropping RTMP)
+    if (url === '/restart-capture' && method === 'POST') {
+        if (streamer.getState() !== 'streaming') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Stream not running' }));
+            return;
+        }
+        streamer.restartCapture()
+            .then(() => {
+            const stats = streamer.getStats();
+            res.writeHead(200);
+            res.end(JSON.stringify({
+                success: true,
+                message: 'Capture restarted (RTMP maintained)',
+                captureMode: stats.captureMode,
+                windowId: stats.windowId,
+            }));
+        })
+            .catch((error) => {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: error.message }));
+        });
+        return;
+    }
+    // Route: POST /scene (manual scene switch)
+    if (url === '/scene' && method === 'POST') {
+        if (streamer.getState() !== 'streaming') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Stream not running' }));
+            return;
+        }
+        let body = '';
+        req.on('data', (chunk) => {
+            body += chunk.toString();
+        });
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body);
+                const scene = data.scene;
+                if (scene !== 'watch' && scene !== 'vj') {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({ error: 'Invalid scene. Use "watch" or "vj"' }));
+                    return;
+                }
+                streamer.setScene(scene)
+                    .then(() => {
+                    const stats = streamer.getStats();
+                    res.writeHead(200);
+                    res.end(JSON.stringify({
+                        success: true,
+                        message: `Switched to ${scene}`,
+                        currentScene: stats.currentScene,
+                    }));
+                })
+                    .catch((error) => {
+                    res.writeHead(500);
+                    res.end(JSON.stringify({ error: error.message }));
+                });
+            }
+            catch {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+            }
+        });
+        return;
+    }
     // Route: GET /status (alias for health)
     if (url === '/status' && method === 'GET') {
         const stats = streamer.getStats();
@@ -137,6 +210,8 @@ function handleRequest(req, res) {
             uptime: stats.uptime,
             restarts: stats.restarts,
             destinations: stats.destinations,
+            captureMode: stats.captureMode,
+            windowId: stats.windowId,
         }));
         return;
     }

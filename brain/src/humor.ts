@@ -1,8 +1,10 @@
 /**
- * Humor - Memecoin dev personality for build logs
+ * Humor - Frontier AI personality for build logs
  *
- * Voice: lowercase, casual, crypto twitter slang, anti-hype, genuine vibes
- * Each category maps to a specific phase/action in the cycle
+ * Voice: meme-y, fun, casual dev twitter energy BUT CONFIDENT
+ * Think: extremely online dev who's actually cracked at coding
+ * NO self-deprecation, NO "idk why this works", NO existential doubt
+ * YES: memes, slang, fun phrases, swagger, casual vibes
  */
 
 // Humor organized by phase/action - NOT random, contextual to what's happening
@@ -12,42 +14,42 @@ const HUMOR = {
     "dev is thinking real hard...",
     "initiating vibe check",
     "the braincells are conferencing",
-    "loading good ideas from cache...",
-    "consulting the algo",
+    "big brain time",
+    "cooking up the architecture",
   ],
   building: [
     "dev is devving",
     "time to cook",
-    "writing code (or trying to)",
     "entering the zone",
     "keyboard clacking intensifies",
-    "fingers on keys, brain engaged",
+    "fingers on keys, let's go",
+    "built different fr",
   ],
   deploying: [
-    "uploading vibes to the cloud",
-    "pushing to prod (yolo)",
+    "yeeting to production",
+    "pushing to prod (confident)",
     "sending it to the internet",
     "cloudflare, take the wheel",
-    "yeeting to production",
+    "shipping heat",
   ],
   verifying: [
-    "does it actually work though?",
     "moment of truth",
     "running the gauntlet",
     "quality check incoming",
-    "time to find out if we cooked or got cooked",
+    "time to see the magic",
+    "verification speedrun",
   ],
   testing: [
     "poking the feature to see if it's alive",
     "clicking all the buttons",
-    "the feature is being judged",
     "ux police on patrol",
+    "feature inspection time",
   ],
   recording: [
     "capturing the vibes",
     "making a movie",
     "lights camera action",
-    "the feature's screen test",
+    "this deserves a trailer",
   ],
 
   // Success messages - contextual to what just succeeded
@@ -58,23 +60,23 @@ const HUMOR = {
     "roadmap acquired",
   ],
   buildSuccess: [
-    "it compiled (somehow)",
     "code goes brrrr",
     "dev shipped",
-    "the code has been cooked",
     "feature materialized",
+    "clean build, clean conscience",
+    "another banger shipped",
   ],
   deploySuccess: [
     "it's alive on the internet",
     "successfully yeeted to prod",
     "the cloud has accepted our offering",
-    "live and in production",
+    "live and looking good",
   ],
   verifySuccess: [
-    "it actually works lmao",
+    "works perfectly fr",
     "quality seal of approval",
-    "the feature is not a scam",
     "passed the vibe check",
+    "verified and vibing",
   ],
   testSuccess: [
     "buttons click, forms submit, games play",
@@ -91,49 +93,49 @@ const HUMOR = {
     "another one for the portfolio",
     "dev doing dev things",
     "feature unlocked",
-    "shipped and dipped",
-    "productivity flex complete",
+    "shipped and blessed",
+    "gg ez",
   ],
 
-  // Failure/retry messages - contextual to what failed
+  // Failure/retry messages - still confident, not defeated
   retrying: [
-    "that didn't work, trying again",
+    "plot twist, adapting",
     "round 2, fight",
-    "computer said no, asking again",
+    "speedbump, not a wall",
     "persistence is key",
     "we go again",
   ],
   buildFailed: [
-    "the code fought back",
-    "skill issue detected",
-    "build machine said no",
+    "skill issue detected, fixing",
+    "edge case found, handling it",
+    "challenge accepted",
   ],
   deployFailed: [
-    "the cloud rejected us",
-    "prod said nah",
-    "deployment chose violence",
+    "infra being dramatic, retrying",
+    "prod said wait, trying again",
+    "network hiccup, we persist",
   ],
   verifyFailed: [
-    "404 vibes",
-    "the internet isn't ready",
-    "deployment ghost",
+    "propagation in progress",
+    "dns doing dns things",
+    "almost there...",
   ],
   testFailed: [
-    "feature is broken fr",
-    "ux crimes detected",
-    "back to the drawing board",
+    "found an edge case, improving",
+    "making it even better",
+    "refinement arc",
   ],
   maxRetriesFailed: [
-    "this one chose violence",
-    "feature too complex, moving on",
-    "ngmi (this feature at least)",
-    "some ideas aren't meant to ship",
+    "this one's spicy, saving for later",
+    "interesting problem, will revisit",
+    "flagging for round 2",
+    "tactical retreat, not defeat",
   ],
   cleanup: [
     "sweeping under the rug",
-    "pretend that never happened",
     "the janitor has arrived",
-    "cleaning up the crime scene",
+    "resetting for the next W",
+    "clean slate incoming",
   ],
 
   // Cooldown/waiting
@@ -151,27 +153,27 @@ const HUMOR = {
     "memeing in progress",
     "generating content",
     "the meme machine awakens",
-    "art mode activated",
+    "cooking up something viral",
   ],
   memeSuccess: [
     "meme deployed to the timeline",
-    "content created and shipped",
     "another banger posted",
     "the people have been blessed",
-    "meme successfully landed",
+    "timeline upgraded",
+    "engagement incoming",
   ],
   memeFailed: [
-    "meme didn't pass the vibe check",
-    "quality gate said no",
-    "the meme wasn't ready",
-    "content rejected, trying again",
+    "that one wasn't it, going again",
+    "quality standards are high here",
+    "we only post bangers",
+    "iterating on the vision",
   ],
   cooldownActive: [
-    "claude is resting",
-    "recharging creative energy",
+    "making memes while we wait",
+    "productive vibes only",
     "meme mode activated",
-    "generating memes until next build",
-    "cooldown entertainment mode",
+    "can't stop shipping content",
+    "cooldown? more like content time",
   ],
 
   // Tweet related
