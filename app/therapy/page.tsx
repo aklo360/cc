@@ -74,9 +74,7 @@ export default function TherapyPage() {
   };
 
   const handleSend = () => {
-    if (!input.trim()) return;
-
-    const userMessage = input.trim();
+    const userMessage = input.trim() || "I'm not sure where to start...";
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
 
@@ -206,7 +204,7 @@ export default function TherapyPage() {
             <div className="flex gap-2 mt-3">
               <button
                 onClick={handleSend}
-                disabled={!input.trim() || isThinking}
+                disabled={isThinking}
                 className="bg-claude-orange text-white font-semibold py-2.5 px-4 rounded-md text-sm hover:bg-claude-orange-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-1"
               >
                 Send
