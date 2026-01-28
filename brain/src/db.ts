@@ -2160,3 +2160,157 @@ export function getDailyFlipStats(): {
     losses: result.losses,
   };
 }
+
+// ============ DAILY PAYOUT STATS (Circuit Breaker Support) ============
+
+/**
+ * Initialize daily payout stats table
+ * Tracks payouts per day for circuit breaker protection
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS daily_payout_stats (
+    date TEXT PRIMARY KEY,
+    total_payouts INTEGER DEFAULT 0,
+    payout_count INTEGER DEFAULT 0,
+    largest_payout INTEGER DEFAULT 0,
+    last_payout_at TEXT
+  )
+`);
+
+/**
+ * Initialize daily transfer stats table
+ * Tracks transfers from rewards wallet to game wallet
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS daily_transfer_stats (
+    date TEXT PRIMARY KEY,
+    total_transferred INTEGER DEFAULT 0,
+    transfer_count INTEGER DEFAULT 0,
+    last_transfer_at TEXT
+  )
+`);
+
+export interface DailyPayoutStats {
+  date: string;
+  totalPayouts: number;  // In $CC (not lamports)
+  payoutCount: number;
+  largestPayout: number; // In $CC
+  lastPayoutAt: string | null;
+}
+
+export interface DailyTransferStats {
+  date: string;
+  totalTransferred: number;  // In $CC
+  transferCount: number;
+  lastTransferAt: string | null;
+}
+
+/**
+ * Get daily payout stats for circuit breaker
+ */
+export function getDailyPayoutStats(date?: string): DailyPayoutStats {
+  const targetDate = date || new Date().toISOString().split('T')[0];
+
+  const stmt = db.prepare(`
+    SELECT * FROM daily_payout_stats WHERE date = ?
+  `);
+  const row = stmt.get(targetDate) as {
+    date: string;
+    total_payouts: number;
+    payout_count: number;
+    largest_payout: number;
+    last_payout_at: string | null;
+  } | undefined;
+
+  if (!row) {
+    return {
+      date: targetDate,
+      totalPayouts: 0,
+      payoutCount: 0,
+      largestPayout: 0,
+      lastPayoutAt: null,
+    };
+  }
+
+  return {
+    date: row.date,
+    totalPayouts: row.total_payouts / 1_000_000_000, // 9 decimals
+    payoutCount: row.payout_count,
+    largestPayout: row.largest_payout / 1_000_000_000, // 9 decimals
+    lastPayoutAt: row.last_payout_at,
+  };
+}
+
+/**
+ * Record a payout for circuit breaker tracking
+ * @param amountLamports - Amount in token lamports (9 decimals)
+ */
+export function recordPayout(amountLamports: bigint): void {
+  const today = new Date().toISOString().split('T')[0];
+  const now = new Date().toISOString();
+  const amount = Number(amountLamports);
+
+  const stmt = db.prepare(`
+    INSERT INTO daily_payout_stats (date, total_payouts, payout_count, largest_payout, last_payout_at)
+    VALUES (?, ?, 1, ?, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      total_payouts = total_payouts + ?,
+      payout_count = payout_count + 1,
+      largest_payout = MAX(largest_payout, ?),
+      last_payout_at = ?
+  `);
+  stmt.run(today, amount, amount, now, amount, amount, now);
+}
+
+/**
+ * Get daily transfer stats (rewards → game wallet)
+ */
+export function getDailyTransferStats(date?: string): DailyTransferStats {
+  const targetDate = date || new Date().toISOString().split('T')[0];
+
+  const stmt = db.prepare(`
+    SELECT * FROM daily_transfer_stats WHERE date = ?
+  `);
+  const row = stmt.get(targetDate) as {
+    date: string;
+    total_transferred: number;
+    transfer_count: number;
+    last_transfer_at: string | null;
+  } | undefined;
+
+  if (!row) {
+    return {
+      date: targetDate,
+      totalTransferred: 0,
+      transferCount: 0,
+      lastTransferAt: null,
+    };
+  }
+
+  return {
+    date: row.date,
+    totalTransferred: row.total_transferred / 1_000_000_000, // 9 decimals
+    transferCount: row.transfer_count,
+    lastTransferAt: row.last_transfer_at,
+  };
+}
+
+/**
+ * Record a transfer from rewards wallet to game wallet
+ * @param amountLamports - Amount in token lamports (9 decimals)
+ */
+export function recordRewardsTransfer(amountLamports: bigint): void {
+  const today = new Date().toISOString().split('T')[0];
+  const now = new Date().toISOString();
+  const amount = Number(amountLamports);
+
+  const stmt = db.prepare(`
+    INSERT INTO daily_transfer_stats (date, total_transferred, transfer_count, last_transfer_at)
+    VALUES (?, ?, 1, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      total_transferred = total_transferred + ?,
+      transfer_count = transfer_count + 1,
+      last_transfer_at = ?
+  `);
+  stmt.run(today, amount, now, amount, now);
+}

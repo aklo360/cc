@@ -23,10 +23,11 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
+  getAccount,
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
 } from '@solana/spl-token';
-import { loadWallet, CC_TOKEN_MINT, type BrainWallet } from './wallet.js';
+import { loadWallet, loadBurnWallet, loadRewardsWallet, rewardsWalletExists, CC_TOKEN_MINT, type BrainWallet, type BurnWallet, type RewardsWallet } from './wallet.js';
 
 // ============ CONNECTION CONFIG ============
 
@@ -187,10 +188,18 @@ export async function sendAndConfirmWithRetry(
   throw lastError || new Error('Transaction failed after max retries');
 }
 
+// ============ SAFETY CONSTANTS ============
+
+// SAFETY: Maximum $CC tokens that can be transferred in a single transaction
+// 100M tokens max - prevents catastrophic transfers from bugs
+const MAX_TRANSFER_PER_TX = BigInt(100_000_000_000_000_000); // 100M tokens (9 decimals)
+
 // ============ TOKEN TRANSFER HELPERS ============
 
 /**
  * Transfer $CC tokens from brain wallet to destination
+ *
+ * SAFETY: This function includes balance validation and safety caps
  */
 export async function transferCC(
   connection: Connection,
@@ -200,6 +209,38 @@ export async function transferCC(
 ): Promise<string> {
   const sourceAta = await getAssociatedTokenAddress(CC_TOKEN_MINT, wallet.publicKey);
   const destAta = await getAssociatedTokenAddress(CC_TOKEN_MINT, destination);
+
+  // ============ SAFETY VALIDATIONS ============
+
+  // Get source account balance for validation
+  const sourceAccount = await getAccount(connection, sourceAta);
+  const sourceBalance = sourceAccount.amount;
+
+  // SAFETY CHECK 1: Never transfer more than we have
+  if (amount > sourceBalance) {
+    throw new Error(
+      `SAFETY STOP: Transfer amount ${amount} exceeds balance ${sourceBalance}. ` +
+      `This would fail on-chain but we catch it early.`
+    );
+  }
+
+  // SAFETY CHECK 2: Never transfer more than MAX_TRANSFER_PER_TX (100M tokens)
+  if (amount > MAX_TRANSFER_PER_TX) {
+    throw new Error(
+      `SAFETY STOP: Transfer amount ${amount} exceeds max transfer per tx ${MAX_TRANSFER_PER_TX}. ` +
+      `If you need to transfer more, do it in multiple transactions.`
+    );
+  }
+
+  // SAFETY LOG: Always log transfers before execution
+  console.log(`[TRANSFER VALIDATION] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`[TRANSFER VALIDATION]   Source balance: ${sourceBalance} lamports (${Number(sourceBalance) / 1_000_000_000} $CC)`);
+  console.log(`[TRANSFER VALIDATION]   Amount:         ${amount} lamports (${Number(amount) / 1_000_000_000} $CC)`);
+  console.log(`[TRANSFER VALIDATION]   Remaining:      ${sourceBalance - amount} lamports (${Number(sourceBalance - amount) / 1_000_000_000} $CC)`);
+  console.log(`[TRANSFER VALIDATION]   Destination:    ${destination.toBase58()}`);
+  console.log(`[TRANSFER VALIDATION] ━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+  // ============ EXECUTE TRANSFER ============
 
   const instructions: TransactionInstruction[] = [];
 
@@ -300,6 +341,8 @@ export async function initializeGame(
 
 /**
  * Fund game escrow with $CC tokens
+ *
+ * SAFETY: This function validates wallet balance before attempting transfer
  */
 export async function fundEscrow(
   connection: Connection,
@@ -307,6 +350,25 @@ export async function fundEscrow(
   gameSlug: string,
   amount: bigint
 ): Promise<string> {
+  // SAFETY: Check wallet has sufficient funds before attempting
+  const balance = await wallet.getBalance(connection);
+  const balanceLamports = BigInt(Math.floor(balance.cc * 1_000_000_000));
+
+  if (balanceLamports < amount) {
+    throw new Error(
+      `SAFETY STOP: Insufficient balance for escrow funding. ` +
+      `Need ${amount} lamports (${Number(amount) / 1_000_000_000} $CC), ` +
+      `have ${balanceLamports} lamports (${balance.cc} $CC)`
+    );
+  }
+
+  console.log(`[ESCROW FUNDING] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`[ESCROW FUNDING]   Game: ${gameSlug}`);
+  console.log(`[ESCROW FUNDING]   Wallet balance: ${balance.cc} $CC`);
+  console.log(`[ESCROW FUNDING]   Funding amount: ${Number(amount) / 1_000_000_000} $CC`);
+  console.log(`[ESCROW FUNDING]   Remaining after: ${balance.cc - Number(amount) / 1_000_000_000} $CC`);
+  console.log(`[ESCROW FUNDING] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
   const [escrowPda] = deriveEscrowPDA(gameSlug);
   return transferCC(connection, wallet, escrowPda, amount);
 }
@@ -800,6 +862,154 @@ export async function getBrainWalletAta(): Promise<string | null> {
     return ata.toBase58();
   } catch (error) {
     console.error('Failed to get/create brain wallet ATA:', error);
+    return null;
+  }
+}
+
+/**
+ * Get or create the burn wallet's ATA for $CC
+ * The burn wallet is a dedicated wallet used ONLY for burn operations (safety airlock)
+ *
+ * IMPORTANT: This function ensures the ATA exists on-chain.
+ * The brain wallet pays for ATA creation rent.
+ */
+export async function ensureBurnWalletAta(): Promise<string | null> {
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+  if (!encryptionKey) {
+    return null;
+  }
+
+  try {
+    const connection = getConnection();
+    const brainWallet = loadWallet(encryptionKey);
+    const burnWallet = loadBurnWallet(encryptionKey);
+    const ata = await getAssociatedTokenAddress(CC_TOKEN_MINT, burnWallet.publicKey);
+
+    // Check if ATA exists on-chain
+    const accountInfo = await connection.getAccountInfo(ata);
+    if (!accountInfo) {
+      // ATA doesn't exist - create it (brain wallet pays rent)
+      console.log('[Solana] Burn wallet ATA for $CC does not exist, creating...');
+      console.log('[Solana] Burn wallet:', burnWallet.publicKey.toBase58());
+      console.log('[Solana] ATA address:', ata.toBase58());
+      console.log('[Solana] $CC mint:', CC_TOKEN_MINT.toBase58());
+
+      const createAtaIx = createAssociatedTokenAccountInstruction(
+        brainWallet.publicKey,  // payer (brain wallet pays rent ~0.002 SOL)
+        ata,                     // ata address to create
+        burnWallet.publicKey,   // owner of the new ATA (burn wallet)
+        CC_TOKEN_MINT           // token mint
+      );
+
+      const tx = await buildTransaction(connection, brainWallet.publicKey, [createAtaIx]);
+      const signature = await sendAndConfirmWithRetry(connection, brainWallet, tx);
+      console.log('[Solana] Burn wallet ATA created successfully!');
+      console.log('[Solana] Transaction:', signature);
+    }
+
+    return ata.toBase58();
+  } catch (error) {
+    console.error('Failed to get/create burn wallet ATA:', error);
+    return null;
+  }
+}
+
+/**
+ * Transfer $CC tokens from brain wallet to burn wallet (airlock pattern)
+ * This is step 1 of the safe burn process
+ *
+ * @param connection - Solana connection
+ * @param brainWallet - Source wallet (brain)
+ * @param burnWallet - Destination wallet (burn airlock)
+ * @param amount - Amount in token lamports (9 decimals)
+ */
+export async function transferToBurnWallet(
+  connection: Connection,
+  brainWallet: BrainWallet,
+  burnWallet: BurnWallet,
+  amount: bigint
+): Promise<string> {
+  console.log(`[BURN AIRLOCK] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`[BURN AIRLOCK] Step 1: Transfer to burn wallet`);
+  console.log(`[BURN AIRLOCK] Amount: ${amount} lamports (${Number(amount) / 1_000_000_000} $CC)`);
+  console.log(`[BURN AIRLOCK] From:   ${brainWallet.publicKey.toBase58()}`);
+  console.log(`[BURN AIRLOCK] To:     ${burnWallet.publicKey.toBase58()}`);
+  console.log(`[BURN AIRLOCK] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+  return transferCC(connection, brainWallet, burnWallet.publicKey, amount);
+}
+
+/**
+ * Get or create the rewards wallet's ATA for $CC
+ * The rewards wallet is cold storage - NEVER used by games directly.
+ *
+ * IMPORTANT: This function ensures the ATA exists on-chain.
+ * The brain wallet pays for ATA creation rent.
+ */
+export async function ensureRewardsWalletAta(): Promise<string | null> {
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+  if (!encryptionKey) {
+    return null;
+  }
+
+  if (!rewardsWalletExists()) {
+    console.error('[Solana] Rewards wallet not created yet');
+    return null;
+  }
+
+  try {
+    const connection = getConnection();
+    const brainWallet = loadWallet(encryptionKey);
+    const rewardsWallet = loadRewardsWallet(encryptionKey);
+    const ata = await getAssociatedTokenAddress(CC_TOKEN_MINT, rewardsWallet.publicKey);
+
+    // Check if ATA exists on-chain
+    const accountInfo = await connection.getAccountInfo(ata);
+    if (!accountInfo) {
+      // ATA doesn't exist - create it (brain wallet pays rent)
+      console.log('[Solana] Rewards wallet ATA for $CC does not exist, creating...');
+      console.log('[Solana] Rewards wallet:', rewardsWallet.publicKey.toBase58());
+      console.log('[Solana] ATA address:', ata.toBase58());
+      console.log('[Solana] $CC mint:', CC_TOKEN_MINT.toBase58());
+
+      const createAtaIx = createAssociatedTokenAccountInstruction(
+        brainWallet.publicKey,     // payer (brain wallet pays rent ~0.002 SOL)
+        ata,                        // ata address to create
+        rewardsWallet.publicKey,   // owner of the new ATA (rewards wallet)
+        CC_TOKEN_MINT              // token mint
+      );
+
+      const tx = await buildTransaction(connection, brainWallet.publicKey, [createAtaIx]);
+      const signature = await sendAndConfirmWithRetry(connection, brainWallet, tx);
+      console.log('[Solana] Rewards wallet ATA created successfully!');
+      console.log('[Solana] Transaction:', signature);
+    }
+
+    return ata.toBase58();
+  } catch (error) {
+    console.error('Failed to get/create rewards wallet ATA:', error);
+    return null;
+  }
+}
+
+/**
+ * Get the rewards wallet's public key (if exists)
+ */
+export function getRewardsWalletAddress(): string | null {
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+  if (!encryptionKey) {
+    return null;
+  }
+
+  if (!rewardsWalletExists()) {
+    return null;
+  }
+
+  try {
+    const rewardsWallet = loadRewardsWallet(encryptionKey);
+    return rewardsWallet.publicKey.toBase58();
+  } catch (error) {
+    console.error('Failed to get rewards wallet address:', error);
     return null;
   }
 }

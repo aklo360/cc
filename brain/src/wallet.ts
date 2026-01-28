@@ -396,5 +396,458 @@ export function checkSecurityAlerts(): string[] {
   return alerts;
 }
 
-// Initialize wallet table on module load
+// ============ BURN WALLET (SAFETY AIRLOCK) ============
+/**
+ * The burn wallet is a dedicated wallet used ONLY for burn operations.
+ * This creates an "airlock" pattern:
+ *
+ *   Brain Wallet (1.68M $CC)
+ *         │
+ *   Transfer exact amount
+ *         │
+ *         ▼
+ *   Burn Wallet (airlock)
+ *         │
+ *   Burn ENTIRE balance
+ *         │
+ *         ▼
+ *      🔥 BURNED
+ *
+ * Why this is safer:
+ * - Even if code has a bug that burns "entire balance", it only burns what's in burn wallet
+ * - The brain wallet (with rewards pool) is NEVER at risk
+ * - Clear audit trail: transfer tx + burn tx
+ * - Simple to verify: burn wallet should always be empty after operations
+ */
+
+export interface BurnWallet {
+  publicKey: PublicKey;
+  keypair: Keypair;
+  getBalance: (connection: Connection) => Promise<WalletBalance>;
+  signTransaction: (tx: Transaction) => Transaction;
+  signAndSendTransaction: (connection: Connection, tx: Transaction) => Promise<string>;
+}
+
+export interface BurnWalletState {
+  publicKey: string;
+  isEmpty: boolean;
+  ccBalance: number;
+  solBalance: number;
+  lastSync: string | null;
+}
+
+/**
+ * Initialize the burn wallet table
+ */
+export function initBurnWalletTable(): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS burn_wallet (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      public_key TEXT NOT NULL,
+      encrypted_keypair BLOB NOT NULL,
+      sol_balance INTEGER DEFAULT 0,
+      cc_balance INTEGER DEFAULT 0,
+      last_sync TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+/**
+ * Check if the burn wallet exists
+ */
+export function burnWalletExists(): boolean {
+  const stmt = db.prepare('SELECT COUNT(*) as count FROM burn_wallet WHERE id = 1');
+  const result = stmt.get() as { count: number };
+  return result.count > 0;
+}
+
+/**
+ * Create a new burn wallet (one-time setup)
+ * This wallet is used ONLY for burn operations
+ */
+export function createBurnWallet(encryptionKey: string): { publicKey: string } {
+  if (burnWalletExists()) {
+    throw new Error('Burn wallet already exists.');
+  }
+
+  // Generate a new keypair
+  const keypair = Keypair.generate();
+  const publicKey = keypair.publicKey.toBase58();
+  const encryptedKeypair = encryptKeypair(keypair.secretKey, encryptionKey);
+
+  // Store in database
+  const stmt = db.prepare(`
+    INSERT INTO burn_wallet (id, public_key, encrypted_keypair)
+    VALUES (1, ?, ?)
+  `);
+  stmt.run(publicKey, encryptedKeypair);
+
+  console.log(`✓ Burn wallet created: ${publicKey}`);
+  console.log(`  This wallet is used ONLY for burn operations (safety airlock)`);
+
+  return { publicKey };
+}
+
+/**
+ * Get the burn wallet state from database
+ */
+export function getBurnWalletState(): BurnWalletState | null {
+  const stmt = db.prepare('SELECT * FROM burn_wallet WHERE id = 1');
+  const row = stmt.get() as {
+    public_key: string;
+    sol_balance: number;
+    cc_balance: number;
+    last_sync: string | null;
+  } | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    publicKey: row.public_key,
+    isEmpty: row.cc_balance === 0,
+    ccBalance: row.cc_balance / 1_000_000_000, // 9 decimals
+    solBalance: row.sol_balance / LAMPORTS_PER_SOL,
+    lastSync: row.last_sync,
+  };
+}
+
+/**
+ * Load the burn wallet with signing capabilities
+ */
+export function loadBurnWallet(encryptionKey: string): BurnWallet {
+  const stmt = db.prepare('SELECT * FROM burn_wallet WHERE id = 1');
+  const row = stmt.get() as {
+    public_key: string;
+    encrypted_keypair: Buffer;
+  } | undefined;
+
+  if (!row) {
+    throw new Error('Burn wallet not found. Create it first with createBurnWallet()');
+  }
+
+  // Decrypt the keypair
+  const secretKey = decryptKeypair(row.encrypted_keypair, encryptionKey);
+  const keypair = Keypair.fromSecretKey(secretKey);
+
+  // Verify the public key matches
+  if (keypair.publicKey.toBase58() !== row.public_key) {
+    throw new Error('Burn wallet decryption failed: public key mismatch');
+  }
+
+  return {
+    publicKey: keypair.publicKey,
+    keypair,
+
+    async getBalance(connection: Connection): Promise<WalletBalance> {
+      // Get SOL balance
+      const solLamports = await connection.getBalance(keypair.publicKey);
+
+      // Get $CC token balance
+      let ccLamports = BigInt(0);
+      try {
+        const ata = await getAssociatedTokenAddress(CC_TOKEN_MINT, keypair.publicKey);
+        const tokenAccount = await getAccount(connection, ata);
+        ccLamports = tokenAccount.amount;
+      } catch (error) {
+        if (!(error instanceof TokenAccountNotFoundError)) {
+          throw error;
+        }
+        // Token account doesn't exist yet = 0 balance
+      }
+
+      return {
+        sol: solLamports / LAMPORTS_PER_SOL,
+        cc: Number(ccLamports) / 1_000_000_000, // 9 decimals for $CC
+        solLamports: BigInt(solLamports),
+        ccLamports,
+      };
+    },
+
+    signTransaction(tx: Transaction): Transaction {
+      tx.sign(keypair);
+      return tx;
+    },
+
+    async signAndSendTransaction(connection: Connection, tx: Transaction): Promise<string> {
+      const signature = await sendAndConfirmTransaction(connection, tx, [keypair], {
+        commitment: 'confirmed',
+      });
+      return signature;
+    },
+  };
+}
+
+/**
+ * Update cached burn wallet balance in database
+ */
+export function updateBurnWalletCachedBalance(solBalance: number, ccBalance: number): void {
+  const stmt = db.prepare(`
+    UPDATE burn_wallet
+    SET sol_balance = ?, cc_balance = ?, last_sync = datetime('now')
+    WHERE id = 1
+  `);
+  stmt.run(Math.floor(solBalance * LAMPORTS_PER_SOL), Math.floor(ccBalance * 1_000_000_000));
+}
+
+// ============ REWARDS WALLET (COLD STORAGE) ============
+/**
+ * The rewards wallet is a dedicated "cold storage" wallet that holds the majority
+ * of the casino bankroll (9M $CC). It is NEVER used directly by games.
+ *
+ * 3-Wallet Architecture:
+ *
+ *   ┌─────────────────────────┐
+ *   │     REWARDS WALLET      │  ← Cold Storage (9M $CC)
+ *   │     (Ultra Secure)      │
+ *   │  • Never used by games  │
+ *   │  • Only tops up game    │
+ *   │  • Max 1M/day transfer  │
+ *   └───────────┬─────────────┘
+ *               │
+ *      Daily top-up (if < 300K)
+ *               │
+ *               ▼
+ *   ┌─────────────────────────┐
+ *   │      GAME WALLET        │  ← Hot Wallet (1M $CC)
+ *   │    (Current Brain)      │
+ *   │  • Game payouts only    │
+ *   │  • Max 100K per payout  │
+ *   │  • Max 500K/day payouts │
+ *   └───────────┬─────────────┘
+ *               │
+ *          Game payouts
+ *               │
+ *               ▼
+ *           Players
+ *
+ *   ┌─────────────────────────┐
+ *   │      BURN WALLET        │  ← Already implemented ✅
+ *   │      (Airlock)          │
+ *   │  • Burns only           │
+ *   └─────────────────────────┘
+ *
+ * Why this is safer:
+ * - Even if a game has a critical bug, max loss is 1M $CC (game wallet)
+ * - Rewards wallet is never touched by game code
+ * - Daily limits + circuit breakers prevent rapid drainage
+ * - Clear separation of concerns
+ */
+
+export interface RewardsWallet {
+  publicKey: PublicKey;
+  keypair: Keypair;
+  getBalance: (connection: Connection) => Promise<WalletBalance>;
+  signTransaction: (tx: Transaction) => Transaction;
+  signAndSendTransaction: (connection: Connection, tx: Transaction) => Promise<string>;
+}
+
+export interface RewardsWalletState {
+  publicKey: string;
+  ccBalance: number;
+  solBalance: number;
+  totalDistributed: number;
+  lastSync: string | null;
+  createdAt: string | null;
+}
+
+/**
+ * Initialize the rewards wallet table
+ */
+export function initRewardsWalletTable(): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rewards_wallet (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      public_key TEXT NOT NULL,
+      encrypted_keypair BLOB NOT NULL,
+      cc_balance INTEGER DEFAULT 0,
+      sol_balance INTEGER DEFAULT 0,
+      total_distributed INTEGER DEFAULT 0,
+      last_sync TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+/**
+ * Check if the rewards wallet exists
+ */
+export function rewardsWalletExists(): boolean {
+  const stmt = db.prepare('SELECT COUNT(*) as count FROM rewards_wallet WHERE id = 1');
+  const result = stmt.get() as { count: number };
+  return result.count > 0;
+}
+
+/**
+ * Create a new rewards wallet (one-time setup)
+ * This wallet holds the majority of the bankroll (cold storage)
+ */
+export function createRewardsWallet(encryptionKey: string): { publicKey: string } {
+  if (rewardsWalletExists()) {
+    throw new Error('Rewards wallet already exists.');
+  }
+
+  // Generate a new keypair
+  const keypair = Keypair.generate();
+  const publicKey = keypair.publicKey.toBase58();
+  const encryptedKeypair = encryptKeypair(keypair.secretKey, encryptionKey);
+
+  // Store in database
+  const stmt = db.prepare(`
+    INSERT INTO rewards_wallet (id, public_key, encrypted_keypair)
+    VALUES (1, ?, ?)
+  `);
+  stmt.run(publicKey, encryptedKeypair);
+
+  console.log(`✓ Rewards wallet created: ${publicKey}`);
+  console.log(`  This wallet is for cold storage - NEVER used by games directly`);
+
+  return { publicKey };
+}
+
+/**
+ * Import an existing rewards wallet from a secret key
+ */
+export function importRewardsWallet(secretKeyBase58: string, encryptionKey: string): { publicKey: string } {
+  const bs58 = require('bs58');
+  const secretKeyBytes = bs58.decode(secretKeyBase58);
+  const keypair = Keypair.fromSecretKey(secretKeyBytes);
+  const publicKey = keypair.publicKey.toBase58();
+  const encryptedKeypair = encryptKeypair(keypair.secretKey, encryptionKey);
+
+  // Upsert in database
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO rewards_wallet (id, public_key, encrypted_keypair, cc_balance, sol_balance, total_distributed)
+    VALUES (1, ?, ?, 0, 0, 0)
+  `);
+  stmt.run(publicKey, encryptedKeypair);
+
+  console.log(`✓ Rewards wallet imported: ${publicKey}`);
+
+  return { publicKey };
+}
+
+/**
+ * Get the rewards wallet state from database
+ */
+export function getRewardsWalletState(): RewardsWalletState | null {
+  const stmt = db.prepare('SELECT * FROM rewards_wallet WHERE id = 1');
+  const row = stmt.get() as {
+    public_key: string;
+    cc_balance: number;
+    sol_balance: number;
+    total_distributed: number;
+    last_sync: string | null;
+    created_at: string | null;
+  } | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    publicKey: row.public_key,
+    ccBalance: row.cc_balance / 1_000_000_000, // 9 decimals
+    solBalance: row.sol_balance / LAMPORTS_PER_SOL,
+    totalDistributed: row.total_distributed / 1_000_000_000, // 9 decimals
+    lastSync: row.last_sync,
+    createdAt: row.created_at,
+  };
+}
+
+/**
+ * Load the rewards wallet with signing capabilities
+ */
+export function loadRewardsWallet(encryptionKey: string): RewardsWallet {
+  const stmt = db.prepare('SELECT * FROM rewards_wallet WHERE id = 1');
+  const row = stmt.get() as {
+    public_key: string;
+    encrypted_keypair: Buffer;
+  } | undefined;
+
+  if (!row) {
+    throw new Error('Rewards wallet not found. Create it first with createRewardsWallet()');
+  }
+
+  // Decrypt the keypair
+  const secretKey = decryptKeypair(row.encrypted_keypair, encryptionKey);
+  const keypair = Keypair.fromSecretKey(secretKey);
+
+  // Verify the public key matches
+  if (keypair.publicKey.toBase58() !== row.public_key) {
+    throw new Error('Rewards wallet decryption failed: public key mismatch');
+  }
+
+  return {
+    publicKey: keypair.publicKey,
+    keypair,
+
+    async getBalance(connection: Connection): Promise<WalletBalance> {
+      // Get SOL balance
+      const solLamports = await connection.getBalance(keypair.publicKey);
+
+      // Get $CC token balance
+      let ccLamports = BigInt(0);
+      try {
+        const ata = await getAssociatedTokenAddress(CC_TOKEN_MINT, keypair.publicKey);
+        const tokenAccount = await getAccount(connection, ata);
+        ccLamports = tokenAccount.amount;
+      } catch (error) {
+        if (!(error instanceof TokenAccountNotFoundError)) {
+          throw error;
+        }
+        // Token account doesn't exist yet = 0 balance
+      }
+
+      return {
+        sol: solLamports / LAMPORTS_PER_SOL,
+        cc: Number(ccLamports) / 1_000_000_000, // 9 decimals for $CC
+        solLamports: BigInt(solLamports),
+        ccLamports,
+      };
+    },
+
+    signTransaction(tx: Transaction): Transaction {
+      tx.sign(keypair);
+      return tx;
+    },
+
+    async signAndSendTransaction(connection: Connection, tx: Transaction): Promise<string> {
+      const signature = await sendAndConfirmTransaction(connection, tx, [keypair], {
+        commitment: 'confirmed',
+      });
+      return signature;
+    },
+  };
+}
+
+/**
+ * Update cached rewards wallet balance in database
+ */
+export function updateRewardsWalletCachedBalance(solBalance: number, ccBalance: number): void {
+  const stmt = db.prepare(`
+    UPDATE rewards_wallet
+    SET sol_balance = ?, cc_balance = ?, last_sync = datetime('now')
+    WHERE id = 1
+  `);
+  stmt.run(Math.floor(solBalance * LAMPORTS_PER_SOL), Math.floor(ccBalance * 1_000_000_000));
+}
+
+/**
+ * Record a distribution from rewards wallet to game wallet
+ */
+export function recordRewardsDistribution(amount: number): void {
+  const stmt = db.prepare(`
+    UPDATE rewards_wallet
+    SET total_distributed = total_distributed + ?
+    WHERE id = 1
+  `);
+  stmt.run(Math.floor(amount * 1_000_000_000)); // 9 decimals
+}
+
+// Initialize wallet tables on module load
 initWalletTable();
+initBurnWalletTable();
+initRewardsWalletTable();

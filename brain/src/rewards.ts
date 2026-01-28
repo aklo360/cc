@@ -1,24 +1,95 @@
 /**
- * Rewards Pool Management - Bankroll for GameFi Casino
+ * Rewards Pool Management - 3-Wallet Architecture for GameFi Casino
  *
- * The brain wallet holds 1-2% of total $CC supply as the ENTIRE CASINO BANKROLL.
- * This is distributed across ALL games over time, not per-game allocation.
+ * ARCHITECTURE (implemented after 1.68M burn incident 2026-01-27):
+ *
+ *   ┌─────────────────────────┐
+ *   │     REWARDS WALLET      │  ← Cold Storage (9M $CC)
+ *   │     (Ultra Secure)      │
+ *   │  • Never used by games  │
+ *   │  • Only tops up game    │
+ *   │  • Max 1M/day transfer  │
+ *   └───────────┬─────────────┘
+ *               │
+ *      Daily top-up (if < 300K)
+ *               │
+ *               ▼
+ *   ┌─────────────────────────┐
+ *   │      GAME WALLET        │  ← Hot Wallet (1M $CC)
+ *   │    (Current Brain)      │
+ *   │  • Game payouts only    │
+ *   │  • Max 100K per payout  │
+ *   │  • Max 500K/day payouts │
+ *   └───────────┬─────────────┘
+ *               │
+ *          Game payouts
+ *               │
+ *               ▼
+ *           Players
+ *
+ *   ┌─────────────────────────┐
+ *   │      BURN WALLET        │  ← Airlock (separate module)
+ *   │      (Airlock)          │
+ *   │  • Burns only           │
+ *   └─────────────────────────┘
  *
  * Key Principles:
  * - Self-sustaining: fees flow back to bankroll
  * - Safety limits: max single payout, reserve ratio
  * - Deflationary: portion of fees burned
+ * - Circuit breakers: daily limits + balance thresholds
  */
 
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { loadWallet, getWalletState, CC_TOKEN_MINT } from './wallet.js';
-import { getActiveGames, type GameType, type GameConfig } from './db.js';
+import { loadWallet, loadRewardsWallet, rewardsWalletExists, getRewardsWalletState, recordRewardsDistribution, getWalletState, CC_TOKEN_MINT } from './wallet.js';
+import { getActiveGames, db, getDailyPayoutStats, getDailyTransferStats, recordPayout, recordRewardsTransfer, type GameType, type GameConfig } from './db.js';
+import { getConnection, transferCC } from './solana.js';
+
+// ============ 3-WALLET LIMITS (LOCKED IN) ============
+
+/**
+ * Rewards Wallet Limits (Cold Storage)
+ * This wallet holds the majority of funds and NEVER interacts with games directly.
+ */
+export const REWARDS_LIMITS = {
+  maxSingleTransfer: 1_000_000,      // 1M $CC max per transfer to game wallet
+  maxDailyTransfer: 1_000_000,       // 1M $CC max per day
+  gameWalletTarget: 1_000_000,       // Target balance for game wallet
+  gameWalletLowThreshold: 300_000,   // Trigger top-up when game wallet below this
+};
+
+/**
+ * Game Wallet Limits (Hot Wallet)
+ * This wallet handles all game payouts with strict limits.
+ */
+export const GAME_LIMITS = {
+  maxSinglePayout: 100_000,          // 100K $CC max per payout
+  maxDailyPayouts: 500_000,          // 500K $CC max payouts per day
+  minBalance: 100_000,               // Pause games if below this
+};
+
+/**
+ * Runway Estimates (at different loss scenarios):
+ * | Scenario      | Daily Loss | Pool Lasts |
+ * |--------------|-----------|------------|
+ * | House edge works | +profit | ∞        |
+ * | Light losses | -100K     | 100 days   |
+ * | Medium losses| -200K     | 50 days    |
+ * | Heavy losses | -333K     | 30 days    |
+ */
 
 // ============ BANKROLL CONFIGURATION ============
 
 export const CASINO_BANKROLL = {
   // Total allocation from $CC supply (1.5% = 15M tokens)
   totalAllocation: 15_000_000,
+
+  // 3-Wallet Distribution (NEW)
+  walletDistribution: {
+    rewardsWallet: 9_000_000,    // 9M $CC cold storage
+    gameWallet: 1_000_000,       // 1M $CC hot wallet (initial)
+    // Remaining 5M can be used for future expansion
+  },
 
   // Per-game allocation from the shared bankroll (in $CC)
   perGameAllocation: {
@@ -35,10 +106,10 @@ export const CASINO_BANKROLL = {
     burn: 0.15,           // 15% burned (deflationary pressure)
   },
 
-  // Safety limits
-  maxSinglePayout: 100_000,     // No single win > 100K $CC
+  // Safety limits (using new GAME_LIMITS)
+  maxSinglePayout: GAME_LIMITS.maxSinglePayout,
   reserveRatio: 0.20,           // Keep 20% as reserve buffer
-  maxDailyPayout: 1_000_000,    // Max 1M $CC paid out per day
+  maxDailyPayout: GAME_LIMITS.maxDailyPayouts,
 };
 
 // Default game configs by type
@@ -81,8 +152,26 @@ export interface BankrollState {
   availableBalance: number;       // Available for payouts
   allocatedToGames: number;       // Sum allocated to active games
   unallocated: number;            // Available for new games
-  dailyPayoutSoFar: number;       // Paid out today
+  dailyPayoutSoFar: number;       // Paid out today (in lamports)
   canPayoutMore: boolean;         // Under daily limit?
+}
+
+/**
+ * Get total payouts for today from game_bets table
+ * This queries all winning bets (outcome = 'win') created today
+ */
+function getDailyPayoutTotal(): number {
+  // Get today's date in YYYY-MM-DD format (UTC)
+  const today = new Date().toISOString().split('T')[0];
+
+  const stmt = db.prepare(`
+    SELECT COALESCE(SUM(payout_amount), 0) as total
+    FROM game_bets
+    WHERE DATE(created_at) = ? AND outcome = 'win'
+  `);
+
+  const result = stmt.get(today) as { total: number } | undefined;
+  return result?.total || 0;
 }
 
 export interface GameAllocation {
@@ -122,8 +211,7 @@ export async function getBankrollState(connection: Connection): Promise<Bankroll
     }
 
     // Calculate daily payout from database
-    // This would query game_bets for today's payouts
-    const dailyPayoutSoFar = 0; // TODO: Implement daily payout tracking
+    const dailyPayoutSoFar = getDailyPayoutTotal();
 
     return {
       totalBalance: balance.cc,
@@ -335,4 +423,382 @@ Daily Payouts:     ${state.dailyPayoutSoFar.toLocaleString()} / ${CASINO_BANKROL
 Can Payout More:   ${state.canPayoutMore ? 'Yes' : 'No (limit reached)'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `.trim();
+}
+
+// ============ CIRCUIT BREAKERS ============
+
+export interface CircuitBreakerResult {
+  allowed: boolean;
+  reason?: string;
+  dailyStats?: {
+    totalPayouts: number;
+    payoutCount: number;
+    remainingCapacity: number;
+  };
+}
+
+/**
+ * Check if a payout can be processed (circuit breaker for game wallet)
+ * This is the main safety check called before every payout.
+ *
+ * @param payoutAmount - Amount to pay out in $CC (not lamports)
+ * @param gameWalletBalance - Current game wallet balance in $CC
+ */
+export function checkPayoutCircuitBreaker(
+  payoutAmount: number,
+  gameWalletBalance: number
+): CircuitBreakerResult {
+  // Get daily stats
+  const dailyStats = getDailyPayoutStats();
+
+  // CHECK 1: Single payout limit (100K)
+  if (payoutAmount > GAME_LIMITS.maxSinglePayout) {
+    return {
+      allowed: false,
+      reason: `Exceeds max single payout (${GAME_LIMITS.maxSinglePayout.toLocaleString()} $CC)`,
+      dailyStats: {
+        totalPayouts: dailyStats.totalPayouts,
+        payoutCount: dailyStats.payoutCount,
+        remainingCapacity: GAME_LIMITS.maxDailyPayouts - dailyStats.totalPayouts,
+      },
+    };
+  }
+
+  // CHECK 2: Daily payout limit (500K)
+  if (dailyStats.totalPayouts + payoutAmount > GAME_LIMITS.maxDailyPayouts) {
+    return {
+      allowed: false,
+      reason: `Would exceed daily payout limit (${GAME_LIMITS.maxDailyPayouts.toLocaleString()} $CC)`,
+      dailyStats: {
+        totalPayouts: dailyStats.totalPayouts,
+        payoutCount: dailyStats.payoutCount,
+        remainingCapacity: GAME_LIMITS.maxDailyPayouts - dailyStats.totalPayouts,
+      },
+    };
+  }
+
+  // CHECK 3: Game wallet minimum balance (100K reserve)
+  if (gameWalletBalance - payoutAmount < GAME_LIMITS.minBalance) {
+    return {
+      allowed: false,
+      reason: `Game wallet below minimum balance (${GAME_LIMITS.minBalance.toLocaleString()} $CC)`,
+      dailyStats: {
+        totalPayouts: dailyStats.totalPayouts,
+        payoutCount: dailyStats.payoutCount,
+        remainingCapacity: GAME_LIMITS.maxDailyPayouts - dailyStats.totalPayouts,
+      },
+    };
+  }
+
+  return {
+    allowed: true,
+    dailyStats: {
+      totalPayouts: dailyStats.totalPayouts,
+      payoutCount: dailyStats.payoutCount,
+      remainingCapacity: GAME_LIMITS.maxDailyPayouts - dailyStats.totalPayouts,
+    },
+  };
+}
+
+/**
+ * Check if a transfer from rewards wallet to game wallet is allowed
+ *
+ * @param transferAmount - Amount to transfer in $CC
+ */
+export function checkTransferCircuitBreaker(transferAmount: number): CircuitBreakerResult {
+  // Get daily transfer stats
+  const dailyStats = getDailyTransferStats();
+
+  // CHECK 1: Single transfer limit (1M)
+  if (transferAmount > REWARDS_LIMITS.maxSingleTransfer) {
+    return {
+      allowed: false,
+      reason: `Exceeds max single transfer (${REWARDS_LIMITS.maxSingleTransfer.toLocaleString()} $CC)`,
+    };
+  }
+
+  // CHECK 2: Daily transfer limit (1M)
+  if (dailyStats.totalTransferred + transferAmount > REWARDS_LIMITS.maxDailyTransfer) {
+    return {
+      allowed: false,
+      reason: `Would exceed daily transfer limit (${REWARDS_LIMITS.maxDailyTransfer.toLocaleString()} $CC)`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+// ============ TOP-UP LOGIC ============
+
+export interface TopUpResult {
+  success: boolean;
+  transferred?: number;
+  txSignature?: string;
+  reason?: string;
+  gameWalletBalance?: number;
+  rewardsWalletBalance?: number;
+}
+
+/**
+ * Check if game wallet needs a top-up from rewards wallet
+ */
+export async function checkTopUpNeeded(): Promise<{
+  needed: boolean;
+  currentBalance: number;
+  targetBalance: number;
+  topUpAmount?: number;
+  reason?: string;
+}> {
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+  if (!encryptionKey) {
+    return { needed: false, currentBalance: 0, targetBalance: 0, reason: 'BRAIN_WALLET_KEY not set' };
+  }
+
+  // Check if rewards wallet exists
+  if (!rewardsWalletExists()) {
+    return { needed: false, currentBalance: 0, targetBalance: 0, reason: 'Rewards wallet not created' };
+  }
+
+  try {
+    const connection = getConnection();
+    const gameWallet = loadWallet(encryptionKey);
+    const balance = await gameWallet.getBalance(connection);
+
+    // Check if below threshold
+    if (balance.cc >= REWARDS_LIMITS.gameWalletLowThreshold) {
+      return {
+        needed: false,
+        currentBalance: balance.cc,
+        targetBalance: REWARDS_LIMITS.gameWalletTarget,
+        reason: `Balance ${balance.cc.toLocaleString()} $CC above threshold ${REWARDS_LIMITS.gameWalletLowThreshold.toLocaleString()} $CC`,
+      };
+    }
+
+    // Calculate top-up amount
+    const topUpAmount = Math.min(
+      REWARDS_LIMITS.gameWalletTarget - balance.cc,
+      REWARDS_LIMITS.maxSingleTransfer
+    );
+
+    return {
+      needed: true,
+      currentBalance: balance.cc,
+      targetBalance: REWARDS_LIMITS.gameWalletTarget,
+      topUpAmount,
+    };
+  } catch (error) {
+    return {
+      needed: false,
+      currentBalance: 0,
+      targetBalance: 0,
+      reason: `Error checking balance: ${(error as Error).message}`,
+    };
+  }
+}
+
+/**
+ * Execute a top-up transfer from rewards wallet to game wallet
+ * This should be called by the daily cron job or manually.
+ *
+ * @param amount - Amount to transfer in $CC (optional, auto-calculates if not provided)
+ */
+export async function topUpGameWallet(amount?: number): Promise<TopUpResult> {
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+  if (!encryptionKey) {
+    return { success: false, reason: 'BRAIN_WALLET_KEY not set' };
+  }
+
+  // Check if rewards wallet exists
+  if (!rewardsWalletExists()) {
+    return { success: false, reason: 'Rewards wallet not created' };
+  }
+
+  try {
+    const connection = getConnection();
+    const gameWallet = loadWallet(encryptionKey);
+    const rewardsWallet = loadRewardsWallet(encryptionKey);
+
+    // Get balances
+    const gameBalance = await gameWallet.getBalance(connection);
+    const rewardsBalance = await rewardsWallet.getBalance(connection);
+
+    console.log(`[Top-Up] Game wallet balance: ${gameBalance.cc.toLocaleString()} $CC`);
+    console.log(`[Top-Up] Rewards wallet balance: ${rewardsBalance.cc.toLocaleString()} $CC`);
+
+    // Calculate amount if not provided
+    const transferAmount = amount ?? Math.min(
+      REWARDS_LIMITS.gameWalletTarget - gameBalance.cc,
+      REWARDS_LIMITS.maxSingleTransfer
+    );
+
+    if (transferAmount <= 0) {
+      return {
+        success: false,
+        reason: 'No top-up needed',
+        gameWalletBalance: gameBalance.cc,
+        rewardsWalletBalance: rewardsBalance.cc,
+      };
+    }
+
+    // Check circuit breaker
+    const circuitCheck = checkTransferCircuitBreaker(transferAmount);
+    if (!circuitCheck.allowed) {
+      return {
+        success: false,
+        reason: circuitCheck.reason,
+        gameWalletBalance: gameBalance.cc,
+        rewardsWalletBalance: rewardsBalance.cc,
+      };
+    }
+
+    // Check rewards wallet has enough
+    if (rewardsBalance.cc < transferAmount) {
+      return {
+        success: false,
+        reason: `Rewards wallet insufficient: ${rewardsBalance.cc.toLocaleString()} $CC < ${transferAmount.toLocaleString()} $CC`,
+        gameWalletBalance: gameBalance.cc,
+        rewardsWalletBalance: rewardsBalance.cc,
+      };
+    }
+
+    // Execute transfer
+    const transferAmountLamports = BigInt(Math.floor(transferAmount * 1_000_000_000));
+    console.log(`[Top-Up] Transferring ${transferAmount.toLocaleString()} $CC from rewards → game wallet...`);
+
+    const txSignature = await transferCC(
+      connection,
+      rewardsWallet,
+      gameWallet.publicKey,
+      transferAmountLamports
+    );
+
+    console.log(`[Top-Up] Transfer complete: ${txSignature}`);
+
+    // Record the transfer
+    recordRewardsTransfer(transferAmountLamports);
+    recordRewardsDistribution(transferAmount);
+
+    return {
+      success: true,
+      transferred: transferAmount,
+      txSignature,
+      gameWalletBalance: gameBalance.cc + transferAmount,
+      rewardsWalletBalance: rewardsBalance.cc - transferAmount,
+    };
+  } catch (error) {
+    console.error('[Top-Up] Error:', error);
+    return {
+      success: false,
+      reason: `Transfer failed: ${(error as Error).message}`,
+    };
+  }
+}
+
+// ============ STATUS HELPERS ============
+
+export interface WalletSystemStatus {
+  rewardsWallet: {
+    exists: boolean;
+    publicKey?: string;
+    balance?: number;
+    totalDistributed?: number;
+  };
+  gameWallet: {
+    publicKey?: string;
+    balance?: number;
+    needsTopUp: boolean;
+    topUpAmount?: number;
+  };
+  limits: {
+    rewards: typeof REWARDS_LIMITS;
+    game: typeof GAME_LIMITS;
+  };
+  dailyStats: {
+    payouts: ReturnType<typeof getDailyPayoutStats>;
+    transfers: ReturnType<typeof getDailyTransferStats>;
+  };
+}
+
+/**
+ * Get full status of the 3-wallet system
+ */
+export async function getWalletSystemStatus(): Promise<WalletSystemStatus> {
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+
+  // Get daily stats
+  const payoutStats = getDailyPayoutStats();
+  const transferStats = getDailyTransferStats();
+
+  // Default status
+  const status: WalletSystemStatus = {
+    rewardsWallet: { exists: false },
+    gameWallet: { needsTopUp: false },
+    limits: { rewards: REWARDS_LIMITS, game: GAME_LIMITS },
+    dailyStats: { payouts: payoutStats, transfers: transferStats },
+  };
+
+  // Get rewards wallet status
+  if (rewardsWalletExists()) {
+    const rewardsState = getRewardsWalletState();
+    status.rewardsWallet = {
+      exists: true,
+      publicKey: rewardsState?.publicKey,
+      balance: rewardsState?.ccBalance,
+      totalDistributed: rewardsState?.totalDistributed,
+    };
+
+    // Get live balance if possible
+    if (encryptionKey) {
+      try {
+        const connection = getConnection();
+        const rewardsWallet = loadRewardsWallet(encryptionKey);
+        const balance = await rewardsWallet.getBalance(connection);
+        status.rewardsWallet.balance = balance.cc;
+      } catch {}
+    }
+  }
+
+  // Get game wallet status
+  if (encryptionKey) {
+    try {
+      const connection = getConnection();
+      const gameWallet = loadWallet(encryptionKey);
+      const balance = await gameWallet.getBalance(connection);
+
+      const topUpCheck = await checkTopUpNeeded();
+
+      status.gameWallet = {
+        publicKey: gameWallet.publicKey.toBase58(),
+        balance: balance.cc,
+        needsTopUp: topUpCheck.needed,
+        topUpAmount: topUpCheck.topUpAmount,
+      };
+    } catch {}
+  }
+
+  return status;
+}
+
+/**
+ * Get all system limits as a flat object (for API responses)
+ */
+export function getAllLimits(): {
+  rewardsWallet: typeof REWARDS_LIMITS;
+  gameWallet: typeof GAME_LIMITS;
+  circuitBreaker: {
+    dailyPayoutsRemaining: number;
+    dailyTransfersRemaining: number;
+  };
+} {
+  const payoutStats = getDailyPayoutStats();
+  const transferStats = getDailyTransferStats();
+
+  return {
+    rewardsWallet: REWARDS_LIMITS,
+    gameWallet: GAME_LIMITS,
+    circuitBreaker: {
+      dailyPayoutsRemaining: GAME_LIMITS.maxDailyPayouts - payoutStats.totalPayouts,
+      dailyTransfersRemaining: REWARDS_LIMITS.maxDailyTransfer - transferStats.totalTransferred,
+    },
+  };
 }

@@ -52,6 +52,8 @@ import {
   cleanupExpiredCommitments,
   getDailyHouseLoss,
   getDailyFlipStats,
+  getDailyPayoutStats,
+  recordPayout,
   type ActivityType,
   type FlipChoice,
 } from './db.js';
@@ -61,8 +63,10 @@ import { cleanupOrphanedProcesses, killProcess, registerShutdownHandlers } from 
 import { getHumor } from './humor.js';
 import { generateAndPostMeme, canPostMeme } from './meme.js';
 import { getConnection, transferCC, verifyDepositTransaction, verifySolFeeTransaction, getBrainWalletAta, getBrainWalletSolAddress, NETWORK } from './solana.js';
-import { loadWallet, CC_TOKEN_MINT } from './wallet.js';
+import { loadWallet, createBurnWallet, burnWalletExists, getBurnWalletState, loadBurnWallet, createRewardsWallet, rewardsWalletExists, getRewardsWalletState, loadRewardsWallet, importRewardsWallet, CC_TOKEN_MINT } from './wallet.js';
 import { executeBuybackAndBurn, shouldRunBuyback, getBuybackStats } from './buyback.js';
+import { ensureBurnWalletAta, ensureRewardsWalletAta, getRewardsWalletAddress } from './solana.js';
+import { checkPayoutCircuitBreaker, checkTopUpNeeded, topUpGameWallet, getWalletSystemStatus, getAllLimits, REWARDS_LIMITS, GAME_LIMITS } from './rewards.js';
 import { PublicKey } from '@solana/web3.js';
 import { randomBytes, createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -173,6 +177,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'GET /flip/stats': 'Get daily flip stats + circuit breaker status',
         'GET /buyback/stats': 'Get buyback & burn statistics',
         'POST /buyback/trigger': 'Manually trigger buyback & burn',
+        'GET /burn-wallet/status': 'Get burn wallet status (airlock pattern)',
+        'POST /burn-wallet/create': 'Create dedicated burn wallet (one-time)',
+        'GET /rewards/status': 'Get rewards wallet status (cold storage)',
+        'POST /rewards/create': 'Create rewards wallet (one-time)',
+        'POST /rewards/import': 'Import existing rewards wallet from secret key',
+        'POST /rewards/fund-sol': 'Transfer SOL from game wallet to rewards wallet for tx fees',
+        'POST /rewards/top-up': 'Manually trigger top-up from rewards → game wallet',
+        'GET /game-wallet/status': 'Get game wallet status + daily stats',
+        'GET /limits': 'Get all system limits (rewards + game wallet)',
+        'GET /wallet-system/status': 'Get full 3-wallet system status',
         'WS /ws': 'Real-time log streaming (WebSocket)',
       },
       capabilities: [
@@ -187,6 +201,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'Generate memes during cooldown periods',
         'Secure coin flip with commit-reveal pattern',
         'Buyback & burn: SOL fees → buy $CC → burn 100%',
+        'Burn wallet airlock: Safe burn pattern (brain wallet protected)',
+        '3-wallet architecture: Rewards (cold) → Game (hot) → Players',
+        'Circuit breaker: Max 100K/payout, 500K/day payouts, auto top-up',
       ],
     });
     return;
@@ -741,6 +758,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
       // Send payout if won
       let payoutTx: string | null = null;
+      let payoutPending = false;
+      let circuitBreakerReason: string | undefined;
+
       if (won && payout > 0) {
         const encryptionKey = process.env.BRAIN_WALLET_KEY;
         if (!encryptionKey) {
@@ -761,14 +781,35 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         }
 
         try {
-          const brainWallet = loadWallet(encryptionKey);
-          const userPubkey = new PublicKey(commitment.wallet);
-          const payoutLamports = BigInt(payout * 1_000_000_000); // 9 decimals
+          const gameWallet = loadWallet(encryptionKey);
+          const gameWalletBalance = await gameWallet.getBalance(connection);
 
-          console.log(`[Flip/Resolve] Sending payout: ${payout} $CC to ${commitment.wallet.slice(0, 8)}...`);
-          payoutTx = await transferCC(connection, brainWallet, userPubkey, payoutLamports);
-          console.log(`[Flip/Resolve] Payout sent: ${payoutTx}`);
-          broadcastLog(`🎰 Payout: ${payout} $CC sent to ${commitment.wallet.slice(0, 8)}... (${payoutTx.slice(0, 8)}...)`, true, 'system');
+          // ============ CIRCUIT BREAKER CHECK ============
+          // This protects the bankroll from rapid drainage due to bugs or attacks
+          const circuitCheck = checkPayoutCircuitBreaker(payout, gameWalletBalance.cc);
+
+          if (!circuitCheck.allowed) {
+            // Circuit breaker triggered - don't fail the flip, queue for manual review
+            console.log(`[Flip/Resolve] CIRCUIT BREAKER: ${circuitCheck.reason}`);
+            broadcastLog(`🚨 Circuit breaker: ${circuitCheck.reason} - payout queued for review`, true, 'system');
+
+            payoutPending = true;
+            circuitBreakerReason = circuitCheck.reason;
+            // Resolve commitment but mark payout as pending
+            resolveCommitment(commitmentId, result, won, undefined);
+          } else {
+            // Proceed with payout
+            const userPubkey = new PublicKey(commitment.wallet);
+            const payoutLamports = BigInt(payout * 1_000_000_000); // 9 decimals
+
+            console.log(`[Flip/Resolve] Sending payout: ${payout} $CC to ${commitment.wallet.slice(0, 8)}...`);
+            payoutTx = await transferCC(connection, gameWallet, userPubkey, payoutLamports);
+            console.log(`[Flip/Resolve] Payout sent: ${payoutTx}`);
+            broadcastLog(`🎰 Payout: ${payout} $CC sent to ${commitment.wallet.slice(0, 8)}... (${payoutTx.slice(0, 8)}...)`, true, 'system');
+
+            // Record the payout for circuit breaker tracking
+            recordPayout(payoutLamports);
+          }
         } catch (error) {
           console.error('[Flip/Resolve] Payout transfer failed:', error);
           // Still resolve the commitment, payout can be claimed later
@@ -788,11 +829,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         }
       }
 
-      // Resolve commitment
-      resolveCommitment(commitmentId, result, won, payoutTx || undefined);
+      // Resolve commitment (only if not already resolved by circuit breaker path)
+      if (!payoutPending) {
+        resolveCommitment(commitmentId, result, won, payoutTx || undefined);
+      }
 
       // Build response with full provably fair verification data
-      sendJson(res, 200, {
+      const response: Record<string, unknown> = {
         result,
         won,
         payout,
@@ -811,7 +854,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
           step3: 'Result = firstByte < 128 ? heads : tails',
         },
         message: won ? `You won! ${payout} $CC sent to your wallet.` : `You lost. Better luck next time!`,
-      });
+      };
+
+      // Add circuit breaker info if payout is pending
+      if (payoutPending) {
+        response.payoutPending = true;
+        response.circuitBreakerReason = circuitBreakerReason;
+        response.message = `You won! Payout of ${payout} $CC is pending manual review (safety limit reached).`;
+      }
+
+      sendJson(res, 200, response);
     } catch (error) {
       console.error('[Flip/Resolve] Error:', error);
       sendJson(res, 500, { error: (error as Error).message });
@@ -988,28 +1040,497 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   /**
    * POST /buyback/trigger - Manually trigger buyback & burn
+   * Body: { testAmount?: number } - Optional SOL amount for testing (bypasses min threshold)
    */
   if (url === '/buyback/trigger' && method === 'POST') {
-    console.log('[Buyback] Manual trigger requested');
-    broadcastLog('🔥 Manual buyback & burn triggered', true, 'system');
-
-    const check = await shouldRunBuyback();
-    if (!check.should) {
-      sendJson(res, 400, {
-        error: 'Cannot run buyback',
-        reason: check.reason,
-        availableSol: check.availableSol,
-      });
-      return;
+    // Parse optional body
+    const body = await new Promise<string>((resolve) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => resolve(data));
+    });
+    let testAmount: number | undefined;
+    let dryRun = false;
+    try {
+      const parsed = JSON.parse(body || '{}');
+      testAmount = parsed.testAmount;
+      dryRun = parsed.dryRun === true;
+    } catch {
+      // No body or invalid JSON, proceed without testAmount
     }
 
-    const result = await executeBuybackAndBurn();
+    if (dryRun) {
+      console.log(`[Buyback] DRY RUN MODE${testAmount ? `: ${testAmount} SOL` : ''}`);
+      broadcastLog(`🧪 Dry run buyback triggered${testAmount ? `: ${testAmount} SOL` : ''}`, true, 'system');
+    } else if (testAmount) {
+      console.log(`[Buyback] TEST MODE: ${testAmount} SOL`);
+      broadcastLog(`🧪 Test buyback triggered: ${testAmount} SOL`, true, 'system');
+    } else {
+      console.log('[Buyback] Manual trigger requested');
+      broadcastLog('🔥 Manual buyback & burn triggered', true, 'system');
+
+      const check = await shouldRunBuyback();
+      if (!check.should) {
+        sendJson(res, 400, {
+          error: 'Cannot run buyback',
+          reason: check.reason,
+          availableSol: check.availableSol,
+        });
+        return;
+      }
+    }
+
+    const result = await executeBuybackAndBurn(testAmount, dryRun);
     if (result.success) {
-      broadcastLog(`🔥 Buyback complete: ${result.solSpent?.toFixed(4)} SOL → ${result.ccBought?.toFixed(0)} $CC burned!`, true, 'system');
+      const airlockMsg = result.usedAirlock ? ' (airlock)' : ' (direct)';
+      broadcastLog(`🔥 Buyback complete${airlockMsg}: ${result.solSpent?.toFixed(4)} SOL → ${result.ccBought?.toFixed(0)} $CC burned!`, true, 'system');
       sendJson(res, 200, result);
     } else {
       broadcastLog(`⚠️ Buyback failed: ${result.error}`, true, 'system');
       sendJson(res, 500, result);
+    }
+    return;
+  }
+
+  // ============ BURN WALLET (AIRLOCK) ENDPOINTS ============
+
+  /**
+   * GET /burn-wallet/status - Get burn wallet status
+   * The burn wallet is a dedicated wallet used ONLY for burn operations (safety airlock)
+   */
+  if (url === '/burn-wallet/status' && method === 'GET') {
+    const exists = burnWalletExists();
+    if (!exists) {
+      sendJson(res, 200, {
+        exists: false,
+        message: 'Burn wallet not created yet. Use POST /burn-wallet/create to create it.',
+        safety: 'Without a burn wallet, buyback uses direct burn (less safe).',
+      });
+      return;
+    }
+
+    const state = getBurnWalletState();
+    if (!state) {
+      sendJson(res, 500, { error: 'Failed to get burn wallet state' });
+      return;
+    }
+
+    // Get live balance from chain
+    const encryptionKey = process.env.BRAIN_WALLET_KEY;
+    let liveBalance = { sol: 0, cc: 0 };
+    if (encryptionKey) {
+      try {
+        const connection = getConnection();
+        const burnWallet = loadBurnWallet(encryptionKey);
+        const balance = await burnWallet.getBalance(connection);
+        liveBalance = { sol: balance.sol, cc: balance.cc };
+      } catch (error) {
+        console.error('[Burn Wallet] Failed to get live balance:', error);
+      }
+    }
+
+    sendJson(res, 200, {
+      exists: true,
+      publicKey: state.publicKey,
+      isEmpty: liveBalance.cc === 0,
+      balance: {
+        cc: liveBalance.cc,
+        sol: liveBalance.sol,
+      },
+      cached: {
+        cc: state.ccBalance,
+        sol: state.solBalance,
+        lastSync: state.lastSync,
+      },
+      safety: 'This wallet acts as an airlock for burn operations. It should always be empty except during buyback.',
+    });
+    return;
+  }
+
+  // ============ REWARDS WALLET (COLD STORAGE) ENDPOINTS ============
+
+  /**
+   * GET /rewards/status - Get rewards wallet status and limits
+   * The rewards wallet is cold storage (9M $CC) - never used by games directly
+   */
+  if (url === '/rewards/status' && method === 'GET') {
+    const exists = rewardsWalletExists();
+    if (!exists) {
+      sendJson(res, 200, {
+        exists: false,
+        message: 'Rewards wallet not created yet. Use POST /rewards/create to create it.',
+        safety: 'Without a rewards wallet, the game wallet has no backup funding source.',
+      });
+      return;
+    }
+
+    const state = getRewardsWalletState();
+    if (!state) {
+      sendJson(res, 500, { error: 'Failed to get rewards wallet state' });
+      return;
+    }
+
+    // Get live balance from chain
+    const encryptionKey = process.env.BRAIN_WALLET_KEY;
+    let liveBalance = { sol: 0, cc: 0 };
+    if (encryptionKey) {
+      try {
+        const connection = getConnection();
+        const rewardsWallet = loadRewardsWallet(encryptionKey);
+        const balance = await rewardsWallet.getBalance(connection);
+        liveBalance = { sol: balance.sol, cc: balance.cc };
+      } catch (error) {
+        console.error('[Rewards Wallet] Failed to get live balance:', error);
+      }
+    }
+
+    sendJson(res, 200, {
+      exists: true,
+      publicKey: state.publicKey,
+      balance: {
+        cc: liveBalance.cc,
+        sol: liveBalance.sol,
+      },
+      cached: {
+        cc: state.ccBalance,
+        sol: state.solBalance,
+        totalDistributed: state.totalDistributed,
+        lastSync: state.lastSync,
+      },
+      limits: REWARDS_LIMITS,
+      safety: 'Cold storage wallet - never used by games directly. Only tops up game wallet.',
+    });
+    return;
+  }
+
+  /**
+   * POST /rewards/create - Create the rewards wallet (one-time)
+   * This wallet holds 9M $CC as cold storage backup
+   */
+  if (url === '/rewards/create' && method === 'POST') {
+    const encryptionKey = process.env.BRAIN_WALLET_KEY;
+    if (!encryptionKey) {
+      sendJson(res, 500, { error: 'BRAIN_WALLET_KEY not configured' });
+      return;
+    }
+
+    if (rewardsWalletExists()) {
+      const state = getRewardsWalletState();
+      sendJson(res, 409, {
+        error: 'Rewards wallet already exists',
+        publicKey: state?.publicKey,
+        message: 'The rewards wallet can only be created once.',
+      });
+      return;
+    }
+
+    try {
+      console.log('[Rewards Wallet] Creating cold storage wallet...');
+      broadcastLog('❄️ Creating rewards wallet (cold storage)...', true, 'system');
+
+      const result = createRewardsWallet(encryptionKey);
+
+      // Also create the ATA for $CC
+      console.log('[Rewards Wallet] Ensuring rewards wallet has ATA for $CC...');
+      const ata = await ensureRewardsWalletAta();
+
+      console.log(`[Rewards Wallet] ✓ Rewards wallet created: ${result.publicKey}`);
+      broadcastLog(`❄️ Rewards wallet created: ${result.publicKey}`, true, 'system');
+
+      sendJson(res, 200, {
+        success: true,
+        publicKey: result.publicKey,
+        ata,
+        message: 'Rewards wallet created successfully. Fund this wallet with 9M $CC as cold storage.',
+        nextSteps: [
+          '1. Send 9M $CC to this wallet address',
+          '2. The daily cron will automatically top up game wallet when needed',
+          '3. Max 1M $CC/day can be transferred to game wallet',
+        ],
+      });
+    } catch (error) {
+      console.error('[Rewards Wallet] Failed to create:', error);
+      sendJson(res, 500, { error: (error as Error).message });
+    }
+    return;
+  }
+
+  /**
+   * POST /rewards/import - Import an existing rewards wallet from secret key
+   */
+  if (url === '/rewards/import' && method === 'POST') {
+    const encryptionKey = process.env.BRAIN_WALLET_KEY;
+    if (!encryptionKey) {
+      sendJson(res, 500, { error: 'BRAIN_WALLET_KEY not configured' });
+      return;
+    }
+
+    try {
+      const body = await new Promise<string>((resolve) => {
+        let data = '';
+        req.on('data', chunk => data += chunk);
+        req.on('end', () => resolve(data));
+      });
+
+      const { secretKey } = JSON.parse(body) as { secretKey: string };
+      if (!secretKey) {
+        sendJson(res, 400, { error: 'Missing secretKey in request body' });
+        return;
+      }
+
+      console.log('[Rewards Wallet] Importing existing wallet...');
+      const result = importRewardsWallet(secretKey, encryptionKey);
+
+      // Also create the ATA for $CC
+      const ata = await ensureRewardsWalletAta();
+
+      console.log(`[Rewards Wallet] ✓ Rewards wallet imported: ${result.publicKey}`);
+      broadcastLog(`❄️ Rewards wallet imported: ${result.publicKey}`, true, 'system');
+
+      sendJson(res, 200, {
+        success: true,
+        publicKey: result.publicKey,
+        ata,
+        message: 'Rewards wallet imported successfully.',
+      });
+    } catch (error) {
+      console.error('[Rewards Wallet] Failed to import:', error);
+      sendJson(res, 500, { error: (error as Error).message });
+    }
+    return;
+  }
+
+  /**
+   * POST /rewards/fund-sol - Transfer SOL from game wallet to rewards wallet
+   * Used to fund the rewards wallet for transaction fees
+   */
+  if (url === '/rewards/fund-sol' && method === 'POST') {
+    const encryptionKey = process.env.BRAIN_WALLET_KEY;
+    if (!encryptionKey) {
+      sendJson(res, 500, { error: 'BRAIN_WALLET_KEY not configured' });
+      return;
+    }
+
+    if (!rewardsWalletExists()) {
+      sendJson(res, 400, { error: 'Rewards wallet not created yet. Use POST /rewards/create first.' });
+      return;
+    }
+
+    // Parse body for amount
+    let lamports = 50_000_000; // Default: 0.05 SOL
+    try {
+      const body = await new Promise<string>((resolve) => {
+        let data = '';
+        req.on('data', chunk => data += chunk);
+        req.on('end', () => resolve(data));
+      });
+      if (body) {
+        const parsed = JSON.parse(body);
+        if (parsed.lamports) {
+          lamports = parsed.lamports;
+        } else if (parsed.sol) {
+          lamports = Math.floor(parsed.sol * 1_000_000_000); // Convert SOL to lamports
+        }
+      }
+    } catch {
+      // Use default amount
+    }
+
+    // Safety: Max 0.5 SOL per transfer
+    const MAX_SOL_TRANSFER = 500_000_000; // 0.5 SOL
+    if (lamports > MAX_SOL_TRANSFER) {
+      sendJson(res, 400, {
+        error: `Amount exceeds safety limit. Max: 0.5 SOL (${MAX_SOL_TRANSFER} lamports)`,
+        requested: lamports,
+        max: MAX_SOL_TRANSFER,
+      });
+      return;
+    }
+
+    try {
+      const connection = getConnection();
+      const gameWallet = loadWallet(encryptionKey);
+      const rewardsWallet = loadRewardsWallet(encryptionKey);
+
+      // Check game wallet has enough SOL
+      const gameBalance = await gameWallet.getBalance(connection);
+      if (gameBalance.solLamports < BigInt(lamports) + BigInt(10_000)) { // +10000 for tx fee
+        sendJson(res, 400, {
+          error: 'Insufficient SOL in game wallet',
+          available: Number(gameBalance.solLamports),
+          requested: lamports,
+        });
+        return;
+      }
+
+      console.log(`[Rewards/FundSOL] Transferring ${lamports / 1_000_000_000} SOL from game to rewards wallet`);
+      broadcastLog(`💰 Funding rewards wallet with ${lamports / 1_000_000_000} SOL...`, true, 'system');
+
+      const { transferSOL } = await import('./solana.js');
+      const txSignature = await transferSOL(connection, gameWallet, rewardsWallet.publicKey, lamports);
+
+      console.log(`[Rewards/FundSOL] ✓ Transfer complete: ${txSignature}`);
+      broadcastLog(`💰 Rewards wallet funded: ${lamports / 1_000_000_000} SOL (${txSignature.slice(0, 8)}...)`, true, 'system');
+
+      sendJson(res, 200, {
+        success: true,
+        lamports,
+        sol: lamports / 1_000_000_000,
+        from: gameWallet.publicKey.toBase58(),
+        to: rewardsWallet.publicKey.toBase58(),
+        txSignature,
+      });
+    } catch (error) {
+      console.error('[Rewards/FundSOL] Error:', error);
+      sendJson(res, 500, { error: (error as Error).message });
+    }
+    return;
+  }
+
+  /**
+   * POST /rewards/top-up - Manually trigger top-up from rewards to game wallet
+   */
+  if (url === '/rewards/top-up' && method === 'POST') {
+    // Parse optional body for custom amount
+    let customAmount: number | undefined;
+    try {
+      const body = await new Promise<string>((resolve) => {
+        let data = '';
+        req.on('data', chunk => data += chunk);
+        req.on('end', () => resolve(data));
+      });
+      if (body) {
+        const parsed = JSON.parse(body);
+        customAmount = parsed.amount;
+      }
+    } catch {
+      // No body or invalid JSON, use auto-calculated amount
+    }
+
+    console.log('[Rewards] Manual top-up requested');
+    broadcastLog('❄️ Manual top-up from rewards → game wallet...', true, 'system');
+
+    const result = await topUpGameWallet(customAmount);
+
+    if (result.success) {
+      broadcastLog(`❄️ Top-up complete: ${result.transferred?.toLocaleString()} $CC transferred`, true, 'system');
+      sendJson(res, 200, result);
+    } else {
+      broadcastLog(`⚠️ Top-up failed: ${result.reason}`, true, 'system');
+      sendJson(res, 400, result);
+    }
+    return;
+  }
+
+  // ============ GAME WALLET (HOT WALLET) ENDPOINTS ============
+
+  /**
+   * GET /game-wallet/status - Get game wallet status and daily stats
+   * The game wallet handles all payouts with strict limits
+   */
+  if (url === '/game-wallet/status' && method === 'GET') {
+    const encryptionKey = process.env.BRAIN_WALLET_KEY;
+    if (!encryptionKey) {
+      sendJson(res, 500, { error: 'BRAIN_WALLET_KEY not configured' });
+      return;
+    }
+
+    try {
+      const connection = getConnection();
+      const gameWallet = loadWallet(encryptionKey);
+      const balance = await gameWallet.getBalance(connection);
+      const topUpCheck = await checkTopUpNeeded();
+      const dailyStats = getDailyFlipStats();
+
+      sendJson(res, 200, {
+        publicKey: gameWallet.publicKey.toBase58(),
+        balance: {
+          cc: balance.cc,
+          sol: balance.sol,
+        },
+        topUp: {
+          needed: topUpCheck.needed,
+          currentBalance: topUpCheck.currentBalance,
+          targetBalance: topUpCheck.targetBalance,
+          topUpAmount: topUpCheck.topUpAmount,
+        },
+        dailyStats: {
+          flips: dailyStats.totalFlips,
+          wagered: dailyStats.totalWagered,
+          houseLoss: dailyStats.houseLoss,
+          wins: dailyStats.wins,
+          losses: dailyStats.losses,
+        },
+        limits: GAME_LIMITS,
+        safety: 'Hot wallet for game payouts. Max 100K per payout, 500K/day total.',
+      });
+    } catch (error) {
+      sendJson(res, 500, { error: (error as Error).message });
+    }
+    return;
+  }
+
+  /**
+   * GET /limits - Get all system limits
+   */
+  if (url === '/limits' && method === 'GET') {
+    sendJson(res, 200, getAllLimits());
+    return;
+  }
+
+  /**
+   * GET /wallet-system/status - Get full 3-wallet system status
+   */
+  if (url === '/wallet-system/status' && method === 'GET') {
+    const status = await getWalletSystemStatus();
+    sendJson(res, 200, status);
+    return;
+  }
+
+  /**
+   * POST /burn-wallet/create - Create the burn wallet (one-time)
+   * This wallet is used ONLY for burn operations (safety airlock pattern)
+   */
+  if (url === '/burn-wallet/create' && method === 'POST') {
+    const encryptionKey = process.env.BRAIN_WALLET_KEY;
+    if (!encryptionKey) {
+      sendJson(res, 500, { error: 'BRAIN_WALLET_KEY not configured' });
+      return;
+    }
+
+    if (burnWalletExists()) {
+      const state = getBurnWalletState();
+      sendJson(res, 409, {
+        error: 'Burn wallet already exists',
+        publicKey: state?.publicKey,
+        message: 'The burn wallet can only be created once.',
+      });
+      return;
+    }
+
+    try {
+      console.log('[Burn Wallet] Creating dedicated burn wallet...');
+      broadcastLog('🔥 Creating dedicated burn wallet (safety airlock)...', true, 'system');
+
+      const result = createBurnWallet(encryptionKey);
+
+      // Also create the ATA for $CC
+      console.log('[Burn Wallet] Ensuring burn wallet has ATA for $CC...');
+      const ata = await ensureBurnWalletAta();
+
+      console.log(`[Burn Wallet] ✓ Burn wallet created: ${result.publicKey}`);
+      broadcastLog(`🔥 Burn wallet created: ${result.publicKey}`, true, 'system');
+
+      sendJson(res, 200, {
+        success: true,
+        publicKey: result.publicKey,
+        ata,
+        message: 'Burn wallet created successfully. Buyback will now use the airlock pattern.',
+        safety: 'This wallet acts as an airlock - even if code has a bug that burns "entire balance", only the burn wallet is affected, not the main rewards pool.',
+      });
+    } catch (error) {
+      console.error('[Burn Wallet] Failed to create:', error);
+      sendJson(res, 500, { error: (error as Error).message });
     }
     return;
   }
@@ -1181,6 +1702,36 @@ function setupCronJobs(): void {
     }
   });
   console.log('  ✓ Buyback & Burn: every 6 hours');
+
+  // Daily Top-Up: Midnight UTC - top up game wallet from rewards wallet if needed
+  cron.schedule('0 0 * * *', async () => {
+    console.log('[Top-Up] Daily check: Does game wallet need top-up from rewards?');
+
+    // Check if rewards wallet exists
+    if (!rewardsWalletExists()) {
+      console.log('[Top-Up] Skipping: Rewards wallet not created yet');
+      return;
+    }
+
+    const topUpCheck = await checkTopUpNeeded();
+    if (!topUpCheck.needed) {
+      console.log(`[Top-Up] Skipping: ${topUpCheck.reason}`);
+      return;
+    }
+
+    console.log(`[Top-Up] Starting: Game wallet at ${topUpCheck.currentBalance.toLocaleString()} $CC (below ${REWARDS_LIMITS.gameWalletLowThreshold.toLocaleString()} threshold)`);
+    broadcastLog(`❄️ Daily top-up: Game wallet low, topping up from rewards...`, true, 'system');
+
+    const result = await topUpGameWallet();
+    if (result.success) {
+      console.log(`[Top-Up] Complete: ${result.transferred?.toLocaleString()} $CC transferred`);
+      broadcastLog(`❄️ Top-up complete: ${result.transferred?.toLocaleString()} $CC transferred from cold storage`, true, 'system');
+    } else {
+      console.log(`[Top-Up] Failed: ${result.reason}`);
+      broadcastLog(`⚠️ Top-up failed: ${result.reason}`, true, 'system');
+    }
+  });
+  console.log('  ✓ Daily Top-Up: midnight UTC (rewards → game wallet)');
 }
 
 // ============ Main ============
