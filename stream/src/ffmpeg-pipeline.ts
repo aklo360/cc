@@ -1,22 +1,26 @@
 /**
  * FFmpeg pipeline for encoding and streaming
- * Supports two capture modes:
- * 1. Display mode - Captures from display (x11grab on Linux, avfoundation on macOS)
- * 2. Window mode - Receives JPEG frames via stdin (for window-specific capture)
+ *
+ * Uses window mode capture: receives JPEG frames via stdin from Chrome's
+ * native CDP screencast API, encodes with VideoToolbox hardware acceleration,
+ * and streams to RTMP destinations.
+ *
+ * Architecture (Native Mac Mini):
+ * - CDP screencast sends JPEG frames → FFmpeg stdin (MJPEG)
+ * - VideoToolbox hardware H.264 encoding
+ * - YouTube lofi audio mixed in
+ * - Output to Twitter/Kick/YouTube via RTMP
  */
 
 import { spawn, ChildProcess } from 'child_process';
-
-export type PipelineMode = 'display' | 'window';
 
 export interface PipelineConfig {
   width: number;
   height: number;
   fps: number;
   bitrate: string;
-  audioUrl: string | null; // null = silent audio
+  audioUrl: string | null; // null = use lofi fallback
   teeOutput: string; // FFmpeg tee muxer output string
-  mode?: PipelineMode; // 'display' or 'window'
 }
 
 export interface PipelineEvents {
@@ -45,44 +49,19 @@ export class FfmpegPipeline {
       throw new Error('Pipeline already running');
     }
 
-    const isMacOS = process.platform === 'darwin';
     const hasAudio = this.config.audioUrl !== null;
-    const mode = this.config.mode || 'display';
-
     const args: string[] = [];
 
-    if (mode === 'window') {
-      // Window mode: Receive JPEG frames via stdin
-      // This allows window-specific capture regardless of macOS Space switches
-      args.push(
-        '-f', 'mjpeg', // Motion JPEG input
-        '-framerate', String(this.config.fps),
-        '-i', 'pipe:0', // Read from stdin
-      );
-    } else if (isMacOS) {
-      // Display mode on macOS: Use avfoundation for screen capture
-      // Capture the main display (index 0)
-      // Note: You may need to grant Screen Recording permission in System Preferences
-      args.push(
-        '-f', 'avfoundation',
-        '-framerate', String(this.config.fps),
-        '-capture_cursor', '0', // Don't capture cursor
-        '-i', '0:none', // Screen 0 (main display), no audio from system
-      );
-    } else {
-      // Display mode on Linux: Use x11grab
-      const display = process.env.DISPLAY || ':99';
-      args.push(
-        '-f', 'x11grab',
-        '-video_size', `${this.config.width}x${this.config.height}`,
-        '-framerate', String(this.config.fps),
-        '-i', display,
-      );
-    }
+    // Input: MJPEG frames from Chrome CDP screencast via stdin
+    args.push(
+      '-f', 'mjpeg',
+      '-framerate', String(this.config.fps),
+      '-i', 'pipe:0',
+    );
 
-    // Add audio input
+    // Audio input
     if (hasAudio) {
-      // YouTube live stream - add reconnect options for reliability
+      // YouTube live stream with reconnect options for reliability
       args.push(
         '-reconnect', '1',
         '-reconnect_streamed', '1',
@@ -91,72 +70,42 @@ export class FfmpegPipeline {
       );
     } else {
       // Use local lofi file on infinite loop as fallback
-      const lofiPath = isMacOS
-        ? `${process.cwd()}/lofi-fallback.mp3`
-        : '/app/lofi-fallback.mp3';
+      const lofiPath = `${process.cwd()}/lofi-fallback.mp3`;
       args.push(
-        '-stream_loop', '-1', // Infinite loop
+        '-stream_loop', '-1',
         '-i', lofiPath
       );
       console.log('[ffmpeg] Using lofi fallback audio (looped)');
     }
 
-    if (mode === 'window') {
-      // Window mode: MJPEG input, use VideoToolbox hardware encoding
-      // Scale to ensure consistent output size
-      args.push(
-        '-vf', `scale=${this.config.width}:${this.config.height}`,
-        '-c:v', 'h264_videotoolbox',
-        '-b:v', this.config.bitrate,
-        '-maxrate', '3000k',
-        '-bufsize', '6000k',
-        '-pix_fmt', 'yuv420p',
-        '-g', String(this.config.fps * 2), // Keyframe every 2 seconds
-        '-profile:v', 'high',
-        '-level', '4.1',
-      );
-    } else if (isMacOS) {
-      // macOS display mode: Scale to target resolution and use hardware encoding
-      args.push(
-        // Scale to target size
-        '-vf', `scale=${this.config.width}:${this.config.height}`,
-        // Video encoding - try VideoToolbox (hardware), fall back to libx264
-        '-c:v', 'h264_videotoolbox',
-        '-b:v', this.config.bitrate,
-        '-maxrate', '3000k',
-        '-bufsize', '6000k',
-        '-pix_fmt', 'yuv420p',
-        '-g', String(this.config.fps * 2), // Keyframe every 2 seconds
-        '-profile:v', 'high',
-        '-level', '4.1',
-      );
-    } else {
-      // Linux display mode: Software encoding
-      args.push(
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-tune', 'zerolatency',
-        '-b:v', this.config.bitrate,
-        '-maxrate', '3000k',
-        '-bufsize', '6000k',
-        '-pix_fmt', 'yuv420p',
-        '-g', String(this.config.fps * 2), // Keyframe every 2 seconds
-      );
-    }
-
+    // Video encoding: libx264 software encoder (YouTube compatible)
     args.push(
-      // Audio encoding
+      '-vf', `scale=${this.config.width}:${this.config.height}`,
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-tune', 'zerolatency',
+      '-b:v', this.config.bitrate,
+      '-maxrate', '6000k',
+      '-bufsize', '12000k',
+      '-pix_fmt', 'yuv420p',
+      '-g', String(this.config.fps * 2), // Keyframe every 2 seconds
+      '-profile:v', 'high',
+      '-level', '4.1',
+    );
+
+    // Audio encoding
+    args.push(
       '-c:a', 'aac',
       '-b:a', '128k',
       '-ar', '44100',
-
-      // Output: direct RTMP or tee muxer for multiple destinations
       '-map', '0:v',
       '-map', '1:a',
     );
 
-    // If only one destination, output directly to RTMP (more reliable)
-    // If multiple, use tee muxer
+    // Global header flag - REQUIRED for tee muxer with FLV/RTMP
+    args.push('-flags', '+global_header');
+
+    // Output: direct RTMP or tee muxer for multiple destinations
     if (this.config.teeOutput.includes('|')) {
       args.push('-f', 'tee', this.config.teeOutput);
     } else {
@@ -166,11 +115,7 @@ export class FfmpegPipeline {
     }
 
     console.log('[ffmpeg] Starting pipeline...');
-    if (mode === 'window') {
-      console.log('[ffmpeg] Mode: window (MJPEG stdin + VideoToolbox)');
-    } else {
-      console.log(`[ffmpeg] Mode: display (${isMacOS ? 'avfoundation + VideoToolbox' : 'x11grab + libx264'})`);
-    }
+    console.log('[ffmpeg] Mode: CDP screencast → MJPEG stdin → libx264 H.264');
     console.log(`[ffmpeg] Resolution: ${this.config.width}x${this.config.height}@${this.config.fps}fps`);
     console.log(`[ffmpeg] Audio: ${hasAudio ? 'YouTube stream' : 'lofi fallback (looped)'}`);
     console.log(`[ffmpeg] Output: ${this.config.teeOutput}`);
@@ -178,6 +123,19 @@ export class FfmpegPipeline {
     this.process = spawn('ffmpeg', args, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    // Handle stdin errors (EPIPE when FFmpeg exits while writing)
+    if (this.process.stdin) {
+      this.process.stdin.on('error', (error: NodeJS.ErrnoException) => {
+        // EPIPE is expected when FFmpeg dies - don't crash
+        if (error.code === 'EPIPE') {
+          console.log('[ffmpeg] stdin EPIPE - pipeline closed');
+        } else {
+          console.error('[ffmpeg] stdin error:', error);
+        }
+        this.isRunning = false;
+      });
+    }
 
     this.process.on('error', (error) => {
       console.error('[ffmpeg] Process error:', error);
@@ -251,24 +209,18 @@ export class FfmpegPipeline {
   }
 
   /**
-   * Write a frame to FFmpeg stdin (window mode only)
+   * Write a JPEG frame to FFmpeg stdin
    * Returns true if frame was written, false if pipeline not ready
    */
   writeFrame(frameBuffer: Buffer): boolean {
-    if (!this.isRunning || !this.process?.stdin || this.config.mode !== 'window') {
+    if (!this.isRunning || !this.process?.stdin) {
       return false;
     }
 
     try {
-      // Write JPEG frame to stdin
-      const written = this.process.stdin.write(frameBuffer);
-      if (!written) {
-        // Buffer is full, frame will be dropped
-        // This is expected under high load
-      }
+      this.process.stdin.write(frameBuffer);
       return true;
-    } catch (error) {
-      // Stdin closed or process crashed
+    } catch {
       return false;
     }
   }
@@ -278,7 +230,6 @@ export class FfmpegPipeline {
     this.isRunning = false;
 
     if (this.process) {
-      // Send quit signal
       this.process.kill('SIGTERM');
 
       // Force kill after timeout
@@ -311,10 +262,8 @@ export class FfmpegPipeline {
     const framesSinceLastCheck = this.frameCount - this.lastFrameCount;
     const secondsSinceLastFrame = this.lastFrameTime > 0 ? (now - this.lastFrameTime) / 1000 : 0;
 
-    // Update last check values
     this.lastFrameCount = this.frameCount;
 
-    // Healthy if frames are progressing and last frame was recent
     const healthy = framesSinceLastCheck > 0 && secondsSinceLastFrame < 60;
 
     return { healthy, framesSinceLastCheck, secondsSinceLastFrame };

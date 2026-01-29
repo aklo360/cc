@@ -1,11 +1,24 @@
 /**
- * Stream service HTTP server
- * Provides health endpoint and control API
+ * Stream service HTTP server for Native Mac Mini
+ *
+ * Architecture:
+ * - Chrome CDP screencast → FFmpeg VideoToolbox → RTMP
+ * - YouTube lofi audio (residential IP works)
+ * - Director switches /watch ↔ /vj on schedule
+ * - Auto-restart on failure with health monitoring
+ *
+ * Endpoints:
+ * - GET /health - Full health status
+ * - GET /status - Quick status
+ * - POST /start - Start stream
+ * - POST /stop - Stop stream
+ * - POST /scene - Switch scene ({"scene": "watch" | "vj"})
+ * - POST /restart-capture - Hot-swap Chrome without dropping RTMP
  */
 import { createServer } from 'http';
 import { Streamer } from './streamer.js';
 import 'dotenv/config';
-// Configuration from environment
+// Configuration
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const WATCH_URL = process.env.WATCH_URL || 'https://claudecode.wtf/watch?lite=1';
 const VJ_URL = process.env.VJ_URL || 'https://claudecode.wtf/vj?engine=hydra&mode=auto&hideUI=true';
@@ -15,9 +28,6 @@ const STREAM_WIDTH = parseInt(process.env.STREAM_WIDTH || '1280', 10);
 const STREAM_HEIGHT = parseInt(process.env.STREAM_HEIGHT || '720', 10);
 const STREAM_FPS = parseInt(process.env.STREAM_FPS || '30', 10);
 const STREAM_BITRATE = process.env.STREAM_BITRATE || '2500k';
-// Capture mode: 'window' (default on macOS) captures specific Chrome window
-// 'display' captures full screen (legacy mode, affected by Space switches)
-const CAPTURE_MODE = process.env.CAPTURE_MODE || undefined;
 // Create streamer
 const streamerConfig = {
     watchUrl: WATCH_URL,
@@ -31,7 +41,6 @@ const streamerConfig = {
     jpegQuality: 80,
     maxRestarts: 10,
     restartDelayMs: 5000,
-    captureMode: CAPTURE_MODE,
 };
 const streamer = new Streamer(streamerConfig);
 // Event logging
@@ -42,7 +51,7 @@ streamer.on('restarted', (count) => {
     console.log(`[server] Stream restarted (attempt ${count})`);
 });
 streamer.on('maxRestartsReached', () => {
-    console.error('[server] Stream failed permanently - max restarts reached');
+    console.error('[server] Stream failed - max restarts reached, waiting 60s...');
 });
 // HTTP request handler
 function handleRequest(req, res) {
@@ -52,13 +61,12 @@ function handleRequest(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Content-Type', 'application/json');
-    // Handle OPTIONS (CORS preflight)
     if (method === 'OPTIONS') {
         res.writeHead(204);
         res.end();
         return;
     }
-    // Route: GET /health
+    // GET /health
     if (url === '/health' && method === 'GET') {
         const stats = streamer.getStats();
         const memUsage = process.memoryUsage();
@@ -74,9 +82,16 @@ function handleRequest(req, res) {
                 restarts: stats.restarts,
                 destinations: stats.destinations,
                 lastError: stats.lastError,
-                captureMode: stats.captureMode,
-                windowId: stats.windowId,
+                audioSource: stats.audioSource,
+                youtubeUrlTtlFormatted: stats.youtubeUrlTtl > 0 ? formatUptime(stats.youtubeUrlTtl) : 'N/A',
             },
+            schedule: stats.schedule ? {
+                currentPhase: stats.schedule.currentPhase,
+                minutesIntoPhase: stats.schedule.minutesIntoPhase,
+                minutesRemaining: stats.schedule.minutesRemaining,
+                nextSwitch: stats.schedule.nextSwitch,
+                pattern: '2h BUILD → 1h BREAK → repeat',
+            } : null,
             config: {
                 watchUrl: WATCH_URL,
                 vjUrl: VJ_URL,
@@ -84,7 +99,12 @@ function handleRequest(req, res) {
                 resolution: `${STREAM_WIDTH}x${STREAM_HEIGHT}`,
                 fps: STREAM_FPS,
                 bitrate: STREAM_BITRATE,
-                captureMode: CAPTURE_MODE || 'auto (window on macOS, display on Linux)',
+            },
+            architecture: {
+                capture: 'Chrome CDP screencast (Metal GPU)',
+                encoding: 'VideoToolbox H.264 hardware',
+                audio: 'YouTube lofi stream',
+                output: 'RTMP (Twitter/Kick/YouTube)',
             },
             memory: {
                 heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
@@ -97,7 +117,7 @@ function handleRequest(req, res) {
         res.end(JSON.stringify(health, null, 2));
         return;
     }
-    // Route: POST /start
+    // POST /start
     if (url === '/start' && method === 'POST') {
         if (streamer.getState() === 'streaming') {
             res.writeHead(400);
@@ -115,7 +135,7 @@ function handleRequest(req, res) {
         });
         return;
     }
-    // Route: POST /stop
+    // POST /stop
     if (url === '/stop' && method === 'POST') {
         if (streamer.getState() === 'stopped') {
             res.writeHead(400);
@@ -133,7 +153,7 @@ function handleRequest(req, res) {
         });
         return;
     }
-    // Route: POST /restart-capture (hot-swap CDP without dropping RTMP)
+    // POST /restart-capture
     if (url === '/restart-capture' && method === 'POST') {
         if (streamer.getState() !== 'streaming') {
             res.writeHead(400);
@@ -142,13 +162,10 @@ function handleRequest(req, res) {
         }
         streamer.restartCapture()
             .then(() => {
-            const stats = streamer.getStats();
             res.writeHead(200);
             res.end(JSON.stringify({
                 success: true,
-                message: 'Capture restarted (RTMP maintained)',
-                captureMode: stats.captureMode,
-                windowId: stats.windowId,
+                message: 'Chrome restarted (RTMP maintained)',
             }));
         })
             .catch((error) => {
@@ -157,7 +174,7 @@ function handleRequest(req, res) {
         });
         return;
     }
-    // Route: POST /scene (manual scene switch)
+    // POST /scene
     if (url === '/scene' && method === 'POST') {
         if (streamer.getState() !== 'streaming') {
             res.writeHead(400);
@@ -165,9 +182,7 @@ function handleRequest(req, res) {
             return;
         }
         let body = '';
-        req.on('data', (chunk) => {
-            body += chunk.toString();
-        });
+        req.on('data', (chunk) => { body += chunk.toString(); });
         req.on('end', () => {
             try {
                 const data = JSON.parse(body);
@@ -179,12 +194,11 @@ function handleRequest(req, res) {
                 }
                 streamer.setScene(scene)
                     .then(() => {
-                    const stats = streamer.getStats();
                     res.writeHead(200);
                     res.end(JSON.stringify({
                         success: true,
                         message: `Switched to ${scene}`,
-                        currentScene: stats.currentScene,
+                        currentScene: scene,
                     }));
                 })
                     .catch((error) => {
@@ -199,7 +213,7 @@ function handleRequest(req, res) {
         });
         return;
     }
-    // Route: GET /status (alias for health)
+    // GET /status
     if (url === '/status' && method === 'GET') {
         const stats = streamer.getStats();
         res.writeHead(200);
@@ -210,12 +224,23 @@ function handleRequest(req, res) {
             uptime: stats.uptime,
             restarts: stats.restarts,
             destinations: stats.destinations,
-            captureMode: stats.captureMode,
-            windowId: stats.windowId,
         }));
         return;
     }
-    // 404 for unknown routes
+    // POST /refresh - Force page refresh to pick up changes
+    if (url === '/refresh' && method === 'POST') {
+        streamer.refreshPage()
+            .then(() => {
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true, message: 'Page refreshed' }));
+        })
+            .catch((error) => {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: error.message }));
+        });
+        return;
+    }
+    // 404
     res.writeHead(404);
     res.end(JSON.stringify({ error: 'Not found' }));
 }
@@ -241,7 +266,7 @@ server.listen(PORT, () => {
     console.log(`[server] Health endpoint: http://localhost:${PORT}/health`);
     console.log(`[server] Config: ${STREAM_WIDTH}x${STREAM_HEIGHT}@${STREAM_FPS}fps, ${STREAM_BITRATE}`);
     console.log(`[server] Watch URL: ${WATCH_URL}`);
-    // Auto-start stream on container launch
+    // Auto-start stream
     console.log('[server] Auto-starting stream...');
     streamer.start().catch((error) => {
         console.error('[server] Failed to auto-start stream:', error.message);

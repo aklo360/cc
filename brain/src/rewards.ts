@@ -52,10 +52,10 @@ import { getConnection, transferCC } from './solana.js';
  * This wallet holds the majority of funds and NEVER interacts with games directly.
  */
 export const REWARDS_LIMITS = {
-  maxSingleTransfer: 1_000_000,      // 1M $CC max per transfer to game wallet
-  maxDailyTransfer: 1_000_000,       // 1M $CC max per day
-  gameWalletTarget: 1_000_000,       // Target balance for game wallet
-  gameWalletLowThreshold: 300_000,   // Trigger top-up when game wallet below this
+  maxSingleTransfer: 500_000,        // 500K $CC max per transfer to game wallet
+  maxDailyTransfer: 1_000_000,       // 1M $CC max per day (safety cap)
+  gameWalletTarget: 500_000,         // Top up to 500K
+  gameWalletLowThreshold: 250_000,   // Trigger top-up when game wallet below 250K
 };
 
 /**
@@ -63,9 +63,9 @@ export const REWARDS_LIMITS = {
  * This wallet handles all game payouts with strict limits.
  */
 export const GAME_LIMITS = {
-  maxSinglePayout: 100_000,          // 100K $CC max per payout
-  maxDailyPayouts: 500_000,          // 500K $CC max payouts per day
-  minBalance: 100_000,               // Pause games if below this
+  maxSinglePayout: 200_000,          // 200K $CC max per payout
+  maxDailyPayouts: 1_000_000,         // 1M $CC max payouts per day
+  minBalance: 200_000,               // Pause games if below this
 };
 
 /**

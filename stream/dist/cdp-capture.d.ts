@@ -1,18 +1,23 @@
 /**
- * Browser capture using Puppeteer
- * Supports two modes:
- * 1. Display mode (Linux) - FFmpeg captures via x11grab
- * 2. Window mode (macOS) - CDP screencast captures specific Chrome window
+ * Browser capture using Chrome's native CDP screencast API
+ *
+ * Architecture (Native Mac Mini):
+ * - Launches Chrome with Metal GPU acceleration
+ * - Uses Page.startScreencast CDP API for real-time frame capture
+ * - Injects requestAnimationFrame loop to force continuous repaints
+ * - Outputs JPEG frames to FFmpeg pipeline via callback
+ *
+ * This captures ONLY the Chrome window content, making it safe for
+ * macOS Space switches and background operation.
  */
 import { Page } from 'puppeteer-core';
-export type CaptureMode = 'display' | 'window';
 export interface CaptureConfig {
     url: string;
     width: number;
     height: number;
     fps: number;
     quality: number;
-    mode?: CaptureMode;
+    autoRefreshMs?: number;
 }
 export interface CaptureEvents {
     onFrame: (frameBuffer: Buffer) => void;
@@ -27,30 +32,20 @@ export declare class CdpCapture {
     private cdpSession;
     private isCapturing;
     private healthCheckInterval;
-    private screencastInterval;
-    private windowId;
+    private autoRefreshInterval;
     private frameCount;
+    private emptyPageCount;
     private static readonly HEALTH_CHECK_INTERVAL_MS;
+    private static readonly DEFAULT_AUTO_REFRESH_MS;
+    private static readonly MAX_EMPTY_PAGES;
     constructor(config: CaptureConfig, events: CaptureEvents);
-    /**
-     * Get Chrome window ID using AppleScript (macOS only)
-     * Returns the window ID of the most recently created Chrome window
-     */
-    private getWindowIdMacOS;
-    /**
-     * Get the Chrome window ID (macOS only)
-     * Call this after start() to get the window ID
-     */
-    getWindowId(): number | null;
-    /**
-     * Get the capture mode
-     */
-    getMode(): CaptureMode;
     start(): Promise<void>;
     /**
-     * Start CDP screencast for window-specific capture
-     * Uses Chrome's native Page.startScreencast API for efficient real-time streaming
-     * This captures only the Chrome window, regardless of macOS Space switches
+     * Start CDP screencast with continuous frame delivery
+     *
+     * Chrome's screencast only sends frames when there are visual changes.
+     * We inject a requestAnimationFrame loop that toggles a tiny pixel's
+     * color every frame, forcing Chrome to continuously repaint.
      */
     private startScreencast;
     /**
@@ -58,12 +53,19 @@ export declare class CdpCapture {
      */
     private stopScreencast;
     /**
-     * Periodic health check to detect Chrome crashes (Aw, Snap! pages)
-     * Chrome can crash with various error codes (e.g., SIGILL, OOM)
-     * When this happens, we need to trigger a restart
+     * Periodic health check to detect Chrome crashes
+     * IMPORTANT: This should NOT trigger stream restart for transient errors
      */
     private startHealthCheck;
     private checkPageHealth;
+    /**
+     * Start auto-refresh interval to pick up deployed changes
+     */
+    private startAutoRefresh;
+    /**
+     * Refresh the page to pick up deployed changes
+     */
+    refreshPage(): Promise<void>;
     stop(): Promise<void>;
     isRunning(): boolean;
     getFrameCount(): number;

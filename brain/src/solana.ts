@@ -992,6 +992,64 @@ export async function ensureRewardsWalletAta(): Promise<string | null> {
   }
 }
 
+// wSOL mint address
+const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+
+/**
+ * Ensure brain wallet has a wSOL ATA (needed for swap fee collection on sells)
+ * Creates the ATA if it doesn't exist
+ */
+export async function ensureBrainWsolAta(): Promise<string | null> {
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+  if (!encryptionKey) {
+    console.error('[Solana] BRAIN_WALLET_KEY not set');
+    return null;
+  }
+
+  try {
+    const connection = getConnection();
+    const brainWallet = loadWallet(encryptionKey);
+
+    // Compute expected ATA address for wSOL
+    const ata = await getAssociatedTokenAddress(WSOL_MINT, brainWallet.publicKey);
+    console.log('[Solana] Brain wallet wSOL ATA:', ata.toBase58());
+
+    // Check if it exists
+    let accountExists = false;
+    try {
+      await getAccount(connection, ata);
+      accountExists = true;
+      console.log('[Solana] Brain wallet wSOL ATA already exists');
+    } catch {
+      accountExists = false;
+      console.log('[Solana] Brain wallet wSOL ATA does not exist, creating...');
+    }
+
+    if (!accountExists) {
+      console.log('[Solana] Creating brain wallet wSOL ATA...');
+      console.log('[Solana] Brain wallet:', brainWallet.publicKey.toBase58());
+      console.log('[Solana] wSOL mint:', WSOL_MINT.toBase58());
+
+      const createAtaIx = createAssociatedTokenAccountInstruction(
+        brainWallet.publicKey,  // payer
+        ata,                     // ata address to create
+        brainWallet.publicKey,  // owner of the new ATA
+        WSOL_MINT               // token mint (wSOL)
+      );
+
+      const tx = await buildTransaction(connection, brainWallet.publicKey, [createAtaIx]);
+      const signature = await sendAndConfirmWithRetry(connection, brainWallet, tx);
+      console.log('[Solana] Brain wallet wSOL ATA created successfully!');
+      console.log('[Solana] Transaction:', signature);
+    }
+
+    return ata.toBase58();
+  } catch (error) {
+    console.error('Failed to get/create brain wallet wSOL ATA:', error);
+    return null;
+  }
+}
+
 /**
  * Get the rewards wallet's public key (if exists)
  */

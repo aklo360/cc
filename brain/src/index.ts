@@ -32,13 +32,12 @@ import {
   getTimeUntilNextAllowed,
   getHoursBetweenCycles,
   seedInitialFeatures,
+  resetShippedFeatures,
   getAllShippedFeatures,
   getActiveCycle,
   insertBuildLog,
   getRecentBuildLogs,
   cleanupOldBuildLogs,
-  getMemeStats,
-  canPostMeme as dbCanPostMeme,
   getGlobalTweetStats,
   createFlipCommitment,
   getFlipCommitment,
@@ -57,19 +56,36 @@ import {
   type ActivityType,
   type FlipChoice,
 } from './db.js';
-import { startNewCycle, executeScheduledTweets, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
-import { executeVideoTweets, getPendingVideoTweets, cleanupOldScheduledTweets } from './video-scheduler.js';
+import { startExperiment, getCycleStatus, cancelActiveCycle, buildEvents } from './cycle.js';
+import { cleanupOldScheduledTweets } from './video-scheduler.js';
+import {
+  getAllScheduledTweets,
+  getPendingTweetCount,
+  getRecentPostedTweets,
+  fillTweetQueue,
+  postNextDueTweet,
+  cleanupOldUnifiedTweets,
+  clearPendingTweets,
+} from './tweet-drafter.js';
 import { cleanupOrphanedProcesses, killProcess, registerShutdownHandlers } from './process-manager.js';
 import { getHumor } from './humor.js';
-import { generateAndPostMeme, canPostMeme } from './meme.js';
 import { getConnection, transferCC, verifyDepositTransaction, verifySolFeeTransaction, getBrainWalletAta, getBrainWalletSolAddress, NETWORK } from './solana.js';
 import { loadWallet, createBurnWallet, burnWalletExists, getBurnWalletState, loadBurnWallet, createRewardsWallet, rewardsWalletExists, getRewardsWalletState, loadRewardsWallet, importRewardsWallet, CC_TOKEN_MINT } from './wallet.js';
-import { executeBuybackAndBurn, shouldRunBuyback, getBuybackStats } from './buyback.js';
-import { ensureBurnWalletAta, ensureRewardsWalletAta, getRewardsWalletAddress } from './solana.js';
+import { executeBuybackAndBurn, shouldRunBuyback, getBuybackStats, processAllSwapFees, getSwapFeeBalances } from './buyback.js';
+import { ensureBurnWalletAta, ensureRewardsWalletAta, getRewardsWalletAddress, ensureBrainWsolAta } from './solana.js';
 import { checkPayoutCircuitBreaker, checkTopUpNeeded, topUpGameWallet, getWalletSystemStatus, getAllLimits, REWARDS_LIMITS, GAME_LIMITS } from './rewards.js';
 import { PublicKey } from '@solana/web3.js';
 import { randomBytes, createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  startGrindLoop,
+  stopGrindLoop,
+  pauseGrindLoop,
+  resumeGrindLoop,
+  getGrindStatus,
+  triggerReactiveThought,
+} from './idle-grind.js';
+import { startTokenMonitor, stopTokenMonitor } from './token-monitor.js';
 
 const PORT = process.env.PORT || 3001;
 
@@ -78,23 +94,23 @@ const wsClients = new Set<WebSocket>();
 
 // ASCII art banner
 const BANNER = `
-   ██████╗ ███████╗███╗   ██╗████████╗██████╗  █████╗ ██╗
-  ██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗██║
-  ██║      █████╗  ██╔██╗ ██║   ██║   ██████╔╝███████║██║
-  ██║      ██╔══╝  ██║╚██╗██║   ██║   ██╔══██╗██╔══██║██║
-  ╚██████╗ ███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║███████╗
-   ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
+   ██████╗██████╗ ██╗   ██╗██████╗ ████████╗ ██████╗
+  ██╔════╝██╔══██╗╚██╗ ██╔╝██╔══██╗╚══██╔══╝██╔═══██╗
+  ██║     ██████╔╝ ╚████╔╝ ██████╔╝   ██║   ██║   ██║
+  ██║     ██╔══██╗  ╚██╔╝  ██╔═══╝    ██║   ██║   ██║
+  ╚██████╗██║  ██║   ██║   ██║        ██║   ╚██████╔╝
+   ╚═════╝╚═╝  ╚═╝   ╚═╝   ╚═╝        ╚═╝    ╚═════╝
 
-  ██████╗ ██████╗  █████╗ ██╗███╗   ██╗
-  ██╔══██╗██╔══██╗██╔══██╗██║████╗  ██║
-  ██████╔╝██████╔╝███████║██║██╔██╗ ██║
-  ██╔══██╗██╔══██╗██╔══██║██║██║╚██╗██║
-  ██████╔╝██║  ██║██║  ██║██║██║ ╚████║
-  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
+  ██╗      █████╗ ██████╗
+  ██║     ██╔══██╗██╔══██╗
+  ██║     ███████║██████╔╝
+  ██║     ██╔══██║██╔══██╗
+  ███████╗██║  ██║██████╔╝
+  ╚══════╝╚═╝  ╚═╝╚═════╝
 
-  $CC Autonomous Growth Agent v4.0.0
-  Full loop: Plan → Build → Deploy → Record → Tweet → Homepage
-  Continuous Shipping: Up to 5 features per day!
+  $CC Crypto Lab v2.0.0
+  1 Viral Blockchain Experiment Per Day
+  Experiments: Entropy Oracle | Momentum Curve | Probability Engine | Convergence Pool
 `;
 
 // ============ WebSocket Broadcast ============
@@ -155,28 +171,33 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   // Routes
   if (url === '/' && method === 'GET') {
     sendJson(res, 200, {
-      name: 'Central Brain',
-      version: '4.0.0',
+      name: 'Crypto Lab',
+      version: '2.0.0',
+      codename: 'Crypto Lab',
       status: 'running',
       endpoints: {
         'GET /': 'This info',
-        'GET /status': 'Check brain status and active cycle',
-        'GET /stats': 'Daily shipping statistics',
-        'GET /features': 'All shipped features',
-        'GET /scheduled-tweets': 'All scheduled tweets',
+        'GET /status': 'Check brain status and active experiment',
+        'GET /stats': 'Daily experiment statistics',
+        'GET /features': 'All deployed experiments',
+        'POST /features/reset': 'Reset features to actual site features',
         'GET /logs': 'Recent build logs (last 24 hours)',
         'GET /tweets': 'Global tweet rate limiting stats',
-        'GET /memes': 'Meme generation stats',
-        'POST /meme/trigger': 'Manually trigger meme generation',
-        'POST /go': 'Start a new 24-hour cycle (full autonomous loop)',
-        'POST /cancel': 'Cancel the active cycle',
+        'GET /scheduled-tweets': 'Unified tweet queue (memes, AI insights, features)',
+        'POST /scheduled-tweets/fill': 'Trigger queue fill (draft new tweets)',
+        'POST /scheduled-tweets/post-next': 'Post next due tweet',
+        'POST /experiment': 'Start a new blockchain experiment (replaces /go)',
+        'POST /cancel': 'Cancel the active experiment',
         'POST /flip/commit': 'Request coin flip (returns commitment + deposit address)',
         'POST /flip/resolve': 'Submit deposit tx, get result (commit-reveal)',
         'GET /flip/status/:id': 'Check commitment status',
         'GET /flip/deposit-address': 'Get brain wallet ATA for deposits',
         'GET /flip/stats': 'Get daily flip stats + circuit breaker status',
+        'GET /fees/balances': 'Get accumulated swap terminal fee balances (CC + SOL)',
+        'POST /fees/process': 'Process all swap fees (CC direct burn + SOL buyback)',
+        'POST /fees/create-wsol-ata': 'Create wSOL ATA for collecting sell fees',
         'GET /buyback/stats': 'Get buyback & burn statistics',
-        'POST /buyback/trigger': 'Manually trigger buyback & burn',
+        'POST /buyback/trigger': 'Manually trigger SOL-only buyback & burn',
         'GET /burn-wallet/status': 'Get burn wallet status (airlock pattern)',
         'POST /burn-wallet/create': 'Create dedicated burn wallet (one-time)',
         'GET /rewards/status': 'Get rewards wallet status (cold storage)',
@@ -189,21 +210,25 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'GET /wallet-system/status': 'Get full 3-wallet system status',
         'WS /ws': 'Real-time log streaming (WebSocket)',
       },
+      experimentTypes: {
+        entropy_oracle: 'Provably fair coin flip (50/50, 1.96x payout)',
+        momentum_curve: 'Watch multiplier rise, cash out before crash',
+        probability_engine: 'Pull for tiered prizes (common/rare/epic/legendary)',
+        convergence_pool: 'Pool bets, one winner takes all',
+      },
       capabilities: [
-        'Plan projects with Claude',
-        'Build features with Claude Agent SDK',
+        'Plan experiments with Claude',
+        'Build frontends with Claude Agent SDK',
         'Deploy to Cloudflare Pages',
-        'Record video of deployed features',
+        'Generate gameplay trailers',
         'Tweet announcements with video',
-        'Schedule follow-up tweets',
-        'Auto-add feature buttons to homepage',
-        'Continuous shipping (up to 5/day)',
-        'Generate memes during cooldown periods',
-        'Secure coin flip with commit-reveal pattern',
+        'Auto-add buttons to homepage',
+        '1 high-quality experiment per day',
+        'Secure commit-reveal randomness',
         'Buyback & burn: SOL fees → buy $CC → burn 100%',
-        'Burn wallet airlock: Safe burn pattern (brain wallet protected)',
+        'Burn wallet airlock: Safe burn pattern',
         '3-wallet architecture: Rewards (cold) → Game (hot) → Players',
-        'Circuit breaker: Max 100K/payout, 500K/day payouts, auto top-up',
+        'Circuit breaker protection',
       ],
     });
     return;
@@ -211,42 +236,79 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   if (url === '/status' && method === 'GET') {
     const status = getCycleStatus();
-    const memeStats = getMemeStats();
     const featureCooldownMs = getTimeUntilNextAllowed();
+    const stats = getTodayStats();
+    const grindStatus = getGrindStatus();
 
-    // Determine brain mode: building, resting (cooldown), or idle
-    let mode: 'building' | 'resting' | 'idle' = 'idle';
+    // Determine brain mode: experimenting, calibrating (cooldown), or observing/grinding
+    let mode: 'EXPERIMENTING' | 'CALIBRATING' | 'OBSERVING' = 'OBSERVING';
     if (status.active) {
-      mode = 'building';
+      mode = 'EXPERIMENTING';
     } else if (featureCooldownMs > 0) {
-      mode = 'resting';
+      mode = 'CALIBRATING';
+    }
+
+    // Get wallet status for health check
+    let walletHealth = { game: { healthy: false, balance: 0 }, rewards: { exists: false, balance: null as number | null }, burn: { exists: false } };
+    try {
+      const encryptionKey = process.env.BRAIN_WALLET_KEY;
+      if (encryptionKey) {
+        const connection = getConnection();
+        const gameWallet = loadWallet(encryptionKey);
+        const gameBalance = await gameWallet.getBalance(connection);
+        walletHealth.game = { healthy: gameBalance.cc > 250_000, balance: gameBalance.cc };
+
+        if (rewardsWalletExists()) {
+          const rewardsWallet = loadRewardsWallet(encryptionKey);
+          const rewardsBalance = await rewardsWallet.getBalance(connection);
+          walletHealth.rewards = { exists: true, balance: rewardsBalance.cc };
+        }
+
+        walletHealth.burn = { exists: burnWalletExists() };
+      }
+    } catch (e) {
+      // Wallet check failed, continue with defaults
     }
 
     sendJson(res, 200, {
-      brain: 'running',
+      version: '2.0',
+      codename: 'Crypto Lab',
       mode,
       wsClients: wsClients.size,
-      cycle: status.active
+      experiment: status.active
         ? {
+            active: true,
             id: status.cycle?.id,
-            status: status.cycle?.status,
-            project: status.cycle?.project_idea,
+            type: status.cycle?.project_idea,
             slug: status.cycle?.project_slug,
+            phase: status.cycle?.status,
             started: status.cycle?.started_at,
-            ends: status.cycle?.ends_at,
-            tweets: status.tweets,
           }
-        : null,
+        : {
+            active: false,
+            id: null,
+            type: null,
+            phase: null,
+          },
+      grind: {
+        active: grindStatus.running && !grindStatus.paused,
+        currentActivity: grindStatus.currentActivity,
+        lastThought: grindStatus.lastThought,
+        lastThoughtAt: grindStatus.lastThoughtAt ? new Date(grindStatus.lastThoughtAt).toISOString() : null,
+        // v2 reasoning session info
+        session: grindStatus.session,
+        insights: grindStatus.insights,
+        isResting: grindStatus.isResting,
+      },
+      wallets: walletHealth,
+      stats: {
+        experimentsToday: stats.features_shipped,
+        totalExperiments: getAllShippedFeatures().length,
+        nextExperimentIn: featureCooldownMs > 0 ? featureCooldownMs : null,
+      },
       cooldown: {
         next_allowed_in_ms: featureCooldownMs,
         next_allowed_at: featureCooldownMs > 0 ? new Date(Date.now() + featureCooldownMs).toISOString() : null,
-      },
-      memes: {
-        daily_count: memeStats.daily_count,
-        daily_limit: memeStats.daily_limit,
-        can_post: memeStats.can_post,
-        next_allowed_in_ms: memeStats.next_allowed_in_ms,
-        in_progress: memeStats.in_progress,
       },
     });
     return;
@@ -288,30 +350,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  if (url === '/scheduled-tweets' && method === 'GET') {
-    // Get all pending video tweets (brain-scheduled)
-    const videoTweets = getPendingVideoTweets();
-
-    // Get cycle-scheduled tweets if there's an active cycle
-    const cycleStatus = getCycleStatus();
-    const cycleTweets = cycleStatus.tweets || [];
-
+  // Admin endpoint to reset features to actual site features
+  if (url === '/features/reset' && method === 'POST') {
+    const count = resetShippedFeatures();
+    const features = getAllShippedFeatures();
     sendJson(res, 200, {
-      video_tweets: videoTweets.map(t => ({
-        id: t.id,
-        content: t.content,
-        scheduled_for: t.scheduled_for,
-        posted: t.posted === 1,
-        source: 'brain-video',
-      })),
-      cycle_tweets: cycleTweets.map(t => ({
-        content: t.content,
-        scheduled_for: t.scheduled_for,
-        posted: t.posted,
-        source: 'brain-cycle',
-      })),
-      total_pending: videoTweets.filter(t => t.posted === 0).length +
-                     cycleTweets.filter(t => !t.posted).length,
+      success: true,
+      message: `Reset to ${count} features`,
+      total: features.length,
+      latest: features[0]?.name || null,
     });
     return;
   }
@@ -339,120 +386,205 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  // Meme endpoints
-  if (url === '/memes' && method === 'GET') {
-    const stats = getMemeStats();
-    sendJson(res, 200, stats);
+  // ============ REASONING SYSTEM V2 ENDPOINTS ============
+
+  // Get insights from the learning system
+  if (url === '/insights' && method === 'GET') {
+    const { getAllInsights, getInsightsSummary } = await import('./insights-db.js');
+    const insights = getAllInsights();
+    const summary = getInsightsSummary();
+
+    sendJson(res, 200, {
+      total: summary.total,
+      byConfidence: summary.byConfidence,
+      byCategory: summary.byCategory,
+      insights: insights.map(i => ({
+        id: i.id,
+        insight: i.insight,
+        category: i.category,
+        confidence: i.confidence,
+        timesReferenced: i.timesReferenced,
+        createdAt: i.createdAt,
+      })),
+    });
     return;
   }
 
-  if (url === '/meme/trigger' && method === 'POST') {
-    // Parse request body for force option
-    let force = false;
-    try {
-      const body = await new Promise<string>((resolve) => {
-        let data = '';
-        req.on('data', chunk => data += chunk);
-        req.on('end', () => resolve(data));
-      });
-      if (body) {
-        const parsed = JSON.parse(body);
-        force = parsed.force === true;
-      }
-    } catch {
-      // No body or invalid JSON, use defaults
-    }
+  // Get current thinking session status
+  if (url === '/session' && method === 'GET') {
+    const { getSessionStatus } = await import('./reasoning-engine.js');
+    const { getSessionThoughts } = await import('./db.js');
+    const status = getSessionStatus();
 
-    // Check if there's an active cycle (don't generate memes during builds)
-    const active = getActiveCycle();
-    if (active && !force) {
-      sendJson(res, 409, {
-        success: false,
-        error: 'Cannot generate memes during active build cycle',
+    if (!status.active || !status.session) {
+      sendJson(res, 200, {
+        active: false,
+        message: 'No active thinking session',
       });
       return;
     }
 
-    console.log(`\n🎨 Meme trigger! Starting meme generation...${force ? ' (FORCE MODE)' : ''}\n`);
-    broadcastLog(`🎨 Starting meme generation...${force ? ' (FORCE MODE)' : ''}`, true, 'meme');
+    const thoughts = getSessionThoughts(status.session.id);
 
-    const result = await generateAndPostMeme(force, (msg) => {
-      broadcastLog(`🎨 ${msg}`, true, 'meme');
+    sendJson(res, 200, {
+      active: true,
+      session: {
+        id: status.session.id,
+        problem: status.session.problem,
+        category: status.session.category,
+        startedAt: status.session.startedAt,
+        thoughtCount: status.session.thoughtCount,
+        status: status.session.status,
+      },
+      progress: status.progress,
+      thoughts: thoughts.map(t => ({
+        index: t.thoughtIndex,
+        content: t.content,
+        type: t.thoughtType,
+        time: new Date(t.createdAt).toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }),
+      })),
     });
+    return;
+  }
 
-    if (result.success) {
-      broadcastLog(`🎨 Meme posted! Tweet ID: ${result.tweet_id}`, true, 'meme');
-      sendJson(res, 200, result);
+  // Scheduled tweets - unified queue for all tweet types
+  if (url === '/scheduled-tweets' && method === 'GET') {
+    const pending = getAllScheduledTweets();
+    const recent = getRecentPostedTweets(10);
+    const pendingCount = getPendingTweetCount();
+
+    sendJson(res, 200, {
+      queue_size: pendingCount,
+      pending: pending.map(t => ({
+        id: t.id,
+        type: t.tweet_type,
+        content: t.content,
+        has_image: !!t.image_base64,
+        has_video: !!t.video_path,
+        scheduled_for: t.scheduled_for,
+        quality_score: t.quality_score,
+      })),
+      recent: recent.map(t => ({
+        id: t.id,
+        type: t.tweet_type,
+        content: t.content,
+        twitter_id: t.twitter_id,
+        posted_at: t.scheduled_for,
+      })),
+    });
+    return;
+  }
+
+  // Trigger tweet queue fill (for testing)
+  if (url === '/scheduled-tweets/fill' && method === 'POST') {
+    console.log('[Tweet Drafter] Manual queue fill triggered');
+    broadcastLog('📝 Manual tweet queue fill triggered', true, 'system');
+
+    // Run async and return immediately
+    fillTweetQueue(5)
+      .then(count => {
+        console.log(`[Tweet Drafter] Filled queue with ${count} tweets`);
+        broadcastLog(`📝 Tweet queue filled: ${count} new tweets drafted`, true, 'system');
+      })
+      .catch(err => {
+        console.error('[Tweet Drafter] Fill failed:', err);
+        broadcastLog(`⚠️ Tweet queue fill failed: ${err.message}`, true, 'system');
+      });
+
+    sendJson(res, 200, {
+      message: 'Queue fill started',
+      current_queue_size: getPendingTweetCount(),
+    });
+    return;
+  }
+
+  // Trigger next tweet post (for testing)
+  if (url === '/scheduled-tweets/post-next' && method === 'POST') {
+    console.log('[Tweet Drafter] Manual post triggered');
+    broadcastLog('📝 Manual tweet post triggered', true, 'system');
+
+    const posted = await postNextDueTweet();
+    if (posted) {
+      sendJson(res, 200, { success: true, message: 'Tweet posted' });
     } else {
-      broadcastLog(`🎨 Meme generation failed: ${result.error}`, true, 'meme');
-      sendJson(res, 500, result);
+      sendJson(res, 200, { success: false, message: 'No tweet due or rate limited' });
     }
     return;
   }
 
-  if (url === '/go' && method === 'POST') {
-    // Parse request body for force option
-    let force = false;
-    try {
-      const body = await new Promise<string>((resolve) => {
-        let data = '';
-        req.on('data', chunk => data += chunk);
-        req.on('end', () => resolve(data));
-      });
-      if (body) {
-        const parsed = JSON.parse(body);
-        force = parsed.force === true;
-      }
-    } catch {
-      // No body or invalid JSON, use defaults
+  // Clear all pending tweets (for personality/prompt updates)
+  if (url === '/scheduled-tweets/clear' && method === 'POST') {
+    console.log('[Tweet Drafter] Clearing pending tweets...');
+    const cleared = clearPendingTweets();
+    console.log(`[Tweet Drafter] Cleared ${cleared} pending tweet(s)`);
+    broadcastLog(`🗑️ Cleared ${cleared} pending tweet(s) from queue`, true, 'system');
+
+    sendJson(res, 200, {
+      success: true,
+      cleared,
+      message: `Cleared ${cleared} pending tweets. Use POST /scheduled-tweets/fill to regenerate.`,
+    });
+    return;
+  }
+
+  // Experiment control endpoint
+  // /experiment is the primary endpoint (Brain 2.0)
+  // /go and /gamefi/go are kept as aliases for backwards compatibility
+  if ((url === '/experiment' || url === '/go' || url === '/gamefi/go') && method === 'POST') {
+    if (getActiveCycle()) {
+      sendJson(res, 409, { error: 'Experiment already in progress', status: getCycleStatus() });
+      return;
     }
 
-    console.log(`\n🚀 GO triggered! Starting full autonomous cycle...${force ? ' (FORCE MODE)' : ''}\n`);
-    broadcastLog(`🚀 GO triggered! Starting full autonomous cycle...${force ? ' (FORCE MODE)' : ''}`);
-
-    const result = await startNewCycle({ force });
-
-    if (result) {
-      sendJson(res, 200, {
-        success: true,
-        message: 'Autonomous cycle started!',
-        cycleId: result.cycleId,
-        project: result.plan.project,
-        buildSuccess: result.buildResult?.success,
-        deployUrl: result.deployUrl,
-        trailerGenerated: result.trailerResult?.success,
-        announcementTweetId: result.announcementTweetId,
-        tweets: result.plan.tweets.map((t) => ({
-          content: t.content,
-          type: t.type,
-          scheduled_hours: t.hours_from_start,
-        })),
+    // Check cooldown
+    const cooldownMs = getTimeUntilNextAllowed();
+    if (cooldownMs > 0) {
+      const hours = Math.floor(cooldownMs / (1000 * 60 * 60));
+      const minutes = Math.floor((cooldownMs % (1000 * 60 * 60)) / (1000 * 60));
+      sendJson(res, 429, {
+        error: `Must wait before starting a new experiment`,
+        cooldown_remaining_ms: cooldownMs,
+        cooldown_remaining: `${hours}h ${minutes}m`,
+        next_allowed_at: new Date(Date.now() + cooldownMs).toISOString(),
       });
-    } else {
-      const existing = getCycleStatus();
-      if (existing.active) {
-        sendJson(res, 409, {
-          success: false,
-          message: 'A cycle is already active',
-          cycle: {
-            id: existing.cycle?.id,
-            project: existing.cycle?.project_idea,
-            ends: existing.cycle?.ends_at,
-          },
-        });
-      } else {
-        sendJson(res, 500, {
-          success: false,
-          message: 'Failed to start cycle - check logs',
-        });
-      }
+      return;
     }
+
+    console.log('\n🔬 Starting new blockchain experiment!\n');
+    broadcastLog('🔬 Starting new blockchain experiment!', true, 'build');
+
+    // Pause the grind loop during build
+    pauseGrindLoop();
+
+    // Start experiment asynchronously (non-blocking)
+    startExperiment()
+      .then((result) => {
+        if (result && result.deployUrl) {
+          console.log(`✅ Experiment deployed: ${result.plan.experiment.slug}`);
+        } else if (!result) {
+          console.error(`❌ Experiment could not start (cooldown or active cycle)`);
+        }
+        // Resume grind loop after build completes
+        resumeGrindLoop();
+      })
+      .catch((err) => {
+        console.error('Experiment crashed:', err);
+        broadcastLog(`❌ Experiment crashed: ${err.message}`, true, 'build');
+        // Resume grind loop even after crash
+        resumeGrindLoop();
+      });
+
+    sendJson(res, 200, { message: 'Experiment started', status: getCycleStatus() });
     return;
   }
 
   if (url === '/cancel' && method === 'POST') {
-    console.log('\n⛔ CANCEL triggered! Stopping active cycle...\n');
-    broadcastLog('⛔ CANCEL triggered! Stopping active cycle...');
+    console.log('\n⛔ CANCEL triggered! Stopping active experiment...\n');
+    broadcastLog('⛔ CANCEL triggered! Stopping active experiment...');
 
     // cancelActiveCycle is now async (kills processes)
     const result = await cancelActiveCycle();
@@ -460,14 +592,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     if (result) {
       sendJson(res, 200, {
         success: true,
-        message: 'Cycle cancelled and processes killed',
-        cycleId: result.id,
-        project: result.project_idea,
+        message: 'Experiment cancelled and processes killed',
+        experimentId: result.id,
+        type: result.project_idea,
       });
     } else {
       sendJson(res, 404, {
         success: false,
-        message: 'No active cycle to cancel',
+        message: 'No active experiment to cancel',
       });
     }
     return;
@@ -1039,6 +1171,98 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   /**
+   * GET /fees/balances - Get accumulated swap terminal fee balances
+   */
+  if (url === '/fees/balances' && method === 'GET') {
+    const balances = await getSwapFeeBalances();
+    sendJson(res, 200, {
+      ccFees: {
+        amount: balances.ccFees,
+        note: balances.ccFeesNote,
+      },
+      solFees: {
+        amount: balances.solFees,
+        minimumForBuyback: 0.1,
+        readyForBuyback: balances.solFees >= 0.1,
+      },
+      error: balances.error,
+      explanation: {
+        ccFees: 'CC fees from BUY transactions go to the same ATA as bankroll. They become house profit, not burned.',
+        solFees: 'SOL fees from SELL transactions accumulate separately. When >= 0.1 SOL, they get swapped to CC and burned.',
+      },
+    });
+    return;
+  }
+
+  /**
+   * POST /fees/process - Process all accumulated swap terminal fees (CC + SOL)
+   * Body: { dryRun?: boolean } - Set to true for simulation mode
+   */
+  if (url === '/fees/process' && method === 'POST') {
+    // Parse optional body
+    const body = await new Promise<string>((resolve) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => resolve(data));
+    });
+    let dryRun = false;
+    try {
+      const parsed = JSON.parse(body || '{}');
+      dryRun = parsed.dryRun === true;
+    } catch {
+      // No body or invalid JSON
+    }
+
+    if (dryRun) {
+      console.log('[Fee Processing] DRY RUN MODE');
+      broadcastLog('🧪 Dry run fee processing triggered', true, 'system');
+    } else {
+      console.log('[Fee Processing] Manual trigger requested');
+      broadcastLog('🔥 Manual fee processing triggered', true, 'system');
+    }
+
+    const result = await processAllSwapFees(dryRun);
+
+    if (result.success) {
+      if (result.totalCcBurned > 0) {
+        broadcastLog(`🔥 Fee processing complete: ${result.totalCcBurned.toFixed(0)} $CC burned total`, true, 'system');
+      }
+      sendJson(res, 200, result);
+    } else {
+      broadcastLog(`⚠️ Fee processing failed: ${result.errors.join(', ')}`, true, 'system');
+      sendJson(res, 500, result);
+    }
+    return;
+  }
+
+  /**
+   * POST /fees/create-wsol-ata - Create wSOL ATA for collecting sell fees
+   * This is needed before sells can have platform fees
+   */
+  if (url === '/fees/create-wsol-ata' && method === 'POST') {
+    console.log('[Fees] Creating wSOL ATA for sell fee collection...');
+    broadcastLog('💰 Creating wSOL ATA for sell fee collection...', true, 'system');
+
+    try {
+      const ata = await ensureBrainWsolAta();
+      if (ata) {
+        broadcastLog(`💰 wSOL ATA created/verified: ${ata}`, true, 'system');
+        sendJson(res, 200, {
+          success: true,
+          wsolAta: ata,
+          message: 'wSOL ATA created successfully. Sell fees can now be collected.',
+        });
+      } else {
+        sendJson(res, 500, { success: false, error: 'Failed to create wSOL ATA' });
+      }
+    } catch (error) {
+      console.error('[Fees] Failed to create wSOL ATA:', error);
+      sendJson(res, 500, { success: false, error: (error as Error).message });
+    }
+    return;
+  }
+
+  /**
    * POST /buyback/trigger - Manually trigger buyback & burn
    * Body: { testAmount?: number } - Optional SOL amount for testing (bypasses min threshold)
    */
@@ -1541,135 +1765,77 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
 // ============ Cron Jobs ============
 
-async function handleTweetExecutor(): Promise<void> {
-  console.log('\n[Tweet Executor] Checking for scheduled tweets...');
-  try {
-    const posted = await executeScheduledTweets();
-    if (posted > 0) {
-      console.log(`[Tweet Executor] Posted ${posted} tweet(s)`);
-      broadcastLog(`[Tweet Executor] Posted ${posted} tweet(s)`);
-    } else {
-      console.log('[Tweet Executor] No tweets due');
-    }
-  } catch (error) {
-    console.error('[Tweet Executor] Error:', error);
-  }
-}
-
-async function handleVideoTweetExecutor(): Promise<void> {
-  console.log('\n[Video Tweet Executor] Checking for scheduled video tweets...');
-  try {
-    const posted = await executeVideoTweets();
-    if (posted > 0) {
-      console.log(`[Video Tweet Executor] Posted ${posted} video tweet(s)`);
-      broadcastLog(`[Video Tweet Executor] Posted ${posted} video tweet(s)`);
-    } else {
-      const pending = getPendingVideoTweets();
-      if (pending.length > 0) {
-        console.log(`[Video Tweet Executor] ${pending.length} video tweet(s) pending, next at: ${pending[0].scheduled_for}`);
-      }
-    }
-  } catch (error) {
-    console.error('[Video Tweet Executor] Error:', error);
-  }
-}
-
 /**
- * Auto-cycle handler - checks if a new cycle should start
- * This replaces the broken setTimeout-based scheduling
+ * Daily Experiment handler - starts one blockchain experiment per day
+ * Runs at 9:00 AM UTC (peak dev Twitter hours)
  */
-async function handleAutoCycle(): Promise<void> {
-  // Don't log every check - only when something happens
+async function handleDailyExperiment(): Promise<void> {
   try {
-    // Skip if there's already an active cycle
+    // Skip if there's already an active experiment
     const active = getActiveCycle();
     if (active) {
+      console.log('[Daily Experiment] Skipping: Experiment already in progress');
       return;
     }
 
     // Check if we can ship more today
     if (!canShipMore()) {
+      console.log('[Daily Experiment] Skipping: Daily limit reached');
       return;
     }
 
     // Check if cooldown has elapsed
     const cooldownMs = getTimeUntilNextAllowed();
     if (cooldownMs > 0) {
+      console.log(`[Daily Experiment] Skipping: On cooldown (${Math.round(cooldownMs / 3600000)}h remaining)`);
       return;
     }
 
-    // All checks passed - start a new cycle!
-    console.log('\n🔄 [Auto-Cycle] Cooldown elapsed, starting new cycle...');
-    broadcastLog('🔄 [Auto-Cycle] Cooldown elapsed, starting new cycle...');
-
-    await startNewCycle();
-  } catch (error) {
-    console.error('[Auto-Cycle] Error:', error);
-  }
-}
-
-/**
- * Meme generator handler - generates memes during cooldown periods
- * Runs every 15 minutes, only during cooldown (no active cycle)
- */
-async function handleMemeGenerator(): Promise<void> {
-  try {
-    // Skip if there's an active cycle (focus on building)
-    const active = getActiveCycle();
-    if (active) {
-      return;
-    }
-
-    // Check meme rate limits
-    const canPost = canPostMeme();
-    if (!canPost.allowed) {
-      // Only log if it's not a simple interval check
-      if (!canPost.reason?.includes('wait')) {
-        console.log(`[Meme Generator] Skipped: ${canPost.reason}`);
+    // Check wallet health before starting
+    const encryptionKey = process.env.BRAIN_WALLET_KEY;
+    if (encryptionKey) {
+      const topUpCheck = await checkTopUpNeeded();
+      if (topUpCheck.needed) {
+        console.log('[Daily Experiment] Game wallet low, triggering top-up first...');
+        broadcastLog('❄️ Pre-experiment: Topping up game wallet...', true, 'system');
+        const topUpResult = await topUpGameWallet();
+        if (!topUpResult.success) {
+          console.log(`[Daily Experiment] Warning: Top-up failed: ${topUpResult.reason}`);
+        }
       }
-      return;
     }
 
-    // Generate and post a meme!
-    console.log('\n🎨 [Meme Generator] Starting meme generation during cooldown...');
-    broadcastLog(`🎨 ${getHumor('memeStart')}`, true, 'meme');
+    // All checks passed - start the daily experiment!
+    console.log('\n🔬 [Daily Experiment] Starting daily blockchain experiment...');
+    broadcastLog('🔬 Daily experiment starting - 9:00 AM UTC trigger', true, 'build');
 
-    const result = await generateAndPostMeme(false, (msg) => {
-      broadcastLog(`🎨 ${msg}`, true, 'meme');
-    });
+    // Pause grind loop during build
+    pauseGrindLoop();
 
-    if (result.success) {
-      console.log(`[Meme Generator] Posted! Tweet ID: ${result.tweet_id}`);
-      broadcastLog(`🎨 ${getHumor('memeSuccess')} - Tweet ID: ${result.tweet_id}`, true, 'meme');
+    const result = await startExperiment();
+
+    if (result && result.deployUrl) {
+      console.log(`[Daily Experiment] ✓ Deployed: ${result.plan.experiment.slug}`);
     } else {
-      console.log(`[Meme Generator] Failed: ${result.error}`);
-      broadcastLog(`🎨 ${getHumor('memeFailed')}: ${result.error}`, true, 'meme');
+      console.log(`[Daily Experiment] ✗ Could not start (cooldown or other issue)`);
     }
+
+    // Resume grind loop after build
+    resumeGrindLoop();
   } catch (error) {
-    console.error('[Meme Generator] Error:', error);
+    console.error('[Daily Experiment] Error:', error);
+    // Resume grind loop even after error
+    resumeGrindLoop();
   }
 }
 
 function setupCronJobs(): void {
-  console.log('Setting up cron jobs (CONSERVATIVE after account lock)...');
+  console.log('Setting up cron jobs (Brain 2.0 Crypto Lab)...');
 
-  // Check for scheduled tweets every 3 hours (relaxed from 5 min)
-  cron.schedule('0 */3 * * *', handleTweetExecutor);
-  console.log('  ✓ Tweet Executor: every 3 hours');
-
-  // Check for scheduled video tweets every 4 hours (relaxed from 5 min)
-  cron.schedule('0 */4 * * *', handleVideoTweetExecutor);
-  console.log('  ✓ Video Tweet Executor: every 4 hours');
-
-  // Auto-cycle: Check every 10 minutes if a new cycle should start
-  // This replaces the broken setTimeout-based scheduling
-  cron.schedule('*/10 * * * *', handleAutoCycle);
-  console.log('  ✓ Auto-Cycle Checker: every 10 minutes');
-
-  // Meme generator: Every 4 hours during cooldown (relaxed from 15 min)
-  // Only runs when no active cycle and meme rate limits allow
-  cron.schedule('0 */4 * * *', handleMemeGenerator);
-  console.log('  ✓ Meme Generator: every 4 hours (during cooldown)');
+  // Daily Experiment: 9:00 AM UTC - peak dev Twitter hours
+  // This is the main driver of Brain 2.0 - one high-quality experiment per day
+  cron.schedule('0 9 * * *', handleDailyExperiment);
+  console.log('  ✓ Daily Experiment: 9:00 AM UTC');
 
   // Cleanup expired flip commitments every minute
   cron.schedule('* * * * *', () => {
@@ -1680,28 +1846,35 @@ function setupCronJobs(): void {
   });
   console.log('  ✓ Flip Commitment Cleanup: every minute');
 
-  // Buyback & Burn: Every 6 hours - swap accumulated SOL fees for $CC and burn
+  // Fee Processing & Burn: Every 6 hours - process all swap terminal fees
+  // Handles BOTH CC fees (from buys) and SOL fees (from sells)
   cron.schedule('0 */6 * * *', async () => {
-    console.log('[Buyback] Checking if buyback should run...');
-    broadcastLog('🔥 Checking buyback & burn conditions...', true, 'system');
+    console.log('[Fee Processing] Starting scheduled fee processing...');
+    broadcastLog('🔥 Processing swap terminal fees...', true, 'system');
 
-    const check = await shouldRunBuyback();
-    if (!check.should) {
-      console.log(`[Buyback] Skipping: ${check.reason}`);
-      return;
-    }
+    const result = await processAllSwapFees();
 
-    console.log(`[Buyback] Starting: ${check.reason}`);
-    broadcastLog(`🔥 Starting buyback & burn (${check.availableSol?.toFixed(4)} SOL available)`, true, 'system');
-
-    const result = await executeBuybackAndBurn();
     if (result.success) {
-      broadcastLog(`🔥 Buyback complete: ${result.solSpent?.toFixed(4)} SOL → ${result.ccBought?.toFixed(0)} $CC bought → ${result.ccBurned?.toFixed(0)} $CC burned!`, true, 'system');
+      const ccBurned = result.ccFees.ccBurned || 0;
+      const solBurned = result.solFees.ccBurned || 0;
+      const total = result.totalCcBurned;
+
+      if (total > 0) {
+        broadcastLog(`🔥 Fee processing complete! Total burned: ${total.toFixed(0)} $CC`, true, 'system');
+        if (ccBurned > 0) {
+          broadcastLog(`   └─ CC fees (buys): ${ccBurned.toFixed(0)} $CC burned`, true, 'system');
+        }
+        if (solBurned > 0) {
+          broadcastLog(`   └─ SOL fees (sells): ${result.solFees.solSpent?.toFixed(4)} SOL → ${solBurned.toFixed(0)} $CC burned`, true, 'system');
+        }
+      } else {
+        console.log('[Fee Processing] No fees to process this cycle');
+      }
     } else {
-      broadcastLog(`⚠️ Buyback failed: ${result.error}`, true, 'system');
+      broadcastLog(`⚠️ Fee processing had errors: ${result.errors.join(', ')}`, true, 'system');
     }
   });
-  console.log('  ✓ Buyback & Burn: every 6 hours');
+  console.log('  ✓ Fee Processing & Burn: every 6 hours (CC + SOL fees)');
 
   // Daily Top-Up: Midnight UTC - top up game wallet from rewards wallet if needed
   cron.schedule('0 0 * * *', async () => {
@@ -1732,6 +1905,49 @@ function setupCronJobs(): void {
     }
   });
   console.log('  ✓ Daily Top-Up: midnight UTC (rewards → game wallet)');
+
+  // ============ UNIFIED TWEET SYSTEM CRONS ============
+
+  // Tweet Poster: Every 30 minutes - post next due tweet
+  cron.schedule('*/30 * * * *', async () => {
+    // Cleanup old tweets first
+    const cleaned = cleanupOldUnifiedTweets();
+    if (cleaned > 0) {
+      console.log(`[Tweet Poster] Cleaned up ${cleaned} overdue tweet(s)`);
+    }
+
+    // Post next due tweet
+    const posted = await postNextDueTweet();
+    if (posted) {
+      broadcastLog('📝 Scheduled tweet posted', true, 'system');
+    }
+  });
+  console.log('  ✓ Tweet Poster: every 30 minutes');
+
+  // Tweet Drafter: Every 4 hours (during idle) - fill queue if < 5 pending
+  cron.schedule('0 */4 * * *', async () => {
+    // Skip if experiment is running
+    const active = getActiveCycle();
+    if (active) {
+      console.log('[Tweet Drafter] Skipping: Experiment in progress');
+      return;
+    }
+
+    const pendingCount = getPendingTweetCount();
+    if (pendingCount >= 5) {
+      console.log(`[Tweet Drafter] Queue has ${pendingCount} tweets, no drafting needed`);
+      return;
+    }
+
+    console.log(`[Tweet Drafter] Queue low (${pendingCount}), drafting new tweets...`);
+    broadcastLog(`📝 Queue low (${pendingCount}), drafting new tweets...`, true, 'system');
+
+    const drafted = await fillTweetQueue(5);
+    if (drafted > 0) {
+      broadcastLog(`📝 Drafted ${drafted} new tweet(s), queue now has ${getPendingTweetCount()}`, true, 'system');
+    }
+  });
+  console.log('  ✓ Tweet Drafter: every 4 hours (when idle, if queue < 5)');
 }
 
 // ============ Main ============
@@ -1755,8 +1971,18 @@ async function main(): Promise<void> {
   // Cleanup old scheduled tweets that are more than 1 hour overdue
   const skippedTweets = cleanupOldScheduledTweets();
   if (skippedTweets > 0) {
-    console.log(`✓ Skipped ${skippedTweets} old scheduled tweet(s) that were >1 hour overdue`);
+    console.log(`✓ Skipped ${skippedTweets} old video tweet(s) that were >1 hour overdue`);
   }
+
+  // Cleanup old unified tweets
+  const skippedUnifiedTweets = cleanupOldUnifiedTweets();
+  if (skippedUnifiedTweets > 0) {
+    console.log(`✓ Skipped ${skippedUnifiedTweets} old unified tweet(s) that were >1 hour overdue`);
+  }
+
+  // Log queue status
+  const queueSize = getPendingTweetCount();
+  console.log(`✓ Tweet queue: ${queueSize} pending tweet(s)`);
 
   // Cleanup old build logs (older than 7 days)
   const deletedLogs = cleanupOldBuildLogs(7);
@@ -1858,19 +2084,36 @@ async function main(): Promise<void> {
   });
 
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('  Central Brain is now running');
-  console.log(`  Start cycle: curl -X POST http://localhost:${PORT}/go`);
-  console.log(`  Watch logs:  ws://localhost:${PORT}/ws`);
+  console.log('  Crypto Lab v2.0 is now running');
+  console.log(`  Start experiment: curl -X POST http://localhost:${PORT}/experiment`);
+  console.log(`  Watch logs:       ws://localhost:${PORT}/ws`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
   // Log startup to database (so /watch page has something to show)
   const startupHumor = getHumor('startup');
-  broadcastLog(`🧠 Central Brain started - ${startupHumor}`);
+  broadcastLog(`🔬 Crypto Lab v2.0 started - ${startupHumor}`);
+
+  // Start the Idle Grind Loop - the dev that never sleeps
+  // Only runs when not building, emits thoughts every 15-90 seconds
+  console.log('Starting Idle Grind Loop...');
+  startGrindLoop(broadcastLog);
+  console.log('✓ Idle Grind Loop active');
+
+  // Start the Token Monitor - reacts to $CC buys/sells in chat
+  console.log('Starting Token Monitor...');
+  startTokenMonitor(broadcastLog);
+  console.log('✓ Token Monitor active');
 }
 
 // Graceful shutdown
 function shutdown(): void {
   console.log('\nShutting down Central Brain...');
+
+  // Stop the grind loop
+  stopGrindLoop();
+
+  // Stop the token monitor
+  stopTokenMonitor();
 
   // Close all WebSocket connections
   for (const client of wsClients) {

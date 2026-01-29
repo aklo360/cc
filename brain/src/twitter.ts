@@ -148,6 +148,7 @@ export async function postTweet(
   options: {
     mediaId?: string;
     communityId?: string;
+    replyToId?: string;
   } = {}
 ): Promise<{ id: string; text: string }> {
   const url = 'https://api.twitter.com/2/tweets';
@@ -157,6 +158,7 @@ export async function postTweet(
     media?: { media_ids: string[] };
     community_id?: string;
     share_with_followers?: boolean;
+    reply?: { in_reply_to_tweet_id: string };
   } = { text };
 
   if (options.mediaId) {
@@ -166,6 +168,10 @@ export async function postTweet(
   if (options.communityId) {
     body.community_id = options.communityId;
     body.share_with_followers = true; // Broadcast to followers too (like web UI)
+  }
+
+  if (options.replyToId) {
+    body.reply = { in_reply_to_tweet_id: options.replyToId };
   }
 
   const authHeader = await generateOAuth1Header('POST', url, credentials);

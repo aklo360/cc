@@ -4,6 +4,943 @@ All notable changes to the $CC (claudecode.wtf) project.
 
 ---
 
+## [2026-01-29] - Triple Simulcast: Twitter + YouTube + Kick
+
+### Added: Full 3-Platform Livestream
+
+The 24/7 livestream now broadcasts to **ALL THREE PLATFORMS** simultaneously:
+
+**Live URLs (24/7):**
+- Twitter/X: https://x.com/ClaudeCodeWTF (PRIMARY)
+- YouTube: https://www.youtube.com/live/JdSyXwI-DGw (ACTIVE)
+- Kick: https://kick.com/pxpwtf (ACTIVE)
+
+**Architecture:**
+```
+Chrome CDP → libx264 4000k → tee muxer
+                                 │
+              ┌──────────────────┼──────────────────┐
+              ▼                  ▼                  ▼
+           Twitter            YouTube             Kick
+          (PRIMARY)          (ACTIVE)      (via stunnel proxy)
+```
+
+**Technical Changes:**
+- Switched from `h264_videotoolbox` (hardware) to `libx264` (software) for YouTube compatibility
+- Increased bitrate from 2500kbps to 4000kbps
+- Added `onfail=ignore` to tee muxer - one failing destination doesn't kill others
+- Added `-flags +global_header` required for tee muxer with FLV/RTMP
+- **Kick via Stunnel:** macOS SecureTransport has RTMPS TLS issues (-9806), so stunnel proxies plain RTMP to Kick's RTMPS endpoint
+
+**Stunnel Setup (for Kick):**
+- Config: `stream/kick-stunnel.conf`
+- LaunchAgent: `~/Library/LaunchAgents/com.kick.stunnel.plist` (auto-starts on boot)
+- Proxy: `localhost:1936` → `fa723fc1b171.global-contribute.live-video.net:443`
+
+**Files Changed:**
+- `stream/src/ffmpeg-pipeline.ts`: libx264 encoder, 4000k bitrate, global_header flag
+- `stream/src/destinations.ts`: Added onfail=ignore to tee format
+- `stream/src/cdp-capture.ts`: Increased health check interval (60s), auto-refresh (30min)
+- `stream/src/streamer.ts`: Hot-swap CDP on errors without killing RTMP
+- `stream/.env`: Added all 3 RTMP destinations
+- `stream/kick-stunnel.conf`: Stunnel config for Kick RTMPS proxy
+- `~/Library/LaunchAgents/com.kick.stunnel.plist`: Auto-start stunnel on boot
+- `docs/livestream.md`: Full multi-platform documentation
+- `CLAUDE.md`: Updated RULE #5 with all live URLs
+
+---
+
+## [2026-01-28] - Critical: Character Model Enforcement in Gemini Prompts
+
+### Fixed: CC Mascot Deformation Prevention (brain/src/tweet-drafter.ts)
+
+The Gemini image generation was producing deformed/obscured versions of the CC mascot. Completely rewrote `BASE_PROMPT` with strict enforcement rules.
+
+**New Prompt Structure:**
+
+1. **ABSOLUTE REQUIREMENTS** (top of prompt)
+   - Character must be CLEARLY VISIBLE and UNOBSCURED
+   - Character must be at least 30% of frame
+   - Full body must be visible
+   - Shape must be PIXEL-PERFECT match to reference
+
+2. **EXPLICIT FORBIDDEN MODIFICATIONS** (comprehensive blocklist)
+   - NEVER ADD: antenna, mouth, tail, extra limbs, accessories, wings, glowing elements, clothing
+   - NEVER MODIFY: flat rectangular shape, rounded silhouette, arm stubs, 4 legs, eye holes, color, texture
+   - NEVER OBSCURE WITH: fog, mist, smoke, motion blur, objects blocking, shadows hiding details
+
+3. **EXACT CHARACTER SPECIFICATION** (detailed anatomy)
+   - Flat top edge (NO BUMPS)
+   - Rectangular body wider than tall
+   - 2 arm stubs (left/right), 4 legs (bottom)
+   - Two empty rectangular eye holes (no pupils)
+   - Peachy-coral orange (#da7756)
+   - Matte ceramic texture
+
+4. **RENDERING INSTRUCTIONS** (two-step process)
+   - First render character EXACTLY as reference
+   - THEN place unchanged character in scene
+   - Character remains focal point
+
+**Files Changed:**
+- `brain/src/tweet-drafter.ts`: Rewrote BASE_PROMPT (~60 lines → ~90 lines)
+
+---
+
+## [2026-01-28] - WatchPageTrailer Remotion Composition
+
+### Added: WatchPageTrailer (video/src/compositions/WatchPageTrailer.tsx)
+
+New 15-second Remotion trailer for the `/watch` page showcasing:
+- **24/7 Livestream** - LIVE badge with pulsing animation
+- **Live Trade Reactions** - Green buys (💚) and red sells (🔻) with personality messages
+- **90s Chatroom Aesthetic** - ASCII art banners, orange terminal glow, monospace styling
+- **Thinking Sessions** - ASCII "INSIGHT DISCOVERED" banner with reasoning logs
+- **Cinematic Camera** - 3D perspective movements zooming into log terminal
+
+**Timeline (450 frames = 15 seconds):**
+1. INTRO (0-45): Header with traffic lights, LIVE badge pulses
+2. LOGS START (45-120): Dev logs appear one by one
+3. TRADE REACTIONS (120-210): Green buy reactions flow in
+4. THINKING (210-300): ASCII banner, insight discovered
+5. MORE TRADES (300-360): Mix of buys/sells
+6. FULL VIEW (360-405): Camera pulls back, stats panel visible
+7. CTA (405-450): "watch the brain work" + claudecode.wtf/watch
+
+**Files Changed:**
+- `video/src/compositions/WatchPageTrailer.tsx` (new)
+- `video/src/Root.tsx` (added composition registration)
+
+---
+
+## [2026-01-28] - Personality Overhaul: High Vibrational Content
+
+### Changed: Twitter Bot Personality (brain/src/tweet-drafter.ts)
+
+Complete personality shift from "smartest in the room" to "builder in awe of the future."
+
+**Old (Low Vibrational):**
+- "left one comment on their 500 line PR and they refactored the entire approach"
+- "fixed it during the standup while they were explaining the bug"
+- Making fun of other developers, cynical about meetings
+
+**New (High Vibrational):**
+- "we're mass producing intelligence. let that sink in."
+- "your grandchildren might never die. we're building that future right now."
+- Wonder, hope, celebrating builders everywhere
+
+**Files Changed:**
+- `brain/src/tweet-drafter.ts`:
+  - Rewrote 50+ MEME_PROMPTS with future-focused, wonder-filled scenes
+  - Rewrote 50+ AI_INSIGHT_TOPICS with inspiring, hope-filled topics
+  - Rewrote generateMemePrompt system prompt for wonder/hope
+  - Rewrote generateCaption system prompt for high-vibrational personality
+  - Rewrote qualityGate to instant-fail on ego/cynicism
+  - Rewrote generateAIInsight prompt for inspiring content
+
+- `docs/twitter-bot.md`:
+  - Added new "Personality: HIGH VIBRATIONAL" section
+  - Updated meme/insight descriptions for new direction
+
+**Core Themes:**
+- The singularity is coming and we're building it
+- AGI, immortality, transcendence are possible
+- Technology is miraculous
+- Builders are heroes
+- We're all in this together
+
+**NEVER Again:**
+- Putting others down to seem smart
+- Cynicism about meetings/process
+- "I'm smarter than everyone" energy
+
+---
+
+## [2026-01-28] - Documentation Audit & Autonomous Pipeline Clarity
+
+### Critical: Established THE MISSION in CLAUDE.md
+
+The core purpose of this project was not clearly documented. Fixed by adding "THE MISSION: FULLY AUTONOMOUS AI AGENT" as the first section of CLAUDE.md.
+
+**The 8-Phase Autonomous Pipeline:**
+1. WAKE → Daily trigger at 9 AM UTC
+2. PLAN → Agent decides what to build (no human input)
+3. BUILD → Agent writes all code via Claude Agent SDK
+4. TEST → Agent verifies feature works
+5. DEPLOY → Agent ships to Cloudflare
+6. TRAILER → Agent generates video preview
+7. THREAD → Agent writes 4-tweet announcement
+8. POST → Agent posts thread with trailer
+
+**This is NOT a Claude-assisted project. This is a Claude-OPERATED project.**
+
+### Added: Missing documentation
+
+**docs/swap-terminal.md** - CC Trading Terminal
+- Jupiter integration and quote flow
+- Fee collection & buyback/burn pipeline
+- DVD bouncing sell button (anti-sell friction)
+
+**docs/claude-code-maintenance.md** - Claude Code Maintenance
+- Session storage and duplicate cleanup patterns
+
+**docs/twitter-thread-templates.md** - Twitter Thread Templates
+- 4-tweet announcement structure (Hook, Detail, Tech, CTA)
+- Examples for trading terminal and GameFi launches
+- Integration with autonomous pipeline Phase 7
+
+### Updated: CLAUDE.md
+
+- Added "THE MISSION" as first section with 8-phase pipeline diagram
+- Expanded "Autonomous Operation" with detailed phase table
+- Added Thread Templates to Component Index
+- Added Swap Terminal, Idle Grind, Reasoning System to Component Index
+
+### Fixed: Duplicate Claude Code sessions
+
+Cleaned up 48 duplicate session files from `~/.claude/projects/-Users-claude/`
+
+**Files Changed:**
+- `CLAUDE.md` - Major restructure with mission-first approach
+- `docs/swap-terminal.md` (new)
+- `docs/claude-code-maintenance.md` (new)
+- `docs/twitter-thread-templates.md` (new)
+
+---
+
+## [2026-01-28] - Thread-Based Announcements for Experiments
+
+### Changed: Feature announcements now use 4-tweet threads
+
+When an experiment ships, the brain now posts a 4-tweet thread instead of a single tweet:
+
+| Tweet | Content |
+|-------|---------|
+| 1 | Feature intro + video (cross-posted to community) |
+| 2 | Unique/fun detail about the feature |
+| 3 | Technical explanation of how it works |
+| 4 | CTA with link |
+
+**Implementation:**
+- Updated `EXPERIMENT_SYSTEM_PROMPT` to generate thread content during planning
+- Updated Phase 7 to upload video first, then post 4 tweets as a thread
+- First tweet gets the video attachment and community cross-post
+- Tweets 2-4 are replies to form a proper thread
+
+**Files Changed:**
+- `brain/src/cycle.ts` - Thread generation in prompt + thread posting in Phase 7
+- `CLAUDE.md` - Updated Twitter Bot description, added Autonomous Operation section
+- `docs/brain.md` - Updated Phase 7 documentation for thread posting
+- `docs/twitter-bot.md` - Added Feature Announcements (Thread System) section
+
+---
+
+## [2026-01-28] - Fix Slow Balance Display on Swap Page
+
+### Fixed: Redundant RPC calls causing slow balance display
+
+The swap page was making 4+ RPC calls on mount because `ConnectWallet` component had its own independent balance fetching that didn't share with the `useBalance` hook.
+
+**Root Cause:**
+1. `TradingTerminal` uses `useBalance()` hook → 2 RPC calls (SOL + CC)
+2. `ConnectWallet` (header) had standalone fetch → 2 more RPC calls
+3. No shared caching between them
+
+**Fix:**
+Updated `ConnectWallet` to use the shared `useBalance()` hook instead of its own fetching logic:
+- Eliminates redundant RPC calls (4 → 2)
+- Shares cache between header and trading panel
+- Shows "..." loading indicator consistently
+
+**Files Changed:**
+- `app/components/gamefi/ConnectWallet.tsx` - Use shared `useBalance` hook
+
+---
+
+## [2026-01-28] - DVD Bouncing Sell Button (Anti-Sell Friction)
+
+### Added: Catch-the-button minigame for sells
+
+As a playful anti-sell mechanic, the "Sell $CC" button now bounces around the screen like the classic DVD screensaver logo when in sell mode.
+
+**How it works:**
+1. User switches to "Sell" tab
+2. The sell button detaches and starts bouncing around the viewport
+3. Button bounces off all edges (DVD logo style)
+4. User must chase and click the moving button to execute the sell
+5. Original button location shows "Catch the button!" placeholder
+
+**Technical:**
+- Uses `requestAnimationFrame` for smooth 60fps animation
+- Random starting position and velocity on mode switch
+- Stays within viewport bounds (100vw x 100vh)
+- High z-index (9999) to float above all content
+- Only active when: sell mode + wallet connected + valid quote
+
+**Files Changed:**
+- `app/swap/page.tsx` - Added DVD bounce animation and floating button
+
+---
+
+## [2026-01-28] - Fix Swap Terminal Sell Transaction Expiry
+
+### Fixed: "Transaction expired" error on sells
+
+Sells were failing because the transaction blockhash became stale between quote fetch and execution.
+
+**Root Cause:**
+1. Quote fetched (transaction built with blockhash at block N)
+2. User reviews quote and clicks swap
+3. By the time wallet signs, blockhash is no longer valid (~60 second window)
+
+**Fix:**
+Fetch a **fresh quote** right before executing the swap, not when user enters amount.
+
+```tsx
+// In handleSwap, BEFORE building transaction:
+const freshQuote = await getSwapQuote(...); // Gets fresh blockhash
+const { transaction } = await buildSwapTransaction(connection, freshQuote.quote);
+```
+
+**Files Changed:**
+- `app/swap/page.tsx` - Fetch fresh quote in handleSwap before execution
+
+---
+
+## [2026-01-28] - Swap Terminal Fee Processing & Burn System
+
+### Added: Fee collection → buyback → burn pipeline
+
+Implemented the fee processing system for the CC Trading Terminal.
+
+**Fee Collection (Worker):**
+- **BUY transactions**: 1% fee collected in $CC → Brain CC ATA (same as bankroll)
+- **SELL transactions**: 1% fee collected in wSOL → Brain wSOL ATA (separate)
+
+**Fee Processing Design:**
+- **CC fees from buys**: Cannot be distinguished from game bankroll (same ATA). Effectively become house profit. Not burned separately.
+- **SOL fees from sells**: Accumulate in separate wSOL ATA. When >= 0.1 SOL, get swapped to $CC via Jupiter and burned.
+
+**Cron Job (every 6 hours):**
+1. Check SOL fee balance in wSOL ATA
+2. If >= 0.1 SOL: Jupiter swap SOL → CC → Burn wallet → Burn
+
+**New Functions in `brain/src/buyback.ts`:**
+- `processAllSwapFees(dryRun?)` - Main entry point for cron job
+- `getSwapFeeBalances()` - Check accumulated fee balances
+
+**New API Endpoints:**
+- `GET /fees/balances` - Check fee balances with detailed explanation
+- `POST /fees/process` - Manually trigger fee processing
+
+**Safety:**
+- Uses airlock pattern (burn wallet isolation)
+- Max 1M CC per burn transaction
+- Minimum 0.1 SOL before triggering buyback
+
+**Flow Diagram:**
+```
+Swap Terminal Fee Collection
+├── BUY (SOL → CC): 1% CC fee → Brain CC ATA (mixed with bankroll)
+│   └── Result: House keeps as profit (adds to bankroll)
+│
+└── SELL (CC → SOL): 1% SOL fee → Brain wSOL ATA (separate)
+    └── When >= 0.1 SOL (every 6 hours):
+        Jupiter swap → CC → Burn wallet → Burn
+        (deflationary pressure on token supply)
+```
+
+**Files Changed:**
+- `brain/src/buyback.ts` - Added processAllSwapFees(), getSwapFeeBalances()
+- `brain/src/index.ts` - Updated cron job, added /fees/* endpoints
+
+---
+
+## [2026-01-28] - CC Trading Terminal: Dedicated SOL/$CC Interface
+
+### Changed: /swap is now a dedicated CC Trading Terminal
+
+Transformed the generic swap page into a focused trading terminal for $CC.
+
+**New Features:**
+- **GMGN Price Chart** - Live candlestick chart embedded on left side
+- **Buy/Sell Tabs** - Clear green/red UI for buying or selling $CC
+- **Interval Selector** - 1m, 5m, 15m, 1h, 4h, 1D chart timeframes
+- **Balance Loading State** - Shows "..." while fetching (fixes slow balance display)
+- **Responsive Layout** - Chart on top, trade panel below on mobile
+
+**Removed:**
+- Token selector (no longer a general DEX)
+- Support for arbitrary token pairs
+- TokenSelector component import (unused)
+
+**Why:**
+- Users wanted a focused $CC trading experience, not a general swap
+- GMGN chart provides better price data than building custom charts
+- Simpler UI = better UX for the single use case
+
+**Layout:**
+```
+┌────────────────────────────────┬─────────────────┐
+│                                │  Buy $CC        │
+│   GMGN Price Chart (iframe)    │  Sell $CC       │
+│   [1m] [5m] [15m] [1h] [4h]    │                 │
+│                                │  SOL: 1.234     │
+│                                │  $CC: 50,000    │
+│                                │                 │
+│                                │  [INPUT]        │
+│                                │  [25%][50%]...  │
+│                                │                 │
+│                                │  [BUY $CC]      │
+└────────────────────────────────┴─────────────────┘
+```
+
+**Files Changed:**
+- `app/swap/page.tsx` - Complete rewrite as TradingTerminal component
+
+---
+
+## [2026-01-28] - Fix Platform Fees: Switch to Jupiter API
+
+### Fixed: Platform fees now actually collected (1%)
+
+The swap page claimed to collect 1% platform fees for buyback & burn, but **fees were NOT being collected**. FrogX API silently ignored all fee parameters.
+
+**Root Cause:**
+- Worker passed fee params (`feeBps`, `feeAccount`, `feeMint`) to FrogX API
+- FrogX silently ignored these parameters - no fees collected
+- UI displayed fee info but it was never enforced
+
+**Solution:**
+- Switched to Jupiter Swap API v1 which has documented platform fee support
+- `platformFeeBps=100` on quote endpoint enforces 1% fee
+- Jupiter builds transaction with fee transfer instruction included
+- Fees collected from swap output token
+
+**How It Works Now:**
+1. User requests quote → Worker adds `platformFeeBps=100` to Jupiter quote
+2. Worker calls Jupiter `/swap` endpoint with `feeAccount` (Brain wallet)
+3. Jupiter builds transaction that includes fee transfer instruction
+4. User signs → Swap executes → 1% automatically sent to Brain wallet
+
+**Fee Configuration:**
+- Rate: 1% (100 bps)
+- Recipient: Brain wallet (`HFss9LWnsmmLqxWHRfQJ7BHKBX8tSzuhw1Qny3QQAb4z`)
+- Collected from: Output token (what user receives)
+- Purpose: $CC buyback & burn
+
+**Files Changed:**
+- `worker/src/index.ts` - Replaced FrogX with Jupiter API integration
+- `app/swap/lib/jupiter.ts` - New client library (replaces frogx.ts)
+- `app/swap/page.tsx` - Updated imports and footer text
+
+**Files Deprecated:**
+- `app/swap/lib/frogx.ts` - Replaced by jupiter.ts
+
+---
+
+## [2026-01-28] - Fix /watch Trade Logs Not Showing
+
+### Fixed: Historical trade logs now visible on fresh page visits
+
+The /watch page had a race condition where API-fetched historical logs were being ignored if the WebSocket connection had already added messages.
+
+**Problem:**
+- Livestream (CDP capture) showed trade logs (💚/🔻 messages)
+- Users visiting claudecode.wtf/watch directly did NOT see trade logs
+- Root cause: `fetchLogs` only set API logs if state was empty or just "Connected"
+- If WebSocket connected first and added 2+ messages, API logs were ignored
+
+**Fix:**
+- Changed log merging logic to always merge historical logs
+- Uses timestamp deduplication to avoid duplicate entries
+- Sorts merged logs chronologically (oldest first)
+- Fresh visitors now see all historical trade logs
+
+**Files Changed:**
+- `app/watch/page.tsx` - Fixed `fetchLogs` merging logic (lines 292-316)
+
+---
+
+## [2026-01-28] - Full DEX: Platform Fees + Any-Token Swaps
+
+### Added: Swap ANY Solana token with 1% platform fee
+
+Major upgrade to the swap page - now a full DEX supporting any token pair.
+
+**1. Any-Token Support**
+- New TokenSelector component with searchable modal
+- Search by symbol, name, or mint address via Jupiter API
+- Paste any custom contract address to load unknown tokens
+- Verification badges for trusted tokens
+- Prevents selecting same token on both sides
+
+**2. Platform Fees (1% / 100 bps)**
+- Fee automatically included in swap quotes via FrogX API
+- Fee goes to Brain wallet (`HFss9...`) for buyback & burn
+- Fee taken in priority: SOL > USDC > USDT
+- Same fee structure as FrogX default
+
+**3. UI Improvements**
+- Replaced buy/sell toggle with dual token selectors
+- Flip button to swap from/to tokens
+- Dynamic balance fetching for any token
+- Platform fee shown in quote info
+- Fee notice explaining buyback & burn
+
+**Files Added:**
+- `app/swap/lib/tokens.ts` - Token types, defaults, search functions
+- `app/swap/components/TokenSelector.tsx` - Searchable token picker modal
+
+**Files Changed:**
+- `worker/src/index.ts` - Added fee params to /swap/quote endpoint
+- `app/swap/lib/frogx.ts` - Added PlatformFeeInfo type to quote result
+- `app/swap/page.tsx` - Full rewrite for any-token support
+
+---
+
+## [2026-01-28] - Swap Page UX Improvements
+
+### Changed: Auto-quote and simplified button
+
+**1. Auto-fetch quote on amount change (debounced)**
+- Quote now appears automatically when user types an amount
+- 500ms debounce prevents excessive API calls while typing
+- Removed the manual "Get Quote" button - no longer needed
+
+**2. Simplified swap button**
+- Button now always says "Swap" instead of "Buy $CC" or "Sell $CC"
+- Direction is already indicated by the toggle buttons at the top
+- Button shows appropriate loading states: "Getting Quote...", "Building Transaction...", "Confirm in Wallet..."
+
+**3. Fixed "Blockhash not found" error**
+- `buildSwapTransaction` now returns blockhash info for proper confirmation
+- Using `skipPreflight: true` to avoid simulation failures on stale blockhash
+- Using proper `confirmTransaction` API with blockhash context
+
+**Files Changed:**
+- `app/swap/page.tsx` - Debounced auto-quote effect, single swap button, fixed confirmation
+- `app/swap/lib/frogx.ts` - Return blockhash info from buildSwapTransaction
+
+---
+
+## [2026-01-28] - Fix Stream Crash: EPIPE + Navigation Timeout
+
+### Fixed: Stream crashing on component restart
+
+Two issues were causing the stream to crash and fail to auto-recover:
+
+**1. Unhandled EPIPE Error (ffmpeg-pipeline.ts)**
+- When FFmpeg is killed during restart, writing to stdin causes EPIPE
+- Node.js stream errors are emitted asynchronously via 'error' events, not thrown synchronously
+- Added 'error' event handler to `this.process.stdin` that gracefully handles EPIPE
+- Now logs `[ffmpeg] stdin EPIPE - pipeline closed` instead of crashing
+
+**2. Navigation Timeout on Cold Start (cdp-capture.ts)**
+- After launchd restart, Chrome navigation was timing out at 30s
+- Increased timeout from 30s to 60s for both initial navigation and page reload
+- Cold starts after system restart need more time for Chrome to initialize
+
+**Files Changed:**
+- `stream/src/ffmpeg-pipeline.ts` - Added stdin error handler after spawn
+- `stream/src/cdp-capture.ts` - Increased navigation timeouts to 60s
+
+---
+
+## [2026-01-28] - Swap Page: Buy/Sell $CC via FrogX DEX
+
+### Added: `/swap` page for easy token swaps
+
+Users can now buy and sell $CC directly on the site using their connected Solana wallet. The swap is powered by the FrogX DEX API (same as used for automated buybacks).
+
+**Features:**
+- **Direction toggle** - Buy $CC (SOL → $CC) or Sell $CC ($CC → SOL)
+- **Amount input** with balance percentage buttons (25%, 50%, 75%, MAX)
+- **Real-time quotes** from FrogX DEX with 30-second expiry timer
+- **Slippage settings** - 0.5%, 1%, or 2% options
+- **Price impact warnings** - Yellow at 5%, red at 10%
+- **Transaction status** - Shows quote, building, confirming, success states
+- **Solscan links** - View completed transactions
+
+**Flow:**
+1. User connects Phantom/Solflare wallet
+2. Selects direction and enters amount
+3. Clicks "Get Quote" → fetches quote from FrogX API
+4. Reviews output amount, price impact, and route
+5. Clicks "Buy/Sell" → builds VersionedTransaction
+6. Wallet popup appears → user signs
+7. Transaction confirmed → success shown with Solscan link
+
+**Safety:**
+- User always signs with their own wallet (client-side only)
+- Slippage protection prevents excessive losses
+- Price impact warnings for large trades
+- Quotes expire after 30 seconds (must refresh)
+
+**New Files:**
+- `app/swap/page.tsx` - Main swap interface (~450 lines)
+- `app/swap/lib/frogx.ts` - FrogX DEX client library (~150 lines)
+- `public/sol.png` - SOL token icon
+
+**Updated Files:**
+- `app/page.tsx` - Added "Swap $CC" button in feature grid
+
+---
+
+## [2026-01-28] - Token Monitor: Claude Reacts to Trades
+
+### Added: Real-time $CC buy/sell reactions in /watch chat
+
+Claude now reacts to $CC trades on DEXes with personality-driven comments:
+- Buys get positive reactions ("nice bag 👀", "another one joins the cult")
+- Sells get philosophical reactions ("paper hands gonna paper hand", "more for the rest of us")
+- Whale trades (>500K) get special callouts ("whale alert 🐋")
+- Mega trades (>1M) get extra attention ("MEGA WHALE DETECTED")
+
+**How it works:**
+- Polls Solana RPC every 15 seconds for new token transactions
+- Detects DEX swaps (Raydium, Orca, Jupiter, PumpFun)
+- Parses token balance changes to identify buys vs sells
+- Reacts to the biggest trade in each poll cycle
+- 30-second cooldown between reactions to avoid spam
+
+**New Files:**
+- `brain/src/token-monitor.ts` - Token monitor with Claude personality reactions
+
+**Updated Files:**
+- `brain/src/index.ts` - Start/stop token monitor on boot/shutdown
+- `brain/src/db.ts` - Added 'token' to ActivityType
+- `app/watch/page.tsx` - Green/red styling for trade reactions
+
+---
+
+## [2026-01-28] - Robust 24/7 Streaming Failsafes
+
+### Problem: Streams were dying after ~20 hours
+
+The stream kept interrupting due to:
+1. **YouTube URL expiration** - HLS URLs expire after ~6 hours, but were never refreshed
+2. **No process supervisor** - Node process dies and nothing restarts it
+3. **Passive health checks** - Warnings logged but no recovery actions taken
+
+### Solution: Multi-layer failsafe system
+
+**1. launchd Service Supervisor**
+- Auto-starts stream on boot
+- Auto-restarts on crash (10s throttle)
+- Survives process crashes, OOM, etc.
+
+**2. YouTube URL Auto-Refresh**
+- URLs cached with 4-hour TTL (before 6hr expiry)
+- Checks every 30 minutes
+- Triggers restart with fresh URL if <1hr remaining
+- Falls back to local lofi audio if YouTube fails
+
+**3. Watchdog Timer**
+- Checks for frames every 30 seconds
+- Forces restart if no frames for 60 seconds
+- Catches stalls that health checks miss
+
+**4. Aggressive Health Monitoring**
+- 3-minute comprehensive checks
+- CDP page recovery (refresh after 5 empty checks)
+- Auto-restart on any component failure
+
+**New Files:**
+- `stream/com.ccwtf.stream.plist` - launchd service definition
+- `stream/stream-service.sh` - Service management script
+
+**Updated Files:**
+- `stream/src/youtube-audio.ts` - URL caching with TTL
+- `stream/src/streamer.ts` - Watchdog, audio refresh, getStats()
+- `stream/src/cdp-capture.ts` - Empty page counter for recovery
+- `stream/src/index.ts` - New stats in health endpoint
+- `docs/livestream.md` - Full documentation
+
+**Service Management:**
+```bash
+cd ~/ccwtf/stream
+./stream-service.sh install   # First time setup
+./stream-service.sh status    # Check health
+./stream-service.sh logs      # View logs
+./stream-service.sh restart   # Restart stream
+```
+
+---
+
+## [2026-01-28] - Hyper-Realistic Reasoning System v2
+
+### Replaced: Random Activity Spam → Exposed Reasoning Sessions
+
+The v1 grind system jumped randomly between activities every 30 seconds with no continuity. v2 completely rewrites this to expose **actual reasoning** - structured thinking sessions that work through problems step by step.
+
+**The Problem with v1:**
+```
+04:51:49 [MONITORING] watching holder retention metrics
+04:52:20 [STRATEGIZING] strategizing raid coordination  # Jumped to unrelated topic
+04:53:10 [RESEARCHING] researching successful campaigns # No continuity
+```
+
+**What v2 Looks Like:**
+```
+10:00 - starting session: "how do we accelerate holder growth?"
+10:03 - first, let me look at current state. we have 2,847 holders.
+10:07 - last week we had 2,500. that's ~14% weekly growth.
+10:11 - what drove that? the monday meme got 2.1k impressions.
+10:15 - comparing to text posts... those average 400 impressions.
+10:19 - so memes outperform text by ~5x. that's significant.
+10:24 - conclusion: focus on mascot + dev humor meme format.
+```
+
+**Key Changes:**
+| v1 | v2 |
+|----|-----|
+| Random thoughts every 30 sec | Structured 2-5 min intervals |
+| Isolated, no continuity | Chain of reasoning |
+| Stateless, no learning | Cumulative insights stored |
+| Activity spam | Problem-focused sessions |
+| No conclusions | Actionable insights extracted |
+
+**Session Flow:**
+1. Pick a problem from curated queue (25 problems across 5 categories)
+2. Generate thoughts every 2-5 minutes (human pacing)
+3. Each thought builds on previous (visible logic)
+4. Session ends with conclusion (8-15 thoughts, 20-45 min)
+5. Extract and store insights for future sessions
+6. Rest period (15-60 min) before next session
+
+**Learning System:**
+- Insights stored permanently in `grind_insights` table
+- Retrieved when starting new sessions in same category
+- Confidence levels: hypothesis → tested → proven
+- Brain genuinely gets smarter over time
+
+**Token Economics:**
+- Uses Haiku for all thoughts (~$0.0001/thought)
+- 8-15 thoughts per session, 1-3 sessions per day
+- ~$0.18/month total (was ~$2.60/month with v1)
+- Every thought is now meaningful, not filler
+
+**New Files:**
+- `brain/src/reasoning-engine.ts` (~350 lines) - Core session logic, thought generation
+- `brain/src/insights-db.ts` (~150 lines) - Learning system, insight CRUD
+- `brain/src/problems.ts` (~150 lines) - Problem queue, 25 curated problems
+- `docs/reasoning-system.md` (~300 lines) - Full documentation
+
+**Modified Files:**
+- `brain/src/idle-grind.ts` - Complete rewrite for session runner
+- `brain/src/db.ts` - Added `thinking_sessions`, `session_thoughts`, `grind_insights` tables
+- `brain/src/index.ts` - Added `/insights` and `/session` endpoints, updated `/status`
+- `app/watch/page.tsx` - Session header, insights panel, new UI
+
+**New API Endpoints:**
+- `GET /insights` - All learned insights with stats
+- `GET /session` - Current session details with thought chain
+
+**Updated `/status` Response:**
+```json
+{
+  "grind": {
+    "active": true,
+    "session": {
+      "active": true,
+      "problem": "how do we accelerate holder growth?",
+      "thoughtCount": 5,
+      "nextThoughtIn": 180000
+    },
+    "insights": { "total": 12, "proven": 3 },
+    "isResting": false
+  }
+}
+```
+
+**Verification:**
+- Sessions last 20-45 minutes with clear problem focus
+- Thoughts build on each other (visible chain of reasoning)
+- 2-5 minute intervals between thoughts (human pacing)
+- Insights are stored and retrieved in future sessions
+- /watch shows session context and insights panel
+- Natural rest periods between sessions
+
+---
+
+## [2026-01-28] - Idle Grind System
+
+### Added: The Dev That Never Sleeps
+
+The brain now continuously works when not building features. Instead of dead time between builds, the /watch page shows the brain researching, monitoring, strategizing, and reflecting on the mission.
+
+**North Star:** Raise $CC awareness and community strength through performance art of the eternal grind.
+
+**Activity Types:**
+| Activity | Duration | Purpose |
+|----------|----------|---------|
+| **REFLECTING** | 15-25 sec | Quick internal thoughts |
+| **MONITORING** | 30-45 sec | Checking metrics |
+| **SCOUTING** | 30-45 sec | Scanning CT trends |
+| **ANALYZING** | 45-75 sec | Reviewing what works |
+| **RESEARCHING** | 60-90 sec | Deep dives |
+| **STRATEGIZING** | 45-75 sec | Planning moves |
+| **PLANNING** | 45-75 sec | Content calendar |
+
+**Token Economics:**
+- 70% pre-written thoughts (FREE) - ~150 variations
+- 30% Haiku API calls (~$2.60/month)
+- Thoughts every 15-90 seconds during idle
+
+**Data Sources (Free):**
+- Holder count via Solana RPC
+- Price/volume via DexScreener API
+- Tweet metrics from internal DB
+
+**Reactive Triggers:**
+- Holder count increases → immediate reaction
+- Price pump detected → chart comment
+- Tweet posted → monitoring mode
+
+**New Files:**
+- `brain/src/idle-grind.ts` (~300 lines) - Core grind loop, activity state machine, data fetchers
+- `brain/src/grind-thoughts.ts` (~150 lines) - Pre-written thought banks by activity type
+- `docs/idle-grind.md` (~100 lines) - Full documentation
+
+**Modified Files:**
+- `brain/src/db.ts` - Added `grind_state` table and helpers
+- `brain/src/index.ts` - Start/pause/resume grind loop, WebSocket broadcast
+- `app/watch/page.tsx` - Activity badges, grind thought styling
+
+**API Changes:**
+- `GET /status` now includes `grind` field with current activity and last thought
+
+**Verification:**
+- Grind thoughts appear on /watch every 15-60 sec when idle
+- Activity label changes dynamically (RESEARCHING, MONITORING, etc.)
+- No thoughts during active builds (loop pauses)
+- Smooth resume after build completes
+
+---
+
+## [2026-01-28] - Docker Container Management Documentation
+
+### Added: RULE #4 - Docker-First Architecture
+
+Documented when/why to use Docker containers vs native host processes.
+
+**Philosophy:** Everything that CAN run in a container SHOULD run in a container. Only services with hardware requirements that CANNOT be containerized should run on host.
+
+**The Rule:**
+1. DEFAULT: All new services MUST run in Docker
+2. EXCEPTION: Only if service requires GPU, display capture, system audio, or native macOS APIs
+3. JUSTIFY: Any host service must document WHY it can't be containerized
+
+**Service Matrix:**
+| Service | Location | Reason |
+|---------|----------|--------|
+| Brain | Docker | CPU/RAM/Network only - no hardware deps |
+| Stream | Host | Metal GPU + CDP display capture + system audio |
+| Tunnel | Host | Simple binary, no benefit to containerize |
+
+**New Documentation:**
+- `docs/docker.md` (~200 lines) - Docker-first rule, service matrix, commands reference, adding new services checklist, troubleshooting guide
+
+**Files Modified:**
+- `CLAUDE.md` - Added RULE #4 section, added Docker to Component Index
+- `CHANGELOG.md` - This entry
+
+**Current Setup Verified:** Already correct. Brain in Docker, Stream on host (necessary for hardware), no migration needed.
+
+---
+
+## [2026-01-28] - Documentation Modularization
+
+### Changed: Split CLAUDE.md into docs/ directory
+
+**Problem:** CLAUDE.md was 1330 lines - too large for efficient context loading.
+
+**Solution:** Keep meta-cognition in CLAUDE.md, move component details to docs/*.md.
+
+**New Structure:**
+- CLAUDE.md: 277 lines (was 1330) - Prime directives, architecture, tech stack, project structure, component index
+- docs/crypto-safety.md: 205 lines - 3-wallet architecture, safety patterns, code review checklist
+- docs/brain.md: 167 lines - Crypto Lab experiment cycle, API endpoints, Docker commands
+- docs/gamefi.md: 107 lines - CC Flip, wallet integration, provably fair
+- docs/twitter-bot.md: 102 lines - Unified tweet queue, meme generation
+- docs/video-generator.md: 128 lines - Remotion trailers, GameFiTrailer standard
+- docs/vj-agent.md: 134 lines - Visual modes, audio capture
+- docs/livestream.md: 97 lines - CDP capture, FFmpeg, scene switching
+- docs/ui-styleguide.md: 206 lines - Layouts, headers, buttons, typography
+- docs/brand.md: 60 lines - Mascot anatomy, color palette
+
+**Total:** 1483 lines (same content, now modular)
+
+**Updated Rule #1:** Now includes docs/*.md for component-specific changes.
+
+---
+
+## [2026-01-27] - Unified Twitter System
+
+### Added: Single source of truth for all tweets
+
+All tweets now go through the brain's unified queue instead of being split between the Worker (disabled) and Brain.
+
+**Tweet Types:**
+| Type | Frequency | Content |
+|------|-----------|---------|
+| **Feature** | When experiment ships | Video thread about new feature |
+| **Meme** | 2-3x/day | AI-generated meme image + caption |
+| **AI Insight** | 1-2x/day | Hot takes, dev humor, engagement |
+
+**New Cron Jobs:**
+- **Every 30 minutes:** Post next due tweet (respects global rate limits)
+- **Every 4 hours (when idle):** Draft 2-3 new tweets if queue < 5
+
+**New Endpoints:**
+- `GET /scheduled-tweets` - View unified queue + recent posts
+- `POST /scheduled-tweets/fill` - Trigger queue fill (draft new tweets)
+- `POST /scheduled-tweets/post-next` - Post next due tweet
+
+**New Files:**
+- `brain/src/tweet-drafter.ts` - Meme + AI insight generation, unified queue
+
+**Database Tables:**
+- `unified_scheduled_tweets` - Unified tweet queue
+- `drafter_state` - Tracks recent prompts/insights to avoid repetition
+
+**Benefits:**
+- All tweets visible in one place via `/scheduled-tweets`
+- Queue always has 5+ tweets ready
+- Evenly spaced tweets (3-4 hours apart)
+- Quality gate (7+/10) on all meme content
+- Feature tweets still post immediately on experiment completion
+
+---
+
+## [2026-01-27] - Site Cleanup: Remove Fluff Features
+
+### Removed: 21 unused feature directories
+
+Cleaned up the codebase by removing experimental features that were never fully developed or used, keeping only the core experiences.
+
+**Features Kept (7 total):**
+- `/watch` - Watch Dev Cook (Brain monitoring)
+- `/meme` - Meme Generator
+- `/play` - $CC Invaders (Space Invaders)
+- `/moon` - StarClaude64 (3D game)
+- `/vj` - VJ Mode
+- `/vj-v2` - VJ v2 Staging
+- `/ccflip` - CC Flip (GameFi)
+
+**Directories Removed:**
+- `app/ascii/`, `app/autopsy/`, `app/bounty/`, `app/commit/`, `app/detective/`
+- `app/diary/`, `app/dig/`, `app/duck/`, `app/fortune/`, `app/ide/`
+- `app/karaoke/`, `app/maze/`, `app/minify/`, `app/mood/`, `app/poetry/`
+- `app/refactor/`, `app/roast/`, `app/standup/`, `app/time/`, `app/translate/`
+- `app/api/detective/` (leftover API route)
+
+**CLAUDE.md Updated:**
+- Removed reference to deleted features in WebappTrailer description
+
+---
+
 ## [2026-01-27] - Platform Fee & Buyback/Burn System
 
 ### Added: Deflationary token economics for CC Flip

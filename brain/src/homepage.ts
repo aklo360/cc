@@ -101,6 +101,73 @@ export interface HomepageUpdateResult {
   deployed?: boolean;
 }
 
+/**
+ * Just add the button to homepage file (no build/deploy)
+ * Use this when the cycle will handle build/deploy itself
+ */
+export function addFeatureButtonOnly(
+  slug: string,
+  featureName: string,
+  log: (msg: string) => void = console.log
+): HomepageUpdateResult {
+  const projectRoot = getProjectRoot();
+  const homepagePath = join(projectRoot, 'app', 'page.tsx');
+
+  try {
+    // 1. Check if homepage exists
+    if (!existsSync(homepagePath)) {
+      log(`   ⚠️ Homepage not found at ${homepagePath}`);
+      return { success: false, error: 'Homepage file not found' };
+    }
+
+    // 2. Read current homepage
+    const content = readFileSync(homepagePath, 'utf-8');
+
+    // 3. Check if button already exists (idempotent)
+    if (content.includes(`href="/${slug}"`)) {
+      log(`   ✓ Button for /${slug} already exists, skipping`);
+      return { success: true, alreadyExists: true };
+    }
+
+    // 4. Find insertion point
+    const featureButtonsSectionMarker = '{/* Feature Buttons - RIGHT BELOW JOIN COMMUNITY */}';
+    const sectionStart = content.indexOf(featureButtonsSectionMarker);
+
+    if (sectionStart === -1) {
+      log('   ⚠️ Could not find feature buttons section');
+      return { success: false, error: 'Feature buttons section not found' };
+    }
+
+    const sectionEnd = content.indexOf('</section>', sectionStart);
+    if (sectionEnd === -1) {
+      log('   ⚠️ Could not find end of feature buttons section');
+      return { success: false, error: 'Feature buttons section end not found' };
+    }
+
+    // 5. Count existing buttons for color selection
+    const existingCount = countExistingButtons(content);
+    const colorIndex = existingCount;
+
+    // 6. Generate and insert button HTML
+    const buttonHtml = generateButtonHtml(slug, featureName, colorIndex);
+    const newContent =
+      content.slice(0, sectionEnd) +
+      buttonHtml +
+      '\n        ' +
+      content.slice(sectionEnd);
+
+    // 7. Write updated file (no build/deploy)
+    writeFileSync(homepagePath, newContent, 'utf-8');
+    log(`   ✓ Added homepage button for ${featureName} (/${slug})`);
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log(`   ❌ Homepage button add failed: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}
+
 export async function addFeatureToHomepage(
   slug: string,
   featureName: string,

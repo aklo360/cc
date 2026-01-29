@@ -11,7 +11,10 @@ binding = "CC_BOT_KV"
 id = "0fc921d609a346a58f4ffbaf5cf18260"
 preview_id = "a507a58269d14af5bf810065ac66f858"
 
-# Cron triggers - every 90 minutes
-# Pattern: 0,30 of alternating hours to spread across the day
-[triggers]
-crons = ["0 0,3,6,9,12,15,18,21 * * *", "30 1,4,7,10,13,16,19,22 * * *"]
+# Cron triggers DISABLED - Brain handles all automated posting now
+# Previously: every 90 minutes, caused duplicate tweets with Brain's meme generator
+# [triggers]
+# crons = ["0 0,3,6,9,12,15,18,21 * * *", "30 1,4,7,10,13,16,19,22 * * *"]
+
+# Note: Previously used service binding to frogx-api for swap quotes
+# Now using Jupiter API directly (public API, no binding needed)

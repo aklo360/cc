@@ -41,10 +41,11 @@ export function loadDestinations() {
         });
     }
     // Build tee muxer output string for FFmpeg
-    // Format: "[f=flv]rtmp://url/key|[f=flv]rtmp://url2/key2"
+    // Format: "[f=flv:onfail=ignore]rtmp://url/key|[f=flv:onfail=ignore]rtmp://url2/key2"
+    // onfail=ignore allows other streams to continue if one destination fails
     const teeOutput = destinations
         .filter((d) => d.enabled)
-        .map((d) => `[f=flv]${d.url}${d.key}`)
+        .map((d) => `[f=flv:onfail=ignore]${d.url}${d.key}`)
         .join('|');
     return { destinations, teeOutput };
 }

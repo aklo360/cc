@@ -1,10 +1,16 @@
 /**
  * FFmpeg pipeline for encoding and streaming
- * Supports two capture modes:
- * 1. Display mode - Captures from display (x11grab on Linux, avfoundation on macOS)
- * 2. Window mode - Receives JPEG frames via stdin (for window-specific capture)
+ *
+ * Uses window mode capture: receives JPEG frames via stdin from Chrome's
+ * native CDP screencast API, encodes with VideoToolbox hardware acceleration,
+ * and streams to RTMP destinations.
+ *
+ * Architecture (Native Mac Mini):
+ * - CDP screencast sends JPEG frames → FFmpeg stdin (MJPEG)
+ * - VideoToolbox hardware H.264 encoding
+ * - YouTube lofi audio mixed in
+ * - Output to Twitter/Kick/YouTube via RTMP
  */
-export type PipelineMode = 'display' | 'window';
 export interface PipelineConfig {
     width: number;
     height: number;
@@ -12,7 +18,6 @@ export interface PipelineConfig {
     bitrate: string;
     audioUrl: string | null;
     teeOutput: string;
-    mode?: PipelineMode;
 }
 export interface PipelineEvents {
     onError: (error: Error) => void;
@@ -31,7 +36,7 @@ export declare class FfmpegPipeline {
     constructor(config: PipelineConfig, events: PipelineEvents);
     start(): void;
     /**
-     * Write a frame to FFmpeg stdin (window mode only)
+     * Write a JPEG frame to FFmpeg stdin
      * Returns true if frame was written, false if pipeline not ready
      */
     writeFrame(frameBuffer: Buffer): boolean;

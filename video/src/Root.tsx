@@ -7,6 +7,8 @@ import { RealFootageTrailer } from "./compositions/RealFootageTrailer";
 import { WebappTrailer } from "./compositions/WebappTrailer";
 import { GameTrailer } from "./compositions/GameTrailer";
 import { GameFiTrailer, GameFiTrailerProps } from "./compositions/GameFiTrailer";
+import { TradingTerminalTrailer, TradingTerminalTrailerProps } from "./compositions/TradingTerminalTrailer";
+import { WatchPageTrailer } from "./compositions/WatchPageTrailer";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -110,6 +112,50 @@ export const RemotionRoot: React.FC = () => {
           coinChoice: "heads",
           flipResult: "heads",
         } as GameFiTrailerProps}
+      />
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+       * TRADING TERMINAL TRAILER - CC Trading Terminal with DVD Bouncing Sell Button
+       * ═══════════════════════════════════════════════════════════════════════
+       * Showcases:
+       * - GMGN-style price chart
+       * - Buy/Sell tabs
+       * - The iconic DVD bouncing sell button anti-sell mechanic!
+       * - Cursor chasing the button across the screen
+       * - 1% fee → buyback & burn messaging
+       */}
+      <Composition
+        id="TradingTerminalTrailer"
+        component={TradingTerminalTrailer}
+        durationInFrames={20 * 30} // 20 seconds at 30fps
+        fps={30}
+        width={1920}
+        height={1080}
+        defaultProps={{
+          buyAmount: 0.5,
+          sellAmount: 10000,
+          solBalance: 2.5,
+          ccBalance: 50000,
+        } as TradingTerminalTrailerProps}
+      />
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+       * WATCH PAGE TRAILER - 24/7 Livestream & Trade Reactions
+       * ═══════════════════════════════════════════════════════════════════════
+       * Showcases the /watch page with:
+       * - 90s chatroom aesthetic with ASCII art
+       * - Live dev logs scrolling
+       * - Trade reactions (💚 buys, 🔻 sells) with personality
+       * - Thinking session with insight discovery
+       * - Real-time feel with terminal glow
+       */}
+      <Composition
+        id="WatchPageTrailer"
+        component={WatchPageTrailer}
+        durationInFrames={15 * 30} // 15 seconds at 30fps
+        fps={30}
+        width={1920}
+        height={1080}
       />
     </>
   );

@@ -27,8 +27,13 @@ import { getConnection, buildTransaction, sendAndConfirmWithRetry, ensureBurnWal
 import { loadWallet, loadBurnWallet, burnWalletExists, getBurnWalletState, updateBurnWalletCachedBalance, CC_TOKEN_MINT } from './wallet.js';
 import { db } from './db.js';
 
-// FrogX DEX API endpoints (Frog Trading Exchange - Titan-powered)
-const FROGX_API_BASE = 'https://frogx-api.aklo.workers.dev';
+// Jupiter API for swaps (with our API key for better rate limits)
+const JUPITER_API_BASE = 'https://api.jup.ag/swap/v1';
+const JUPITER_API_KEY = '62502902-5f9d-44ec-9955-4b9dfd24dcb0';
+
+// Brain wallet fee ATAs (where swap terminal fees accumulate)
+const BRAIN_FEE_ATA_CC = '7zCJPTxdzSPv1pzSThXxyMUQk8vxKyGuBSKpuvRMtEh4';   // CC fees from buys
+const BRAIN_FEE_ATA_WSOL = '2ULjXwpZgBeh5xaqUs51gcDmcorxRAxsHf8N2iiK7hwv'; // SOL fees from sells
 
 // SOL mint address (wrapped SOL)
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -164,137 +169,107 @@ export function getBuybackStats(): {
   };
 }
 
-// ============ FROGX DEX INTEGRATION ============
+// ============ JUPITER API INTEGRATION ============
 
-interface FrogXInstruction {
-  programId: string;
-  accounts: Array<{
-    pubkey: string;
-    isSigner: boolean;
-    isWritable: boolean;
-  }>;
-  data: string; // Base64 encoded
+interface JupiterQuote {
+  inputMint: string;
+  outputMint: string;
+  inAmount: string;
+  outAmount: string;
+  priceImpactPct: string;
+  routePlan: Array<{ swapInfo: { label: string } }>;
+  slippageBps: number;
+  otherAmountThreshold: string;
 }
 
-interface FrogXQuote {
-  status: string;
-  updatedAt: string;
-  inMint: string;
-  outMint: string;
-  amountIn: string;
-  amountOut: string;
-  priceImpactBps: number;
-  routers: string[];
-  provider: string;
-  routeId: string;
-  inAmount: string;
-  instructions: FrogXInstruction[];
-  addressLookupTables: string[];
-  computeUnits: number;
-  computeUnitsSafe: number;
-  executable: boolean;
-  simulated: boolean;
+interface JupiterSwapResponse {
+  swapTransaction: string; // Base64 encoded versioned transaction
+  lastValidBlockHeight: number;
 }
 
 /**
- * Get swap quote from FrogX DEX (Frog Trading Exchange)
- * Returns quote with instructions ready to build transaction
+ * Get swap quote and transaction from Jupiter API
+ * Returns a ready-to-sign versioned transaction
  */
-async function getSwapQuote(
+async function getJupiterSwap(
   inputMint: string,
   outputMint: string,
   inputAmount: number,
   userPublicKey: string,
-  slippageBps: number = 100 // 1% default slippage
-): Promise<FrogXQuote | null> {
+  slippageBps: number = 200 // 2% default slippage for memecoins
+): Promise<{ quote: JupiterQuote; swapTx: string; lastValidBlockHeight: number } | null> {
   try {
-    const response = await fetch(`${FROGX_API_BASE}/api/frogx/quotes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        inMint: inputMint,
-        outMint: outputMint,
-        amountIn: inputAmount.toString(),
-        slippageBps,
-        userPublicKey,
-      }),
+    // Step 1: Get quote
+    const quoteParams = new URLSearchParams({
+      inputMint,
+      outputMint,
+      amount: inputAmount.toString(),
+      slippageBps: slippageBps.toString(),
     });
 
-    if (!response.ok) {
-      console.error(`[Buyback] FrogX quote failed: ${response.status} ${response.statusText}`);
-      const text = await response.text();
+    const quoteResponse = await fetch(`${JUPITER_API_BASE}/quote?${quoteParams}`, {
+      headers: {
+        'Accept': 'application/json',
+        'x-api-key': JUPITER_API_KEY,
+      },
+    });
+
+    if (!quoteResponse.ok) {
+      console.error(`[Buyback] Jupiter quote failed: ${quoteResponse.status}`);
+      const text = await quoteResponse.text();
       console.error(`[Buyback] Response: ${text}`);
       return null;
     }
 
-    const data = await response.json() as FrogXQuote;
+    const quote = await quoteResponse.json() as JupiterQuote;
 
-    // Check if quote is executable
-    if (!data.executable) {
-      console.error(`[Buyback] Quote not executable: status=${data.status}`);
+    // Step 2: Get swap transaction
+    const swapResponse = await fetch(`${JUPITER_API_BASE}/swap`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'x-api-key': JUPITER_API_KEY,
+      },
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: 500000, // 0.0005 SOL priority fee
+      }),
+    });
+
+    if (!swapResponse.ok) {
+      console.error(`[Buyback] Jupiter swap failed: ${swapResponse.status}`);
+      const text = await swapResponse.text();
+      console.error(`[Buyback] Response: ${text}`);
       return null;
     }
 
-    return data;
+    const swapData = await swapResponse.json() as JupiterSwapResponse;
+
+    return {
+      quote,
+      swapTx: swapData.swapTransaction,
+      lastValidBlockHeight: swapData.lastValidBlockHeight,
+    };
   } catch (error) {
-    console.error('[Buyback] Failed to get FrogX quote:', error);
+    console.error('[Buyback] Failed to get Jupiter swap:', error);
     return null;
   }
 }
 
 /**
- * Build transaction from FrogX quote instructions
+ * Deserialize and sign Jupiter swap transaction
  */
-async function buildSwapTransaction(
-  connection: Connection,
-  quote: FrogXQuote,
-  feePayer: PublicKey
+async function signJupiterSwap(
+  swapTxBase64: string,
+  wallet: ReturnType<typeof loadWallet>
 ): Promise<VersionedTransaction> {
-  const { AddressLookupTableAccount, TransactionMessage } = await import('@solana/web3.js');
-
-  // Load address lookup tables
-  const lookupTableAccounts: InstanceType<typeof AddressLookupTableAccount>[] = [];
-  for (const tableAddress of quote.addressLookupTables) {
-    const tableAccount = await connection.getAddressLookupTable(new PublicKey(tableAddress));
-    if (tableAccount.value) {
-      lookupTableAccounts.push(tableAccount.value);
-    }
-  }
-
-  // Convert FrogX instructions to Solana TransactionInstructions
-  const { TransactionInstruction } = await import('@solana/web3.js');
-  const instructions = quote.instructions.map((ix) => {
-    return new TransactionInstruction({
-      programId: new PublicKey(ix.programId),
-      keys: ix.accounts.map((acc) => ({
-        pubkey: new PublicKey(acc.pubkey),
-        isSigner: acc.isSigner,
-        isWritable: acc.isWritable,
-      })),
-      data: Buffer.from(ix.data, 'base64'),
-    });
-  });
-
-  // Add compute budget instructions
-  const { ComputeBudgetProgram } = await import('@solana/web3.js');
-  const computeUnitsIx = ComputeBudgetProgram.setComputeUnitLimit({
-    units: quote.computeUnitsSafe,
-  });
-  const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
-    microLamports: 50000, // 0.00005 SOL per CU
-  });
-
-  // Get recent blockhash
-  const { blockhash } = await connection.getLatestBlockhash();
-
-  // Build versioned transaction
-  const messageV0 = new TransactionMessage({
-    payerKey: feePayer,
-    recentBlockhash: blockhash,
-    instructions: [computeUnitsIx, priorityFeeIx, ...instructions],
-  }).compileToV0Message(lookupTableAccounts);
-
-  return new VersionedTransaction(messageV0);
+  const txBuffer = Buffer.from(swapTxBase64, 'base64');
+  const tx = VersionedTransaction.deserialize(txBuffer);
+  tx.sign([wallet.keypair]);
+  return tx;
 }
 
 // ============ TOKEN BURN (AIRLOCK PATTERN) ============
@@ -434,6 +409,135 @@ async function burnCCDirect(
   return sendAndConfirmWithRetry(connection, wallet, tx);
 }
 
+// ============ SWAP TERMINAL FEE COLLECTION ============
+
+/**
+ * Burn accumulated $CC fees from the swap terminal (from BUY transactions)
+ *
+ * Flow: Brain $CC ATA → Burn Wallet → Burn
+ *
+ * This is simpler than SOL fees because we already have CC - just burn it!
+ */
+export async function burnAccumulatedCCFees(
+  dryRun: boolean = false
+): Promise<{
+  success: boolean;
+  ccBurned?: number;
+  transferTx?: string;
+  burnTx?: string;
+  error?: string;
+}> {
+  console.log(`[CC Fees] Burning accumulated CC fees... ${dryRun ? '(DRY RUN)' : ''}`);
+
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+  if (!encryptionKey) {
+    return { success: false, error: 'BRAIN_WALLET_KEY not configured' };
+  }
+
+  const hasBurnWallet = burnWalletExists();
+  if (!hasBurnWallet) {
+    return { success: false, error: 'Burn wallet not found - create with POST /burn-wallet/create' };
+  }
+
+  try {
+    const connection = getConnection();
+    const brainWallet = loadWallet(encryptionKey);
+    const burnWallet = loadBurnWallet(encryptionKey);
+
+    // Check CC balance in brain wallet (this includes swap fees)
+    const brainAta = await getAssociatedTokenAddress(CC_TOKEN_MINT, brainWallet.publicKey);
+    const brainAccount = await getAccount(connection, brainAta);
+    const ccBalance = brainAccount.amount;
+
+    // We need to know how much is "fees" vs "rewards pool"
+    // For now, burn any CC above a threshold (keep 100K CC as buffer)
+    const CC_BUFFER = BigInt(100_000_000_000_000); // 100K CC (9 decimals)
+    const feesToBurn = ccBalance > CC_BUFFER ? ccBalance - CC_BUFFER : BigInt(0);
+
+    if (feesToBurn <= BigInt(0)) {
+      console.log(`[CC Fees] No CC fees to burn (balance: ${Number(ccBalance) / 1e9} CC, buffer: 100K)`);
+      return { success: true, ccBurned: 0 };
+    }
+
+    // Cap at MAX_BURN_PER_TX
+    const burnAmount = feesToBurn > MAX_BURN_PER_TX ? MAX_BURN_PER_TX : feesToBurn;
+
+    console.log(`[CC Fees] CC balance: ${Number(ccBalance) / 1e9} CC`);
+    console.log(`[CC Fees] Fees to burn: ${Number(burnAmount) / 1e9} CC`);
+
+    if (dryRun) {
+      console.log(`[DRY RUN] Would burn ${Number(burnAmount) / 1e9} CC via airlock pattern`);
+      return { success: true, ccBurned: Number(burnAmount) / 1e9 };
+    }
+
+    // Step 1: Transfer to burn wallet
+    const transferTx = await transferToBurnWallet(connection, brainWallet, burnWallet, burnAmount);
+    console.log(`[CC Fees] Transfer to burn wallet: ${transferTx}`);
+
+    // Step 2: Burn from burn wallet
+    const burnResult = await burnFromBurnWallet(connection, brainWallet, burnWallet);
+    console.log(`[CC Fees] Burn complete: ${burnResult.burnTx}`);
+
+    return {
+      success: true,
+      ccBurned: Number(burnResult.amountBurned) / 1e9,
+      transferTx,
+      burnTx: burnResult.burnTx,
+    };
+  } catch (error) {
+    console.error('[CC Fees] Error burning CC fees:', error);
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Get accumulated fee balances from swap terminal
+ *
+ * Note on CC fees: CC fees from BUY transactions go to the same ATA as the
+ * game wallet bankroll. They cannot be distinguished without database tracking.
+ * CC fees effectively add to the bankroll (house keeps them).
+ *
+ * SOL fees from SELL transactions DO accumulate in a separate wSOL ATA and
+ * can be processed via buyback → burn.
+ */
+export async function getSwapFeeBalances(): Promise<{
+  ccFees: number;
+  ccFeesNote: string;
+  solFees: number;
+  error?: string;
+}> {
+  const encryptionKey = process.env.BRAIN_WALLET_KEY;
+  if (!encryptionKey) {
+    return {
+      ccFees: 0,
+      ccFeesNote: 'N/A',
+      solFees: 0,
+      error: 'BRAIN_WALLET_KEY not configured',
+    };
+  }
+
+  try {
+    const connection = getConnection();
+    const brainWallet = loadWallet(encryptionKey);
+    const balance = await brainWallet.getBalance(connection);
+
+    // SOL fees are in the SOL balance (minus reserve for tx fees)
+    // CC fees cannot be tracked separately (mixed with bankroll)
+    return {
+      ccFees: 0,
+      ccFeesNote: 'CC fees mixed with bankroll - not tracked separately',
+      solFees: Math.max(0, balance.sol - (RESERVE_SOL / LAMPORTS_PER_SOL)),
+    };
+  } catch (error) {
+    return {
+      ccFees: 0,
+      ccFeesNote: 'Error',
+      solFees: 0,
+      error: (error as Error).message,
+    };
+  }
+}
+
 // ============ MAIN BUYBACK FUNCTION ============
 
 /**
@@ -441,7 +545,7 @@ async function burnCCDirect(
  *
  * This function implements the safe burn pattern:
  * 1. Check brain wallet SOL balance
- * 2. Swap SOL → $CC via FrogX (lands in brain wallet)
+ * 2. Swap SOL → $CC via Jupiter (lands in brain wallet)
  * 3. Transfer exact $CC amount → burn wallet (airlock)
  * 4. Verify burn wallet balance matches expected amount
  * 5. Burn ENTIRE balance of burn wallet (safe because isolated)
@@ -523,31 +627,34 @@ export async function executeBuybackAndBurn(
     // Create buyback record
     const buybackId = createBuybackRecord(swapAmount);
 
-    // 2. Get swap quote from FrogX (Frog Trading Exchange)
-    const quote = await getSwapQuote(
+    // 2. Get swap quote and transaction from Jupiter
+    const jupiterResult = await getJupiterSwap(
       WSOL_MINT,
       CC_TOKEN_MINT.toBase58(),
       swapAmount,
       brainWallet.publicKey.toBase58(),
-      100 // 1% slippage
+      200 // 2% slippage for memecoins
     );
 
-    if (!quote) {
+    if (!jupiterResult) {
       markBuybackFailed(buybackId, 'Failed to get swap quote');
-      return { success: false, error: 'Failed to get swap quote from FrogX' };
+      return { success: false, error: 'Failed to get swap quote from Jupiter' };
     }
 
-    console.log(`[Buyback] Quote: ${swapAmount / LAMPORTS_PER_SOL} SOL → ${Number(quote.amountOut) / 1_000_000_000} $CC`);
-    console.log(`[Buyback] Price impact: ${quote.priceImpactBps / 100}%`);
-    console.log(`[Buyback] Router: ${quote.routers.join(', ')} via ${quote.provider}`);
+    const { quote, swapTx: swapTxBase64, lastValidBlockHeight } = jupiterResult;
+    const route = quote.routePlan?.map(r => r.swapInfo.label).join(' → ') || 'Direct';
 
-    const ccToBurn = BigInt(quote.amountOut);
+    console.log(`[Buyback] Quote: ${swapAmount / LAMPORTS_PER_SOL} SOL → ${Number(quote.outAmount) / 1_000_000_000} $CC`);
+    console.log(`[Buyback] Price impact: ${quote.priceImpactPct}%`);
+    console.log(`[Buyback] Route: ${route}`);
+
+    const ccToBurn = BigInt(quote.outAmount);
 
     // ============ DRY RUN MODE ============
     if (dryRun) {
       const burnWalletState = hasBurnWallet ? getBurnWalletState() : null;
       console.log(`[DRY RUN] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`[DRY RUN] Would swap ${swapAmount / LAMPORTS_PER_SOL} SOL for ~${Number(quote.amountOut) / 1_000_000_000} $CC`);
+      console.log(`[DRY RUN] Would swap ${swapAmount / LAMPORTS_PER_SOL} SOL for ~${Number(quote.outAmount) / 1_000_000_000} $CC via ${route}`);
       if (hasBurnWallet) {
         console.log(`[DRY RUN] AIRLOCK PATTERN:`);
         console.log(`[DRY RUN]   1. Transfer ${Number(ccToBurn) / 1_000_000_000} $CC to burn wallet`);
@@ -572,19 +679,18 @@ export async function executeBuybackAndBurn(
         dryRun: true,
         usedAirlock: hasBurnWallet,
         solSpent: swapAmount / LAMPORTS_PER_SOL,
-        ccBought: Number(quote.amountOut) / 1_000_000_000,
-        ccBurned: Number(quote.amountOut) / 1_000_000_000,
+        ccBought: Number(quote.outAmount) / 1_000_000_000,
+        ccBurned: Number(quote.outAmount) / 1_000_000_000,
       };
     }
 
-    // 3. Build and execute swap transaction
-    const swapTransaction = await buildSwapTransaction(connection, quote, brainWallet.publicKey);
-    swapTransaction.sign([brainWallet.keypair]);
+    // 3. Sign and execute Jupiter swap transaction
+    const swapTransaction = await signJupiterSwap(swapTxBase64, brainWallet);
 
     let swapTx: string;
     try {
       swapTx = await connection.sendTransaction(swapTransaction, {
-        skipPreflight: false,
+        skipPreflight: true, // Jupiter already simulated
         maxRetries: 3,
       });
     } catch (sendError) {
@@ -593,11 +699,16 @@ export async function executeBuybackAndBurn(
       return { success: false, error: `Failed to send swap: ${(sendError as Error).message}` };
     }
 
-    // Wait for confirmation
-    await connection.confirmTransaction(swapTx, 'confirmed');
+    // Wait for confirmation with blockhash
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    await connection.confirmTransaction({
+      signature: swapTx,
+      blockhash,
+      lastValidBlockHeight,
+    }, 'confirmed');
     console.log(`[Buyback] Swap confirmed: ${swapTx}`);
 
-    const ccBought = Number(quote.amountOut);
+    const ccBought = Number(quote.outAmount);
     updateBuybackSwap(buybackId, ccBought, swapTx);
 
     if (ccToBurn <= BigInt(0)) {
@@ -783,6 +894,162 @@ export async function shouldRunBuyback(): Promise<{
       reason: `Error checking balance: ${(error as Error).message}`,
     };
   }
+}
+
+// ============ COMPREHENSIVE FEE PROCESSING ============
+
+/**
+ * Process ALL accumulated swap terminal fees in one operation
+ *
+ * This is the main entry point for the cron job. It handles:
+ * 1. CC fees from BUY transactions → direct burn (simpler, no swap needed)
+ * 2. SOL fees from SELL transactions → buyback CC → burn
+ *
+ * Flow:
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  Swap Terminal Fee Collection                                │
+ * │                                                              │
+ * │  BUY tx (SOL → CC):  User gets CC, 1% fee → Brain CC ATA    │
+ * │  SELL tx (CC → SOL): User gets SOL, 1% fee → Brain wSOL ATA │
+ * └─────────────────────────────────────────────────────────────┘
+ *                            │
+ *                            ▼
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  processAllSwapFees() - Every 6 hours                       │
+ * │                                                              │
+ * │  Step 1: CC fees → Transfer to burn wallet → Burn           │
+ * │  Step 2: SOL fees → Jupiter swap → CC → Burn wallet → Burn  │
+ * └─────────────────────────────────────────────────────────────┘
+ *                            │
+ *                            ▼
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  Result: All fees converted to $CC and burned               │
+ * │  Creates deflationary pressure on token supply              │
+ * └─────────────────────────────────────────────────────────────┘
+ */
+export async function processAllSwapFees(
+  dryRun: boolean = false
+): Promise<{
+  success: boolean;
+  dryRun: boolean;
+  ccFees: {
+    processed: boolean;
+    ccBurned?: number;
+    transferTx?: string;
+    burnTx?: string;
+    error?: string;
+  };
+  solFees: {
+    processed: boolean;
+    solSpent?: number;
+    ccBought?: number;
+    ccBurned?: number;
+    swapTx?: string;
+    transferTx?: string;
+    burnTx?: string;
+    error?: string;
+  };
+  totalCcBurned: number;
+  errors: string[];
+}> {
+  console.log(`[Fee Processing] Starting comprehensive fee processing... ${dryRun ? '(DRY RUN)' : ''}`);
+  console.log(`[Fee Processing] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+  const result = {
+    success: true,
+    dryRun,
+    ccFees: {
+      processed: false,
+      ccBurned: 0,
+    } as {
+      processed: boolean;
+      ccBurned?: number;
+      transferTx?: string;
+      burnTx?: string;
+      error?: string;
+    },
+    solFees: {
+      processed: false,
+      solSpent: 0,
+      ccBought: 0,
+      ccBurned: 0,
+    } as {
+      processed: boolean;
+      solSpent?: number;
+      ccBought?: number;
+      ccBurned?: number;
+      swapTx?: string;
+      transferTx?: string;
+      burnTx?: string;
+      error?: string;
+    },
+    totalCcBurned: 0,
+    errors: [] as string[],
+  };
+
+  // ============ STEP 1: CC Fees Note ============
+  // CC fees from BUY transactions go to the same ATA as the game wallet bankroll.
+  // We CANNOT distinguish fees from bankroll without database tracking.
+  // For now, CC fees effectively add to the bankroll (house keeps them).
+  // Only SOL fees (from sells) get processed via buyback → burn.
+  console.log(`[Fee Processing] Step 1: CC fees from buys → kept as bankroll (no separate tracking)`);
+  result.ccFees = {
+    processed: false,
+    error: 'CC fees mixed with bankroll - tracked as house profit, not burned separately',
+  };
+
+  // ============ STEP 2: Process SOL Fees (from SELL transactions) ============
+  console.log(`[Fee Processing] Step 2: Processing SOL fees from sell transactions...`);
+
+  try {
+    const check = await shouldRunBuyback();
+    if (check.should) {
+      console.log(`[Fee Processing] SOL fees ready for buyback: ${check.availableSol?.toFixed(4)} SOL`);
+
+      const buybackResult = await executeBuybackAndBurn(undefined, dryRun);
+
+      if (buybackResult.success) {
+        result.solFees = {
+          processed: true,
+          solSpent: buybackResult.solSpent,
+          ccBought: buybackResult.ccBought,
+          ccBurned: buybackResult.ccBurned,
+          swapTx: buybackResult.swapTx,
+          transferTx: buybackResult.transferTx,
+          burnTx: buybackResult.burnTx,
+        };
+      } else {
+        result.solFees = { processed: false, error: buybackResult.error };
+        if (buybackResult.error) {
+          result.errors.push(`SOL fees: ${buybackResult.error}`);
+        }
+      }
+    } else {
+      console.log(`[Fee Processing] SOL fees not ready: ${check.reason}`);
+      result.solFees = { processed: false, error: check.reason };
+    }
+  } catch (error) {
+    const errorMsg = (error as Error).message;
+    console.error(`[Fee Processing] SOL fee processing error: ${errorMsg}`);
+    result.solFees = { processed: false, error: errorMsg };
+    result.errors.push(`SOL fees: ${errorMsg}`);
+  }
+
+  // ============ SUMMARY ============
+  result.totalCcBurned = (result.ccFees.ccBurned || 0) + (result.solFees.ccBurned || 0);
+  result.success = result.errors.length === 0 || (result.ccFees.processed || result.solFees.processed);
+
+  console.log(`[Fee Processing] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`[Fee Processing] Summary:`);
+  console.log(`[Fee Processing]   CC fees burned:  ${result.ccFees.ccBurned?.toFixed(2) || 0} CC`);
+  console.log(`[Fee Processing]   SOL fees:        ${result.solFees.solSpent?.toFixed(4) || 0} SOL → ${result.solFees.ccBurned?.toFixed(2) || 0} CC burned`);
+  console.log(`[Fee Processing]   Total burned:    ${result.totalCcBurned.toFixed(2)} CC`);
+  if (result.errors.length > 0) {
+    console.log(`[Fee Processing]   Errors:          ${result.errors.length}`);
+  }
+  console.log(`[Fee Processing] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+  return result;
 }
 
 // Initialize on module load

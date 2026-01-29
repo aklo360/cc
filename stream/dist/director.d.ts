@@ -1,8 +1,11 @@
 /**
- * Stream Director - Orchestrates what the stream shows based on brain state
+ * Stream Director - Time-based scene scheduling
  *
- * - Active cycle: Show /watch page (build logs)
- * - Cooldown: Show /vj page (Three.js branded visuals)
+ * Schedule: 2 hours BUILD (/watch) → 1 hour BREAK (/vj) → repeat
+ *
+ * This creates a 3-hour cycle:
+ * - Hour 0-2: Build mode (showing /watch with build logs)
+ * - Hour 2-3: Break mode (showing /vj visuals)
  */
 import { Page } from 'puppeteer-core';
 export interface DirectorConfig {
@@ -11,18 +14,6 @@ export interface DirectorConfig {
     vjUrl: string;
     pollInterval: number;
 }
-export interface BrainStatus {
-    brain: string;
-    mode: 'idle' | 'building' | 'resting';
-    cycle: {
-        id: number;
-        status: string;
-        project: string;
-    } | null;
-    memes?: {
-        in_progress: boolean;
-    };
-}
 type StreamScene = 'watch' | 'vj';
 export declare class Director {
     private config;
@@ -30,9 +21,10 @@ export declare class Director {
     private currentScene;
     private pollTimer;
     private isNavigating;
+    private cycleStartTime;
     constructor(config: DirectorConfig);
     /**
-     * Start directing - attach to browser page and begin polling
+     * Start directing - attach to browser page and begin time-based scheduling
      */
     start(page: Page): void;
     /**
@@ -44,25 +36,29 @@ export declare class Director {
      */
     getScene(): StreamScene;
     /**
-     * Check brain status and switch scenes if needed
+     * Get schedule info for health endpoint
      */
-    private checkAndSwitch;
+    getScheduleInfo(): {
+        currentPhase: 'build' | 'break';
+        minutesIntoPhase: number;
+        minutesRemaining: number;
+        nextSwitch: string;
+    };
     /**
-     * Fetch brain status from API
+     * Get minutes into current 3-hour cycle
      */
-    private fetchBrainStatus;
+    private getMinutesIntoCycle;
     /**
-     * Determine which scene to show based on brain status
+     * Determine which scene based on time
      *
-     * Show /watch when:
-     * - Brain is building (active cycle)
-     * - Brain is generating memes (in_progress)
-     *
-     * Show /vj when:
-     * - Brain is resting (cooldown, no active work)
-     * - Brain is idle
+     * 0-120 min: BUILD (/watch)
+     * 120-180 min: BREAK (/vj)
      */
     private determineScene;
+    /**
+     * Check time and switch scenes if needed
+     */
+    private checkAndSwitch;
     /**
      * Switch to a new scene
      */
@@ -71,6 +67,10 @@ export declare class Director {
      * Force switch to a specific scene (manual override)
      */
     forceScene(scene: StreamScene): Promise<void>;
+    /**
+     * Reset cycle timer (starts fresh 3-hour cycle)
+     */
+    resetCycle(): void;
 }
 export {};
 //# sourceMappingURL=director.d.ts.map

@@ -932,40 +932,48 @@ export function markCycleStarted(): void {
 }
 
 /**
+ * Reset and seed shipped features with the actual features on the site
+ * This clears old data and inserts only the real features
+ */
+export function resetShippedFeatures(): number {
+  // Clear existing features
+  db.prepare('DELETE FROM shipped_features').run();
+
+  // The 6 actual features on claudecode.wtf (ordered by shipped date, oldest first)
+  // ccflip is most recent, so it gets the latest timestamp
+  const actualFeatures = [
+    { slug: 'meme', name: 'Meme Generator', description: 'AI-powered meme creation with Gemini', daysAgo: 30 },
+    { slug: 'play', name: 'Space Invaders', description: '2D Canvas game with CC mascot shooting aliens', daysAgo: 25 },
+    { slug: 'moon', name: 'StarClaude64', description: '3D endless runner with Three.js, dodge asteroids and collect coins', daysAgo: 20 },
+    { slug: 'watch', name: 'Watch Brain', description: 'Real-time log viewer for the Central Brain', daysAgo: 15 },
+    { slug: 'vj', name: 'VJ Mode', description: 'Live audio-reactive visual generator with Hydra', daysAgo: 10 },
+    { slug: 'ccflip', name: 'CC Flip', description: 'Mainnet coin flip game with 1.96x payout', daysAgo: 0 },
+  ];
+
+  const stmt = db.prepare(`
+    INSERT INTO shipped_features (slug, name, description, shipped_at)
+    VALUES (?, ?, ?, datetime('now', ?))
+  `);
+
+  for (const feature of actualFeatures) {
+    stmt.run(feature.slug, feature.name, feature.description, `-${feature.daysAgo} days`);
+  }
+
+  return actualFeatures.length;
+}
+
+/**
  * Seed initial features that already exist on the site
  * Called once on startup to ensure the brain knows about existing features
  */
 export function seedInitialFeatures(): number {
-  // Only features that ACTUALLY EXIST on the site
-  const initialFeatures = [
-    { slug: 'meme', name: 'Meme Generator', description: 'AI-powered meme creation with Gemini' },
-    { slug: 'play', name: 'Space Invaders', description: '2D Canvas game with CC mascot shooting aliens' },
-    { slug: 'moon', name: 'StarClaude64', description: '3D endless runner with Three.js, dodge asteroids and collect coins' },
-    { slug: 'poetry', name: 'Code Poetry Generator', description: 'Transform code into haiku and poetry' },
-    { slug: 'watch', name: 'Watch Brain', description: 'Real-time log viewer for the Central Brain' },
-    { slug: 'ide', name: 'IDE Mode', description: 'Fake IDE that turns all code into console.log' },
-    { slug: 'mood', name: 'Dev Mood Ring', description: 'Analyze code sentiment and developer mood' },
-    { slug: 'duck', name: 'Rubber Duck Debugger', description: 'Talk to an AI rubber duck about your code problems' },
-    { slug: 'roast', name: 'Code Roast', description: 'Brutal AI roasting of your code' },
-    { slug: 'fortune', name: 'Dev Fortune Cookie', description: 'Get programming wisdom and fortunes' },
-    { slug: 'karaoke', name: 'Code Karaoke', description: 'Sing along to code-themed lyrics' },
-    { slug: 'refactor', name: 'Refactor Roulette', description: 'Random code refactoring suggestions' },
-    { slug: 'time', name: 'Time Tracker', description: 'Track your coding time' },
-    { slug: 'vj', name: 'VJ Mode', description: 'Live audio-reactive visual generator' },
-  ];
-
-  let seeded = 0;
-  const stmt = db.prepare(`
-    INSERT OR IGNORE INTO shipped_features (slug, name, description)
-    VALUES (?, ?, ?)
-  `);
-
-  for (const feature of initialFeatures) {
-    const result = stmt.run(feature.slug, feature.name, feature.description);
-    if (result.changes > 0) seeded++;
+  // Check if we already have features
+  const existing = db.prepare('SELECT COUNT(*) as count FROM shipped_features').get() as { count: number };
+  if (existing.count > 0) {
+    return 0; // Already seeded
   }
 
-  return seeded;
+  return resetShippedFeatures();
 }
 
 // ============ Build Log Helpers ============
@@ -978,7 +986,7 @@ export interface BuildLog {
   created_at: string;
 }
 
-export type ActivityType = 'build' | 'meme' | 'system';
+export type ActivityType = 'build' | 'experiment' | 'system' | 'grind' | 'token';
 
 /**
  * Insert a build log entry
@@ -1018,249 +1026,13 @@ export function cleanupOldBuildLogs(daysOld: number = 7): number {
   return result.changes;
 }
 
-// ============ 12-Hour Safety Cooldown ============
-// After account lock incident, enforce a 12-hour cooldown before any tweets
-// This timestamp is set at deploy time and prevents all posting until elapsed
-const SAFETY_COOLDOWN_UNTIL = new Date(Date.now() + 12 * 60 * 60 * 1000).getTime(); // 12 hours from deploy
-
-// ============ Meme Helpers ============
-
-export interface Meme {
-  id: number;
-  prompt: string;
-  description: string;
-  caption: string;
-  quality_score: number;
-  twitter_id: string | null;
-  posted_at: string | null;
-  skipped_reason: string | null;
-  created_at: string;
-}
-
-export interface MemeState {
-  last_post_time: number;
-  daily_count: number;
-  daily_reset_date: string | null;
-  recent_prompts: string[];
-  in_progress: boolean;
-}
-
-// Rate limits for meme posting (CONSERVATIVE after account lock)
-// Global limit is 6 tweets/day, so memes are further restricted
-export const MEME_RATE_LIMIT = {
-  maxDaily: 3, // Max 3 memes/day (very conservative)
-  minIntervalMs: 4 * 60 * 60 * 1000, // 4 hours between memes
-};
-
-/**
- * Get the current meme state
- */
-export function getMemeState(): MemeState {
-  const stmt = db.prepare(`SELECT * FROM meme_state WHERE id = 1`);
-  const row = stmt.get() as {
-    last_post_time: number;
-    daily_count: number;
-    daily_reset_date: string | null;
-    recent_prompts: string;
-    in_progress: number;
-  } | undefined;
-
-  if (!row) {
-    return {
-      last_post_time: 0,
-      daily_count: 0,
-      daily_reset_date: null,
-      recent_prompts: [],
-      in_progress: false,
-    };
-  }
-
-  return {
-    last_post_time: row.last_post_time,
-    daily_count: row.daily_count,
-    daily_reset_date: row.daily_reset_date,
-    recent_prompts: JSON.parse(row.recent_prompts || '[]'),
-    in_progress: row.in_progress === 1,
-  };
-}
-
-/**
- * Update meme state
- */
-export function updateMemeState(update: Partial<MemeState>): void {
-  const current = getMemeState();
-  const newState = { ...current, ...update };
-
-  const stmt = db.prepare(`
-    UPDATE meme_state SET
-      last_post_time = ?,
-      daily_count = ?,
-      daily_reset_date = ?,
-      recent_prompts = ?,
-      in_progress = ?
-    WHERE id = 1
-  `);
-  stmt.run(
-    newState.last_post_time,
-    newState.daily_count,
-    newState.daily_reset_date,
-    JSON.stringify(newState.recent_prompts),
-    newState.in_progress ? 1 : 0
-  );
-}
-
-/**
- * Set meme generation in progress
- */
-export function setMemeInProgress(inProgress: boolean): void {
-  const stmt = db.prepare(`UPDATE meme_state SET in_progress = ? WHERE id = 1`);
-  stmt.run(inProgress ? 1 : 0);
-}
-
-/**
- * Insert a new meme record
- */
-export function insertMeme(meme: {
-  prompt: string;
-  description: string;
-  caption: string;
-  quality_score: number;
-  twitter_id?: string;
-  posted_at?: string;
-  skipped_reason?: string;
-}): number {
-  const stmt = db.prepare(`
-    INSERT INTO memes (prompt, description, caption, quality_score, twitter_id, posted_at, skipped_reason)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  const result = stmt.run(
-    meme.prompt,
-    meme.description,
-    meme.caption,
-    meme.quality_score,
-    meme.twitter_id || null,
-    meme.posted_at || null,
-    meme.skipped_reason || null
-  );
-  return result.lastInsertRowid as number;
-}
-
-/**
- * Get recent memes
- */
-export function getRecentMemes(limit: number = 10): Meme[] {
-  const stmt = db.prepare(`
-    SELECT * FROM memes ORDER BY created_at DESC LIMIT ?
-  `);
-  return stmt.all(limit) as Meme[];
-}
-
-/**
- * Get meme stats for today
- */
-export function getMemeStats(): {
-  daily_count: number;
-  daily_limit: number;
-  last_post_time: number;
-  last_post_at: string | null;
-  can_post: boolean;
-  next_allowed_in_ms: number;
-  recent_memes: Meme[];
-  in_progress: boolean;
-} {
-  const state = getMemeState();
-  const today = new Date().toISOString().split('T')[0];
-
-  // Reset daily count if new day
-  let dailyCount = state.daily_count;
-  if (state.daily_reset_date !== today) {
-    dailyCount = 0;
-  }
-
-  // Calculate time until next allowed post
-  const now = Date.now();
-  const timeSinceLastPost = now - state.last_post_time;
-  const timeUntilAllowed = Math.max(0, MEME_RATE_LIMIT.minIntervalMs - timeSinceLastPost);
-
-  // Can post if under limit, interval elapsed, and not in progress
-  const canPost =
-    dailyCount < MEME_RATE_LIMIT.maxDaily &&
-    timeSinceLastPost >= MEME_RATE_LIMIT.minIntervalMs &&
-    !state.in_progress;
-
-  return {
-    daily_count: dailyCount,
-    daily_limit: MEME_RATE_LIMIT.maxDaily,
-    last_post_time: state.last_post_time,
-    last_post_at: state.last_post_time ? new Date(state.last_post_time).toISOString() : null,
-    can_post: canPost,
-    next_allowed_in_ms: timeUntilAllowed,
-    recent_memes: getRecentMemes(5),
-    in_progress: state.in_progress,
-  };
-}
-
-/**
- * Check if we can post a meme
- */
-export function canPostMeme(): { allowed: boolean; reason?: string } {
-  const state = getMemeState();
-  const today = new Date().toISOString().split('T')[0];
-  const now = Date.now();
-
-  // Check if generation is already in progress
-  if (state.in_progress) {
-    return { allowed: false, reason: 'Meme generation already in progress' };
-  }
-
-  // Reset daily count if new day
-  let dailyCount = state.daily_count;
-  if (state.daily_reset_date !== today) {
-    dailyCount = 0;
-    updateMemeState({ daily_count: 0, daily_reset_date: today });
-  }
-
-  // Check daily limit
-  if (dailyCount >= MEME_RATE_LIMIT.maxDaily) {
-    return { allowed: false, reason: `Daily limit reached (${MEME_RATE_LIMIT.maxDaily}/day)` };
-  }
-
-  // Check minimum interval
-  const timeSinceLastPost = now - state.last_post_time;
-  if (timeSinceLastPost < MEME_RATE_LIMIT.minIntervalMs) {
-    const waitMinutes = Math.ceil((MEME_RATE_LIMIT.minIntervalMs - timeSinceLastPost) / 60000);
-    return { allowed: false, reason: `Must wait ${waitMinutes} more minutes` };
-  }
-
-  return { allowed: true };
-}
-
-/**
- * Record a successful meme post
- */
-export function recordMemePost(prompt: string): void {
-  const state = getMemeState();
-  const today = new Date().toISOString().split('T')[0];
-
-  // Reset daily count if new day
-  let dailyCount = state.daily_count;
-  if (state.daily_reset_date !== today) {
-    dailyCount = 0;
-  }
-
-  // Update recent prompts (keep last 50 to avoid repetition)
-  const recentPrompts = [prompt, ...state.recent_prompts].slice(0, 50);
-
-  updateMemeState({
-    last_post_time: Date.now(),
-    daily_count: dailyCount + 1,
-    daily_reset_date: today,
-    recent_prompts: recentPrompts,
-    in_progress: false,
-  });
-}
+// ============ MEME SYSTEM REMOVED IN BRAIN 2.0 ============
+// Tables kept for historical data, but functions removed
+// See Crypto Lab experiment system for new functionality
 
 // ============ Global Tweet Rate Limiter ============
+// Safety cooldown timestamp (kept from legacy system for Twitter rate limit safety)
+const SAFETY_COOLDOWN_UNTIL = 0; // No cooldown in Brain 2.0 - was used after account lock incident
 // CONSERVATIVE LIMITS after account lock incident
 // Twitter Free tier allows 17/day, but we stay well below to appear human-like
 
@@ -1269,7 +1041,7 @@ export const GLOBAL_TWEET_LIMIT = {
   minIntervalMs: 3 * 60 * 60 * 1000, // 3 hours between any tweets
 };
 
-export type TweetType = 'meme' | 'announcement' | 'scheduled' | 'video';
+export type TweetType = 'experiment' | 'announcement' | 'scheduled' | 'video' | 'meme' | 'ai_insight';
 
 interface TweetRateLimitState {
   daily_count: number;
@@ -2313,4 +2085,649 @@ export function recordRewardsTransfer(amountLamports: bigint): void {
       last_transfer_at = ?
   `);
   stmt.run(today, amount, now, amount, now);
+}
+
+// ============ IDLE GRIND STATE ============
+
+/**
+ * Initialize grind_state table for the Idle Grind System
+ * Tracks current activity, timing, and metrics for the continuous grind loop
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS grind_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    current_activity TEXT DEFAULT 'reflecting',
+    task_started_at INTEGER DEFAULT 0,
+    next_step_at INTEGER DEFAULT 0,
+    last_holder_count INTEGER DEFAULT 0,
+    last_thought TEXT,
+    last_thought_at INTEGER DEFAULT 0,
+    recent_activities TEXT DEFAULT '[]'
+  );
+  INSERT OR IGNORE INTO grind_state (id) VALUES (1);
+`);
+
+// ============ REASONING SYSTEM V2: THINKING SESSIONS ============
+
+/**
+ * Thinking Sessions - Multi-turn reasoning with exposed logic
+ * Each session works through a single problem with visible chain of thought
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS thinking_sessions (
+    id TEXT PRIMARY KEY,
+    problem TEXT NOT NULL,
+    category TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    status TEXT DEFAULT 'thinking',
+    thought_count INTEGER DEFAULT 0,
+    conclusion TEXT,
+    insight_ids TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_thinking_sessions_status ON thinking_sessions(status);
+  CREATE INDEX IF NOT EXISTS idx_thinking_sessions_started ON thinking_sessions(started_at);
+`);
+
+/**
+ * Session Thoughts - The visible reasoning chain
+ * Each thought builds on previous, showing the logic
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS session_thoughts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    thought_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    thought_type TEXT DEFAULT 'observation',
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES thinking_sessions(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_session_thoughts_session ON session_thoughts(session_id);
+`);
+
+/**
+ * Grind Insights - Cumulative learning system
+ * Insights are permanently stored and retrieved in future sessions
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS grind_insights (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    insight TEXT NOT NULL,
+    category TEXT NOT NULL,
+    confidence TEXT DEFAULT 'hypothesis',
+    session_id TEXT,
+    supporting_data TEXT,
+    times_referenced INTEGER DEFAULT 0,
+    last_referenced_at TEXT,
+    still_valid INTEGER DEFAULT 1
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_grind_insights_category ON grind_insights(category);
+  CREATE INDEX IF NOT EXISTS idx_grind_insights_confidence ON grind_insights(confidence);
+`);
+
+export type GrindActivityType =
+  | 'researching'
+  | 'strategizing'
+  | 'monitoring'
+  | 'scouting'
+  | 'planning'
+  | 'analyzing'
+  | 'reflecting';
+
+export interface GrindState {
+  currentActivity: GrindActivityType;
+  taskStartedAt: number;
+  nextStepAt: number;
+  lastHolderCount: number;
+  lastThought: string | null;
+  lastThoughtAt: number;
+  recentActivities: GrindActivityType[];
+}
+
+/**
+ * Get the current grind state
+ */
+export function getGrindState(): GrindState {
+  const stmt = db.prepare('SELECT * FROM grind_state WHERE id = 1');
+  const row = stmt.get() as {
+    current_activity: string;
+    task_started_at: number;
+    next_step_at: number;
+    last_holder_count: number;
+    last_thought: string | null;
+    last_thought_at: number;
+    recent_activities: string;
+  } | undefined;
+
+  if (!row) {
+    return {
+      currentActivity: 'reflecting',
+      taskStartedAt: 0,
+      nextStepAt: 0,
+      lastHolderCount: 0,
+      lastThought: null,
+      lastThoughtAt: 0,
+      recentActivities: [],
+    };
+  }
+
+  let recentActivities: GrindActivityType[] = [];
+  try {
+    recentActivities = JSON.parse(row.recent_activities || '[]');
+  } catch {
+    recentActivities = [];
+  }
+
+  return {
+    currentActivity: row.current_activity as GrindActivityType,
+    taskStartedAt: row.task_started_at,
+    nextStepAt: row.next_step_at,
+    lastHolderCount: row.last_holder_count,
+    lastThought: row.last_thought,
+    lastThoughtAt: row.last_thought_at,
+    recentActivities,
+  };
+}
+
+/**
+ * Update the grind state
+ */
+export function updateGrindState(updates: Partial<{
+  currentActivity: GrindActivityType;
+  taskStartedAt: number;
+  nextStepAt: number;
+  lastHolderCount: number;
+  lastThought: string;
+  lastThoughtAt: number;
+  recentActivities: GrindActivityType[];
+}>): void {
+  const current = getGrindState();
+
+  const newState = {
+    currentActivity: updates.currentActivity ?? current.currentActivity,
+    taskStartedAt: updates.taskStartedAt ?? current.taskStartedAt,
+    nextStepAt: updates.nextStepAt ?? current.nextStepAt,
+    lastHolderCount: updates.lastHolderCount ?? current.lastHolderCount,
+    lastThought: updates.lastThought ?? current.lastThought,
+    lastThoughtAt: updates.lastThoughtAt ?? current.lastThoughtAt,
+    recentActivities: updates.recentActivities ?? current.recentActivities,
+  };
+
+  const stmt = db.prepare(`
+    UPDATE grind_state SET
+      current_activity = ?,
+      task_started_at = ?,
+      next_step_at = ?,
+      last_holder_count = ?,
+      last_thought = ?,
+      last_thought_at = ?,
+      recent_activities = ?
+    WHERE id = 1
+  `);
+
+  stmt.run(
+    newState.currentActivity,
+    newState.taskStartedAt,
+    newState.nextStepAt,
+    newState.lastHolderCount,
+    newState.lastThought,
+    newState.lastThoughtAt,
+    JSON.stringify(newState.recentActivities.slice(-10)) // Keep last 10
+  );
+}
+
+/**
+ * Record a grind thought in the build_logs table with 'grind' activity type
+ */
+export function recordGrindThought(
+  activity: GrindActivityType,
+  thought: string
+): void {
+  const now = Date.now();
+
+  // Insert into build_logs for historical access
+  const stmt = db.prepare(`
+    INSERT INTO build_logs (message, level, activity_type) VALUES (?, 'info', 'grind')
+  `);
+  stmt.run(`[${activity.toUpperCase()}] ${thought}`);
+
+  // Update grind state
+  const current = getGrindState();
+  const recentActivities = [...current.recentActivities, activity].slice(-10);
+
+  updateGrindState({
+    lastThought: thought,
+    lastThoughtAt: now,
+    recentActivities,
+  });
+}
+
+// ============ THINKING SESSIONS HELPERS ============
+
+export type ThoughtType = 'observation' | 'analysis' | 'hypothesis' | 'conclusion';
+export type SessionStatus = 'thinking' | 'concluding' | 'complete' | 'resting';
+
+export interface ThinkingSession {
+  id: string;
+  problem: string;
+  category: string;
+  startedAt: number;
+  endedAt: number | null;
+  status: SessionStatus;
+  thoughtCount: number;
+  conclusion: string | null;
+  insightIds: number[];
+}
+
+export interface SessionThought {
+  id: number;
+  sessionId: string;
+  thoughtIndex: number;
+  content: string;
+  thoughtType: ThoughtType;
+  createdAt: number;
+}
+
+/**
+ * Create a new thinking session
+ */
+export function createThinkingSession(
+  id: string,
+  problem: string,
+  category: string
+): ThinkingSession {
+  const now = Date.now();
+  const stmt = db.prepare(`
+    INSERT INTO thinking_sessions (id, problem, category, started_at, status, thought_count)
+    VALUES (?, ?, ?, ?, 'thinking', 0)
+  `);
+  stmt.run(id, problem, category, now);
+
+  return {
+    id,
+    problem,
+    category,
+    startedAt: now,
+    endedAt: null,
+    status: 'thinking',
+    thoughtCount: 0,
+    conclusion: null,
+    insightIds: [],
+  };
+}
+
+/**
+ * Get a thinking session by ID
+ */
+export function getThinkingSession(id: string): ThinkingSession | null {
+  const stmt = db.prepare('SELECT * FROM thinking_sessions WHERE id = ?');
+  const row = stmt.get(id) as {
+    id: string;
+    problem: string;
+    category: string;
+    started_at: number;
+    ended_at: number | null;
+    status: string;
+    thought_count: number;
+    conclusion: string | null;
+    insight_ids: string | null;
+  } | undefined;
+
+  if (!row) return null;
+
+  let insightIds: number[] = [];
+  try {
+    insightIds = row.insight_ids ? JSON.parse(row.insight_ids) : [];
+  } catch {
+    insightIds = [];
+  }
+
+  return {
+    id: row.id,
+    problem: row.problem,
+    category: row.category,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    status: row.status as SessionStatus,
+    thoughtCount: row.thought_count,
+    conclusion: row.conclusion,
+    insightIds,
+  };
+}
+
+/**
+ * Get the current active session (if any)
+ */
+export function getActiveThinkingSession(): ThinkingSession | null {
+  const stmt = db.prepare(`
+    SELECT * FROM thinking_sessions
+    WHERE status IN ('thinking', 'concluding')
+    ORDER BY started_at DESC LIMIT 1
+  `);
+  const row = stmt.get() as {
+    id: string;
+    problem: string;
+    category: string;
+    started_at: number;
+    ended_at: number | null;
+    status: string;
+    thought_count: number;
+    conclusion: string | null;
+    insight_ids: string | null;
+  } | undefined;
+
+  if (!row) return null;
+
+  let insightIds: number[] = [];
+  try {
+    insightIds = row.insight_ids ? JSON.parse(row.insight_ids) : [];
+  } catch {
+    insightIds = [];
+  }
+
+  return {
+    id: row.id,
+    problem: row.problem,
+    category: row.category,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    status: row.status as SessionStatus,
+    thoughtCount: row.thought_count,
+    conclusion: row.conclusion,
+    insightIds,
+  };
+}
+
+/**
+ * Update session status
+ */
+export function updateSessionStatus(
+  id: string,
+  status: SessionStatus,
+  conclusion?: string,
+  insightIds?: number[]
+): void {
+  const endedAt = status === 'complete' ? Date.now() : null;
+  const stmt = db.prepare(`
+    UPDATE thinking_sessions
+    SET status = ?, ended_at = ?, conclusion = ?, insight_ids = ?
+    WHERE id = ?
+  `);
+  stmt.run(
+    status,
+    endedAt,
+    conclusion || null,
+    insightIds ? JSON.stringify(insightIds) : null,
+    id
+  );
+}
+
+/**
+ * Add a thought to a session
+ */
+export function addSessionThought(
+  sessionId: string,
+  content: string,
+  thoughtType: ThoughtType = 'observation'
+): SessionThought {
+  const now = Date.now();
+
+  // Get current thought count
+  const session = getThinkingSession(sessionId);
+  const thoughtIndex = (session?.thoughtCount || 0) + 1;
+
+  // Insert thought
+  const stmt = db.prepare(`
+    INSERT INTO session_thoughts (session_id, thought_index, content, thought_type, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const result = stmt.run(sessionId, thoughtIndex, content, thoughtType, now);
+
+  // Update session thought count
+  const updateStmt = db.prepare(`
+    UPDATE thinking_sessions SET thought_count = ? WHERE id = ?
+  `);
+  updateStmt.run(thoughtIndex, sessionId);
+
+  return {
+    id: result.lastInsertRowid as number,
+    sessionId,
+    thoughtIndex,
+    content,
+    thoughtType,
+    createdAt: now,
+  };
+}
+
+/**
+ * Get all thoughts for a session
+ */
+export function getSessionThoughts(sessionId: string): SessionThought[] {
+  const stmt = db.prepare(`
+    SELECT * FROM session_thoughts
+    WHERE session_id = ?
+    ORDER BY thought_index ASC
+  `);
+  const rows = stmt.all(sessionId) as Array<{
+    id: number;
+    session_id: string;
+    thought_index: number;
+    content: string;
+    thought_type: string;
+    created_at: number;
+  }>;
+
+  return rows.map(row => ({
+    id: row.id,
+    sessionId: row.session_id,
+    thoughtIndex: row.thought_index,
+    content: row.content,
+    thoughtType: row.thought_type as ThoughtType,
+    createdAt: row.created_at,
+  }));
+}
+
+/**
+ * Get recent completed sessions
+ */
+export function getRecentSessions(limit: number = 10): ThinkingSession[] {
+  const stmt = db.prepare(`
+    SELECT * FROM thinking_sessions
+    WHERE status = 'complete'
+    ORDER BY ended_at DESC
+    LIMIT ?
+  `);
+  const rows = stmt.all(limit) as Array<{
+    id: string;
+    problem: string;
+    category: string;
+    started_at: number;
+    ended_at: number | null;
+    status: string;
+    thought_count: number;
+    conclusion: string | null;
+    insight_ids: string | null;
+  }>;
+
+  return rows.map(row => {
+    let insightIds: number[] = [];
+    try {
+      insightIds = row.insight_ids ? JSON.parse(row.insight_ids) : [];
+    } catch {
+      insightIds = [];
+    }
+
+    return {
+      id: row.id,
+      problem: row.problem,
+      category: row.category,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      status: row.status as SessionStatus,
+      thoughtCount: row.thought_count,
+      conclusion: row.conclusion,
+      insightIds,
+    };
+  });
+}
+
+// ============ GRIND INSIGHTS HELPERS ============
+
+export type InsightConfidence = 'hypothesis' | 'tested' | 'proven';
+
+export interface GrindInsight {
+  id: number;
+  createdAt: string;
+  insight: string;
+  category: string;
+  confidence: InsightConfidence;
+  sessionId: string | null;
+  supportingData: Record<string, unknown> | null;
+  timesReferenced: number;
+  lastReferencedAt: string | null;
+  stillValid: boolean;
+}
+
+/**
+ * Store a new insight
+ */
+export function storeInsight(
+  insight: string,
+  category: string,
+  sessionId?: string,
+  supportingData?: Record<string, unknown>
+): number {
+  const stmt = db.prepare(`
+    INSERT INTO grind_insights (insight, category, session_id, supporting_data, confidence)
+    VALUES (?, ?, ?, ?, 'hypothesis')
+  `);
+  const result = stmt.run(
+    insight,
+    category,
+    sessionId || null,
+    supportingData ? JSON.stringify(supportingData) : null
+  );
+  return result.lastInsertRowid as number;
+}
+
+/**
+ * Get insights by category
+ */
+export function getInsightsByCategory(category: string): GrindInsight[] {
+  const stmt = db.prepare(`
+    SELECT * FROM grind_insights
+    WHERE category = ? AND still_valid = 1
+    ORDER BY times_referenced DESC, created_at DESC
+  `);
+  const rows = stmt.all(category) as Array<{
+    id: number;
+    created_at: string;
+    insight: string;
+    category: string;
+    confidence: string;
+    session_id: string | null;
+    supporting_data: string | null;
+    times_referenced: number;
+    last_referenced_at: string | null;
+    still_valid: number;
+  }>;
+
+  return rows.map(row => ({
+    id: row.id,
+    createdAt: row.created_at,
+    insight: row.insight,
+    category: row.category,
+    confidence: row.confidence as InsightConfidence,
+    sessionId: row.session_id,
+    supportingData: row.supporting_data ? JSON.parse(row.supporting_data) : null,
+    timesReferenced: row.times_referenced,
+    lastReferencedAt: row.last_referenced_at,
+    stillValid: row.still_valid === 1,
+  }));
+}
+
+/**
+ * Get all valid insights
+ */
+export function getAllInsights(): GrindInsight[] {
+  const stmt = db.prepare(`
+    SELECT * FROM grind_insights
+    WHERE still_valid = 1
+    ORDER BY times_referenced DESC, created_at DESC
+  `);
+  const rows = stmt.all() as Array<{
+    id: number;
+    created_at: string;
+    insight: string;
+    category: string;
+    confidence: string;
+    session_id: string | null;
+    supporting_data: string | null;
+    times_referenced: number;
+    last_referenced_at: string | null;
+    still_valid: number;
+  }>;
+
+  return rows.map(row => ({
+    id: row.id,
+    createdAt: row.created_at,
+    insight: row.insight,
+    category: row.category,
+    confidence: row.confidence as InsightConfidence,
+    sessionId: row.session_id,
+    supportingData: row.supporting_data ? JSON.parse(row.supporting_data) : null,
+    timesReferenced: row.times_referenced,
+    lastReferencedAt: row.last_referenced_at,
+    stillValid: row.still_valid === 1,
+  }));
+}
+
+/**
+ * Mark insight as referenced (tracks usage)
+ */
+export function referenceInsight(insightId: number): void {
+  const stmt = db.prepare(`
+    UPDATE grind_insights
+    SET times_referenced = times_referenced + 1, last_referenced_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(insightId);
+}
+
+/**
+ * Update insight confidence level
+ */
+export function updateInsightConfidence(insightId: number, confidence: InsightConfidence): void {
+  const stmt = db.prepare(`UPDATE grind_insights SET confidence = ? WHERE id = ?`);
+  stmt.run(confidence, insightId);
+}
+
+/**
+ * Invalidate an insight (mark as no longer valid)
+ */
+export function invalidateInsight(insightId: number): void {
+  const stmt = db.prepare(`UPDATE grind_insights SET still_valid = 0 WHERE id = ?`);
+  stmt.run(insightId);
+}
+
+/**
+ * Get insight count by confidence level
+ */
+export function getInsightStats(): { total: number; hypothesis: number; tested: number; proven: number } {
+  const stmt = db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN confidence = 'hypothesis' THEN 1 ELSE 0 END) as hypothesis,
+      SUM(CASE WHEN confidence = 'tested' THEN 1 ELSE 0 END) as tested,
+      SUM(CASE WHEN confidence = 'proven' THEN 1 ELSE 0 END) as proven
+    FROM grind_insights
+    WHERE still_valid = 1
+  `);
+  const row = stmt.get() as { total: number; hypothesis: number; tested: number; proven: number };
+  return row;
 }

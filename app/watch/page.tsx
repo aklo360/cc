@@ -4,11 +4,59 @@ import { Suspense, useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+// ============ 90s CHATROOM AESTHETICS ============
+
+const ASCII_BRAIN = `
+   ╔══════════════════════════════════════╗
+   ║  ▄▄▄▄    ██▀███   ▄▄▄       ██▓ ███▄    █  ║
+   ║ ▓█████▄ ▓██ ▒ ██▒▒████▄    ▓██▒ ██ ▀█   █  ║
+   ║ ▒██▒ ▄██▓██ ░▄█ ▒▒██  ▀█▄  ▒██▒▓██  ▀█ ██▒ ║
+   ║ ▒██░█▀  ▒██▀▀█▄  ░██▄▄▄▄██ ░██░▓██▒  ▐▌██▒ ║
+   ║ ░▓█  ▀█▓░██▓ ▒██▒ ▓█   ▓██▒░██░▒██░   ▓██░ ║
+   ╚══════════════════════════════════════╝`;
+
+const ASCII_THINKING = `
+  ┌─────────────────────────────────┐
+  │  (◉_◉) THINKING SESSION ACTIVE  │
+  └─────────────────────────────────┘`;
+
+const ASCII_INSIGHT = `
+  ★═══════════════════════════════★
+  ║   ✧ INSIGHT DISCOVERED ✧      ║
+  ★═══════════════════════════════★`;
+
+const ASCII_DIVIDERS = [
+  '═══════════════════════════════════════',
+  '▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄',
+  '░▒▓█ ░▒▓█ ░▒▓█ ░▒▓█ ░▒▓█ ░▒▓█ ░▒▓█',
+  '·•●•·•●•·•●•·•●•·•●•·•●•·•●•·•●•·•●•·',
+  '╔═╗╔═╗╔═╗╔═╗╔═╗╔═╗╔═╗╔═╗╔═╗╔═╗╔═╗╔═╗',
+];
+
+const RETRO_EMOJIS = ['◈', '◆', '★', '●', '◉', '▶', '◀', '♦', '♠', '✦', '✧', '⚡'];
+
+// Animated GIF URLs (90s style)
+const RETRO_GIFS = {
+  thinking: 'https://media.giphy.com/media/3o7btPCcdNniyf0ArS/giphy.gif', // brain
+  fire: 'https://media.giphy.com/media/l0HlNQ03J5JxX6OW4/giphy.gif', // fire
+  star: 'https://media.giphy.com/media/26BROrSHlmyzzHf3i/giphy.gif', // sparkle
+  computer: 'https://media.giphy.com/media/13HgwGsXF0aiGY/giphy.gif', // retro computer
+};
+
 interface LogEntry {
   timestamp: number;
   message: string;
-  activityType?: 'build' | 'meme' | 'system';
+  activityType?: 'build' | 'meme' | 'system' | 'grind' | 'token';
 }
+
+type GrindActivity =
+  | 'researching'
+  | 'strategizing'
+  | 'monitoring'
+  | 'scouting'
+  | 'planning'
+  | 'analyzing'
+  | 'reflecting';
 
 interface CycleStatus {
   brain: string;
@@ -27,6 +75,24 @@ interface CycleStatus {
       posted: boolean;
     }>;
   } | null;
+  grind?: {
+    active: boolean;
+    currentActivity: GrindActivity;
+    lastThought: string | null;
+    lastThoughtAt: string | null;
+    // v2 reasoning session info
+    session?: {
+      active: boolean;
+      problem: string | null;
+      thoughtCount: number;
+      nextThoughtIn: number | null;
+    };
+    insights?: {
+      total: number;
+      proven: number;
+    };
+    isResting?: boolean;
+  };
   cooldown?: {
     next_allowed_in_ms: number;
     next_allowed_at: string | null;
@@ -67,17 +133,25 @@ interface FeaturesData {
 }
 
 interface ScheduledTweet {
-  id?: number;
+  id: number;
+  type: 'meme' | 'ai_insight' | 'feature' | 'video';
   content: string;
+  has_image: boolean;
+  has_video: boolean;
   scheduled_for: string;
-  posted: boolean;
-  source: 'brain-video' | 'brain-cycle';
+  quality_score: number | null;
 }
 
 interface ScheduledTweetsData {
-  video_tweets: ScheduledTweet[];
-  cycle_tweets: ScheduledTweet[];
-  total_pending: number;
+  queue_size: number;
+  pending: ScheduledTweet[];
+  recent: Array<{
+    id: number;
+    type: string;
+    content: string;
+    twitter_id: string | null;
+    posted_at: string;
+  }>;
 }
 
 // Brain server URL - production uses brain.claudecode.wtf
@@ -227,12 +301,14 @@ function WatchPageContent() {
             message: l.message,
             activityType: (l.activityType || 'system') as 'build' | 'meme' | 'system',
           }));
-          // Only set if we don't have logs yet (initial load)
+          // FIXED: Always merge historical logs, don't skip if WS already connected
+          // This ensures fresh visitors see trade logs even if WS connected first
           setLogs(prev => {
-            if (prev.length === 0 || (prev.length === 1 && prev[0].message.includes('Connected'))) {
-              return historicalLogs;
-            }
-            return prev;
+            const existingTimestamps = new Set(prev.map(l => l.timestamp));
+            const newLogs = historicalLogs.filter(l => !existingTimestamps.has(l.timestamp));
+            if (newLogs.length === 0) return prev;
+            // Merge and sort by timestamp (oldest first for chronological display)
+            return [...newLogs, ...prev].sort((a, b) => a.timestamp - b.timestamp);
           });
         }
       }
@@ -407,6 +483,36 @@ function WatchPageContent() {
                     <div className="text-claude-orange font-bold text-sm truncate">{status.cycle.project}</div>
                     <div className="text-xs text-text-secondary">/{status.cycle.slug}</div>
                   </div>
+                ) : status?.grind?.active ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      {status.grind.isResting ? (
+                        <span className="px-2 py-0.5 text-xs rounded bg-amber-500/20 text-amber-400">RESTING</span>
+                      ) : (
+                        <span className="px-2 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400">THINKING</span>
+                      )}
+                    </div>
+                    {status.grind.session?.active && status.grind.session.problem ? (
+                      <>
+                        <div className="text-purple-400 text-sm truncate">"{status.grind.session.problem}"</div>
+                        <div className="text-xs text-text-muted">
+                          Thought {status.grind.session.thoughtCount}/~12
+                          {status.grind.insights && status.grind.insights.total > 0 && (
+                            <span className="ml-2 text-purple-400/70">• {status.grind.insights.total} insights</span>
+                          )}
+                        </div>
+                      </>
+                    ) : status.grind.isResting ? (
+                      <div className="text-text-secondary text-sm">Processing insights...</div>
+                    ) : (
+                      <div className="text-text-secondary text-sm">Starting session...</div>
+                    )}
+                    {stats && stats.next_allowed_in_hours > 0 && (
+                      <div className="text-xs text-text-muted">
+                        Next build in {stats.next_allowed_in_hours.toFixed(1)}h
+                      </div>
+                    )}
+                  </div>
                 ) : status?.mode === 'resting' ? (
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -459,34 +565,27 @@ function WatchPageContent() {
             )}
           </div>
 
-          {/* All Scheduled Tweets - Combined (max 2 shown) */}
+          {/* All Scheduled Tweets - Unified Queue (max 2 shown) */}
           <div className="bg-bg-secondary border border-border rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm text-text-secondary">UPCOMING TWEETS</h2>
-              {scheduledTweets && scheduledTweets.total_pending > 0 && (
-                <span className="text-xs text-claude-orange">{scheduledTweets.total_pending} pending</span>
+              {scheduledTweets && scheduledTweets.queue_size > 0 && (
+                <span className="text-xs text-claude-orange">{scheduledTweets.queue_size} queued</span>
               )}
             </div>
             <div className="space-y-2">
               {(() => {
                 if (!scheduledTweets) return <div className="text-text-muted text-sm">Loading...</div>;
 
-                // Combine all tweets, filter unposted, sort by date, take first 2
-                const allTweets = [
-                  ...scheduledTweets.video_tweets.map(t => ({ ...t, type: 'video' as const })),
-                  ...scheduledTweets.cycle_tweets.map(t => ({ ...t, type: 'cycle' as const })),
-                ]
-                  .filter(t => !t.posted)
-                  .sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime())
-                  .slice(0, 2);
+                const tweets = scheduledTweets.pending.slice(0, 2);
 
-                if (allTweets.length === 0) {
+                if (tweets.length === 0) {
                   return <div className="text-text-muted text-sm">No scheduled tweets</div>;
                 }
 
-                return allTweets.map((tweet, i) => (
+                return tweets.map((tweet) => (
                   <div
-                    key={`tweet-${i}`}
+                    key={`tweet-${tweet.id}`}
                     className="text-xs p-2 rounded bg-bg-tertiary border border-border"
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -494,14 +593,24 @@ function WatchPageContent() {
                         {new Date(tweet.scheduled_for).toLocaleString()}
                       </span>
                       <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                        tweet.type === 'video'
+                        tweet.type === 'meme'
                           ? 'bg-fuchsia-500/20 text-fuchsia-400'
-                          : 'bg-cyan-500/20 text-cyan-400'
+                          : tweet.type === 'ai_insight'
+                            ? 'bg-cyan-500/20 text-cyan-400'
+                            : tweet.type === 'video'
+                              ? 'bg-amber-500/20 text-amber-400'
+                              : 'bg-green-500/20 text-green-400'
                       }`}>
-                        {tweet.type === 'video' ? 'VIDEO' : 'CYCLE'}
+                        {tweet.type === 'meme' ? 'MEME' :
+                         tweet.type === 'ai_insight' ? 'INSIGHT' :
+                         tweet.type === 'video' ? 'VIDEO' : 'FEATURE'}
+                        {tweet.has_image && ' 📷'}
                       </span>
                     </div>
                     <div className="text-text-primary line-clamp-2">{tweet.content}</div>
+                    {tweet.quality_score && (
+                      <div className="text-text-muted text-[10px] mt-1">Quality: {tweet.quality_score}/10</div>
+                    )}
                   </div>
                 ));
               })()}
@@ -530,24 +639,33 @@ function WatchPageContent() {
           </div>
         </div>
 
-        {/* Log Panel */}
+        {/* Log Panel - 90s Chatroom Style */}
         <div className="lg:col-span-2 flex flex-col min-h-0">
-          <div className="bg-bg-primary border border-border rounded-lg flex-1 flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-border">
-              <h2 className="text-sm text-text-secondary">BUILD LOGS</h2>
-              <button
-                onClick={() => {
-                  setLogs([]);
-                  // Also clear cache
-                  if (typeof window !== 'undefined') {
-                    localStorage.removeItem(LOGS_CACHE_KEY);
-                    localStorage.removeItem(LOGS_CACHE_DATE_KEY);
-                  }
-                }}
-                className="text-xs text-text-muted hover:text-text-secondary transition"
-              >
-                Clear
-              </button>
+          <div className="bg-black border-2 border-claude-orange/50 rounded-lg flex-1 flex flex-col overflow-hidden shadow-[0_0_20px_rgba(247,147,30,0.15)]">
+            <div className="flex items-center justify-between px-4 py-2 border-b-2 border-claude-orange/30 bg-gradient-to-r from-orange-900/20 via-black to-orange-900/20">
+              <div className="flex items-center gap-2">
+                <span className="text-claude-orange animate-pulse">◉</span>
+                <h2 className="text-sm text-claude-orange font-mono tracking-wider">dev logs</h2>
+                <span className="text-claude-orange animate-pulse">◉</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-orange-400/70 font-mono">
+                  {logs.length} msgs
+                </span>
+                <button
+                  onClick={() => {
+                    setLogs([]);
+                    // Also clear cache
+                    if (typeof window !== 'undefined') {
+                      localStorage.removeItem(LOGS_CACHE_KEY);
+                      localStorage.removeItem(LOGS_CACHE_DATE_KEY);
+                    }
+                  }}
+                  className="text-xs text-orange-600 hover:text-claude-orange transition font-mono"
+                >
+                  [CLEAR]
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1">
               {error && (
@@ -569,8 +687,26 @@ function WatchPageContent() {
               {logs.map((log, i) => {
                 const isClaudeAgent = log.message.includes('[CLAUDE_AGENT');
                 const isMemeActivity = log.activityType === 'meme' || log.message.startsWith('🎨');
+                const isTokenActivity = log.activityType === 'token' || log.message.startsWith('💚') || log.message.startsWith('🔻');
+                const isGrindActivity = log.activityType === 'grind' || log.message.match(/^\[(RESEARCHING|STRATEGIZING|MONITORING|SCOUTING|PLANNING|ANALYZING|REFLECTING)\]/);
                 let activityEmoji = '🔧';
                 let displayMessage = log.message;
+
+                // Check for special session messages
+                const isSessionStart = log.message.includes('thinking:') || log.message.includes('starting a new thinking session');
+                const isInsight = log.message.startsWith('insight:') || log.message.includes('insight:');
+                const isSessionEnd = log.message.includes('taking a break') || log.message.includes('good session');
+                const isReasoningThought = isGrindActivity && !isSessionStart && !isInsight && !isSessionEnd;
+
+                // Parse grind activity
+                let grindType: string | null = null;
+                if (isGrindActivity) {
+                  const match = log.message.match(/^\[([A-Z]+)\]\s*/);
+                  if (match) {
+                    grindType = match[1].toLowerCase();
+                    displayMessage = log.message.replace(match[0], '');
+                  }
+                }
 
                 if (isClaudeAgent) {
                   if (log.message.includes('[CLAUDE_AGENT:PLANNING]')) {
@@ -587,11 +723,81 @@ function WatchPageContent() {
                   }
                 }
 
+                // 90s style retro emoji based on index
+                const retroEmoji = RETRO_EMOJIS[i % RETRO_EMOJIS.length];
+
+                // Grind activity color mapping (warm colors: yellow/red/orange/white)
+                const grindColors: Record<string, string> = {
+                  researching: 'text-amber-400',
+                  strategizing: 'text-orange-400',
+                  monitoring: 'text-yellow-300',
+                  scouting: 'text-red-400',
+                  planning: 'text-yellow-400',
+                  analyzing: 'text-orange-300',
+                  reflecting: 'text-white',
+                };
+
+                // Special ASCII art banners for session events
+                if (isSessionStart) {
+                  return (
+                    <div key={i} className="my-4">
+                      <pre className="text-claude-orange text-[10px] leading-tight font-mono">{ASCII_THINKING}</pre>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-text-muted shrink-0">{formatTime(log.timestamp)}</span>
+                        <span className="text-orange-300 font-bold animate-pulse">{retroEmoji} {displayMessage}</span>
+                      </div>
+                      <div className="text-orange-600 text-xs mt-1">{ASCII_DIVIDERS[0]}</div>
+                    </div>
+                  );
+                }
+
+                if (isInsight) {
+                  return (
+                    <div key={i} className="my-4">
+                      <pre className="text-yellow-400 text-[10px] leading-tight font-mono">{ASCII_INSIGHT}</pre>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-text-muted shrink-0">{formatTime(log.timestamp)}</span>
+                        <span className="text-yellow-300 font-bold">★ {displayMessage}</span>
+                      </div>
+                      <div className="text-yellow-600 text-xs mt-1">{ASCII_DIVIDERS[3]}</div>
+                    </div>
+                  );
+                }
+
+                if (isSessionEnd) {
+                  return (
+                    <div key={i} className="my-3">
+                      <div className="text-orange-700 text-xs">{ASCII_DIVIDERS[1]}</div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-text-muted shrink-0">{formatTime(log.timestamp)}</span>
+                        <span className="text-orange-400 italic">◈ {displayMessage} ◈</span>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
-                  <div key={i} className="flex gap-3 text-sm items-center">
+                  <div key={i} className="flex gap-3 text-sm items-start">
                     <span className="text-text-muted shrink-0">{formatTime(log.timestamp)}</span>
-                    {isMemeActivity ? (
-                      <span className="text-fuchsia-400 flex items-center gap-1.5">
+                    {isReasoningThought ? (
+                      <span className={`${grindColors[grindType || 'reflecting'] || 'text-white'} flex items-start gap-1.5`}>
+                        <span className="opacity-70 shrink-0">{retroEmoji}</span>
+                        <span className="italic">{displayMessage}</span>
+                      </span>
+                    ) : isGrindActivity && grindType ? (
+                      <span className={`${grindColors[grindType] || 'text-text-secondary'} flex items-center gap-1.5 italic`}>
+                        <span className="opacity-60 text-xs">[{grindType}]</span>
+                        <span>{displayMessage}</span>
+                      </span>
+                    ) : isTokenActivity ? (
+                      <span className={`flex items-center gap-1.5 ${
+                        log.message.startsWith('💚') ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        <span className="text-xs opacity-70">[trade]</span>
+                        <span>{displayMessage}</span>
+                      </span>
+                    ) : isMemeActivity ? (
+                      <span className="text-orange-400 flex items-center gap-1.5">
                         <img src="/cc.png" alt="" className="w-4 h-4 inline-block opacity-80" />
                         <span>{displayMessage}</span>
                       </span>

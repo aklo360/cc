@@ -44,7 +44,7 @@ import {
 // Game configuration
 const GAME_CONFIG = {
   minBet: 1,
-  maxBet: 1_000_000, // 1M $CC max bet
+  maxBet: 100_000, // 100K $CC max bet (200K max payout / 1.96 multiplier)
   platformFeeSol: 0.0005, // ~$0.05 USD platform fee (funds buyback & burn)
   houseEdgePercent: 2,
   multiplier: 1.96, // 2x minus 2% house edge
@@ -416,28 +416,30 @@ function CoinFlipGame({ networkConfig }: { networkConfig: NetworkConfig }) {
     <div className="min-h-screen w-full flex items-center justify-center py-4 sm:py-8 px-[5%]">
       <div className="max-w-[500px] w-[90%]">
         {/* Header */}
-        <header className="flex items-center gap-3 py-3 mb-6">
-          <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
-            <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
-            <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
-            <div className="w-3 h-3 rounded-full bg-[#28c840]" />
-          </Link>
-          <Link href="/" className="hover:opacity-80 transition-opacity">
-            <img src="/cc.png" alt="$CC" width={24} height={24} />
-          </Link>
-          <span className="text-claude-orange font-semibold text-sm">
-            CC Flip
-          </span>
-          {/* Network Badge - only show on devnet */}
-          {!networkConfig.isMainnet && (
-            <span className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase">
-              Devnet
+        <header className="flex items-center justify-between py-3 mb-6">
+          {/* Left side */}
+          <div className="flex items-center gap-3">
+            <Link href="/" className="flex gap-2 hover:opacity-80 transition-opacity">
+              <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+              <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+              <div className="w-3 h-3 rounded-full bg-[#28c840]" />
+            </Link>
+            <Link href="/" className="hover:opacity-80 transition-opacity">
+              <img src="/cc.png" alt="$CC" width={24} height={24} />
+            </Link>
+            <span className="text-claude-orange font-semibold text-sm">
+              CC Flip
             </span>
-          )}
-          <div className="ml-auto flex items-center gap-2">
+            {/* Network Badge - only show on devnet */}
+            {!networkConfig.isMainnet && (
+              <span className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase">
+                Devnet
+              </span>
+            )}
             <DevnetFaucetButton show={!networkConfig.isMainnet} />
-            <ConnectWallet showBalance />
           </div>
+          {/* Right side */}
+          <ConnectWallet showBalance />
         </header>
 
         {/* Devnet Notice - Only show on devnet */}

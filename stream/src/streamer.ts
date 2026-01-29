@@ -1,15 +1,27 @@
 /**
- * Stream orchestrator
- * Connects CDP capture to FFmpeg pipeline with auto-restart on failure
- * Director switches between /watch and /vj based on brain state
+ * Stream orchestrator for Native Mac Mini - ROBUST 24/7 VERSION
+ *
+ * Architecture:
+ * - CDP capture: Chrome's native screencast API with Metal GPU
+ * - FFmpeg: VideoToolbox hardware H.264 encoding
+ * - Audio: YouTube lofi stream with auto-refresh + local fallback
+ * - Director: Switches between /watch and /vj on schedule
+ * - RTMP: Streams to Twitter/Kick/YouTube
+ *
+ * Failsafes:
+ * - YouTube URL auto-refresh every 3.5 hours (before 6hr expiry)
+ * - Automatic fallback to local audio on YouTube failures
+ * - Aggressive health monitoring with auto-recovery
+ * - CDP page auto-refresh every 2 minutes
+ * - Auto-restart on any component failure
  */
 
 import { EventEmitter } from 'events';
-import { CdpCapture, CaptureConfig, CaptureMode } from './cdp-capture.js';
-import { FfmpegPipeline, PipelineConfig, PipelineMode } from './ffmpeg-pipeline.js';
+import { CdpCapture, CaptureConfig } from './cdp-capture.js';
+import { FfmpegPipeline, PipelineConfig } from './ffmpeg-pipeline.js';
 import { loadDestinations, getDestinationNames, DestinationConfig } from './destinations.js';
 import { Director } from './director.js';
-import { getYouTubeAudioUrl } from './youtube-audio.js';
+import { getYouTubeAudioUrl, isUrlExpiringSoon, clearCache as clearYouTubeCache, getUrlTtl } from './youtube-audio.js';
 
 export type StreamerState = 'stopped' | 'starting' | 'streaming' | 'restarting' | 'error';
 
@@ -25,7 +37,13 @@ export interface StreamerConfig {
   jpegQuality: number;
   maxRestarts: number;
   restartDelayMs: number;
-  captureMode?: CaptureMode; // 'display' (default) or 'window' for window-specific capture
+}
+
+export interface ScheduleInfo {
+  currentPhase: 'build' | 'break';
+  minutesIntoPhase: number;
+  minutesRemaining: number;
+  nextSwitch: string;
 }
 
 export interface StreamerStats {
@@ -36,8 +54,9 @@ export interface StreamerStats {
   destinations: string[];
   lastError: string | null;
   currentScene: 'watch' | 'vj';
-  captureMode: CaptureMode;
-  windowId: number | null;
+  schedule: ScheduleInfo | null;
+  audioSource: 'youtube' | 'fallback';
+  youtubeUrlTtl: number;
 }
 
 export class Streamer extends EventEmitter {
@@ -55,8 +74,20 @@ export class Streamer extends EventEmitter {
   private isHotSwapping: boolean = false;
   private restartResetTimer: NodeJS.Timeout | null = null;
   private streamHealthInterval: NodeJS.Timeout | null = null;
-  private static readonly RESTART_RESET_AFTER_MS = 5 * 60 * 1000; // Reset counter after 5 min stable
-  private static readonly STREAM_HEALTH_CHECK_MS = 3 * 60 * 1000; // Check stream health every 3 minutes
+  private audioRefreshInterval: NodeJS.Timeout | null = null;
+  private watchdogInterval: NodeJS.Timeout | null = null;
+  private usingFallbackAudio: boolean = false;
+  private lastFrameTime: number = 0;
+  private consecutiveEmptyPages: number = 0;
+
+  // Timing constants
+  private static readonly RESTART_RESET_AFTER_MS = 5 * 60 * 1000; // Reset restart counter after 5 min stable
+  private static readonly STREAM_HEALTH_CHECK_MS = 3 * 60 * 1000; // Health check every 3 min
+  private static readonly AUDIO_REFRESH_CHECK_MS = 30 * 60 * 1000; // Check YouTube URL every 30 min
+  private static readonly AUDIO_REFRESH_THRESHOLD_MS = 60 * 60 * 1000; // Refresh if <1hr remaining
+  private static readonly WATCHDOG_INTERVAL_MS = 30 * 1000; // Watchdog every 30 sec
+  private static readonly WATCHDOG_FRAME_TIMEOUT_MS = 60 * 1000; // Restart if no frames for 60 sec
+  private static readonly MAX_EMPTY_PAGE_CHECKS = 5; // Restart after 5 consecutive empty checks
 
   constructor(config: StreamerConfig) {
     super();
@@ -69,10 +100,11 @@ export class Streamer extends EventEmitter {
     }
 
     this.isShuttingDown = false;
+    this.consecutiveEmptyPages = 0;
     this.setState('starting');
 
     try {
-      // Load destinations
+      // Load RTMP destinations
       this.destinationConfig = loadDestinations();
       const destNames = getDestinationNames(this.destinationConfig);
 
@@ -80,27 +112,10 @@ export class Streamer extends EventEmitter {
         throw new Error('No RTMP destinations configured. Set RTMP_*_KEY env vars.');
       }
 
-      // Determine capture mode: 'window' for macOS (Space-switch safe), 'display' for Linux
-      const captureMode: CaptureMode = this.config.captureMode ||
-        (process.platform === 'darwin' ? 'window' : 'display');
-
       console.log(`[streamer] Starting stream to: ${destNames.join(', ')}`);
-      console.log(`[streamer] Capture mode: ${captureMode}`);
 
-      // Try YouTube lofi stream first, fall back to local file
-      let audioUrl: string | null = null;
-      try {
-        audioUrl = await getYouTubeAudioUrl();
-        if (audioUrl) {
-          console.log('[streamer] Using YouTube lofi stream audio');
-        }
-      } catch (error) {
-        console.error('[streamer] YouTube audio fetch failed:', (error as Error).message);
-      }
-
-      if (!audioUrl) {
-        console.log('[streamer] Falling back to local lofi audio file');
-      }
+      // Get audio source (YouTube or fallback)
+      const audioUrl = await this.getAudioSource();
 
       // Create FFmpeg pipeline
       const pipelineConfig: PipelineConfig = {
@@ -110,13 +125,12 @@ export class Streamer extends EventEmitter {
         bitrate: this.config.bitrate,
         audioUrl: audioUrl,
         teeOutput: this.destinationConfig.teeOutput,
-        mode: captureMode, // Pass capture mode to pipeline
       };
 
       this.ffmpegPipeline = new FfmpegPipeline(pipelineConfig, {
         onError: (error) => this.handleError('ffmpeg', error),
         onExit: (code) => this.handleExit('ffmpeg', code),
-        onStderr: () => {}, // Logged internally
+        onStderr: () => {},
       });
 
       // Start FFmpeg first
@@ -129,7 +143,6 @@ export class Streamer extends EventEmitter {
         height: this.config.height,
         fps: this.config.fps,
         quality: this.config.jpegQuality,
-        mode: captureMode, // Pass capture mode to CDP
       };
 
       this.cdpCapture = new CdpCapture(captureConfig, {
@@ -141,26 +154,24 @@ export class Streamer extends EventEmitter {
       // Start capture
       await this.cdpCapture.start();
 
-      // Director: switches between /watch and /vj based on brain state
-      // Enabled on macOS (GPU/WebGL works), disabled on Linux Docker
-      const isMacOS = process.platform === 'darwin';
+      // Start Director for scene switching
       const page = this.cdpCapture.getPage();
-      if (page && isMacOS) {
-        console.log('[streamer] Starting Director (macOS GPU mode)');
+      if (page) {
+        console.log('[streamer] Starting Director');
         this.director = new Director({
           brainUrl: this.config.brainUrl,
           watchUrl: this.config.watchUrl,
           vjUrl: this.config.vjUrl,
-          pollInterval: 30000, // Check brain status every 30 seconds
+          pollInterval: 30000,
         });
         this.director.start(page);
-      } else if (page) {
-        console.log('[streamer] Director disabled (Linux/Docker mode - no GPU)');
       }
 
       this.startTime = Date.now();
+      this.lastFrameTime = Date.now();
       this.setState('streaming');
       console.log('[streamer] Stream is live!');
+      console.log(`[streamer] Audio source: ${this.usingFallbackAudio ? 'LOCAL FALLBACK' : 'YouTube lofi'}`);
 
       // Reset restart counter after stable streaming for 5 minutes
       this.restartResetTimer = setTimeout(() => {
@@ -170,8 +181,10 @@ export class Streamer extends EventEmitter {
         }
       }, Streamer.RESTART_RESET_AFTER_MS);
 
-      // Start comprehensive stream health monitoring (every 3 minutes)
+      // Start all monitoring
       this.startStreamHealthCheck();
+      this.startAudioRefreshCheck();
+      this.startWatchdog();
 
     } catch (error) {
       this.lastError = (error as Error).message;
@@ -180,19 +193,40 @@ export class Streamer extends EventEmitter {
     }
   }
 
+  /**
+   * Get audio source - try YouTube first, fallback to local
+   */
+  private async getAudioSource(): Promise<string | null> {
+    try {
+      const audioUrl = await getYouTubeAudioUrl();
+      if (audioUrl) {
+        console.log('[streamer] Using YouTube lofi stream audio');
+        this.usingFallbackAudio = false;
+        return audioUrl;
+      }
+    } catch (error) {
+      console.error('[streamer] YouTube audio fetch failed:', (error as Error).message);
+    }
+
+    console.log('[streamer] Using local lofi fallback audio');
+    this.usingFallbackAudio = true;
+    return null; // FFmpeg pipeline will use local file
+  }
+
   async stop(): Promise<void> {
     console.log('[streamer] Stopping stream...');
     this.isShuttingDown = true;
     this.setState('stopped');
 
-    // Clear restart reset timer
+    // Clear all timers
     if (this.restartResetTimer) {
       clearTimeout(this.restartResetTimer);
       this.restartResetTimer = null;
     }
 
-    // Clear stream health check interval
     this.stopStreamHealthCheck();
+    this.stopAudioRefreshCheck();
+    this.stopWatchdog();
 
     if (this.director) {
       this.director.stop();
@@ -215,6 +249,7 @@ export class Streamer extends EventEmitter {
   private handleFrame(buffer: Buffer): void {
     if (this.ffmpegPipeline?.isActive()) {
       this.ffmpegPipeline.writeFrame(buffer);
+      this.lastFrameTime = Date.now();
     }
   }
 
@@ -222,8 +257,23 @@ export class Streamer extends EventEmitter {
     console.error(`[streamer] Error from ${source}:`, error.message);
     this.lastError = `${source}: ${error.message}`;
 
+    // Special handling for audio-related errors
+    if (source === 'ffmpeg' && error.message.includes('audio')) {
+      console.log('[streamer] Audio error detected, will use fallback on restart');
+      clearYouTubeCache();
+    }
+
     if (!this.isShuttingDown) {
-      this.attemptRestart();
+      // For CDP errors, try hot-swap first (keeps RTMP alive)
+      if (source === 'cdp' && this.state === 'streaming' && !this.isHotSwapping) {
+        console.log('[streamer] CDP error - attempting hot-swap (RTMP stays connected)');
+        this.restartCapture().catch((err) => {
+          console.error('[streamer] Hot-swap failed, doing full restart:', err.message);
+          this.attemptRestart();
+        });
+      } else {
+        this.attemptRestart();
+      }
     }
   }
 
@@ -239,7 +289,6 @@ export class Streamer extends EventEmitter {
   private handleDisconnect(source: string): void {
     console.log(`[streamer] ${source} disconnected`);
 
-    // Don't auto-restart during hot-swap or shutdown
     if (!this.isShuttingDown && !this.isHotSwapping && this.state === 'streaming') {
       this.lastError = `${source} disconnected`;
       this.attemptRestart();
@@ -247,19 +296,22 @@ export class Streamer extends EventEmitter {
   }
 
   private async attemptRestart(): Promise<void> {
-    // Never give up permanently - reset counter and use longer delay after max restarts
+    if (this.isShuttingDown) return;
+
     if (this.restartCount >= this.config.maxRestarts) {
-      console.log(`[streamer] Max restarts (${this.config.maxRestarts}) reached. Waiting 60s before resetting counter and trying again...`);
+      console.log(`[streamer] Max restarts (${this.config.maxRestarts}) reached. Waiting 60s before reset...`);
       this.emit('maxRestartsReached');
-      await new Promise((resolve) => setTimeout(resolve, 60000)); // Wait 60 seconds
-      this.restartCount = 0; // Reset counter
+      await new Promise((resolve) => setTimeout(resolve, 60000));
+      this.restartCount = 0;
+      // Clear YouTube cache to force fresh URL fetch
+      clearYouTubeCache();
     }
 
     this.restartCount++;
     console.log(`[streamer] Attempting restart ${this.restartCount}/${this.config.maxRestarts}...`);
     this.setState('restarting');
 
-    // Clean up existing resources
+    // Cleanup
     if (this.director) {
       this.director.stop();
       this.director = null;
@@ -273,29 +325,24 @@ export class Streamer extends EventEmitter {
       this.ffmpegPipeline = null;
     }
 
-    // Wait before restarting
     await new Promise((resolve) => setTimeout(resolve, this.config.restartDelayMs));
 
-    if (this.isShuttingDown) {
-      return;
-    }
+    if (this.isShuttingDown) return;
 
-    // Try to start again
     try {
       await this.start();
       this.emit('restarted', this.restartCount);
     } catch (error) {
       console.error('[streamer] Restart failed:', error);
+      // Recursive retry
       this.attemptRestart();
     }
   }
 
   /**
-   * Comprehensive stream health check - runs every 3 minutes
-   * Checks: FFmpeg frame progress, RTMP connection, CDP page health
+   * Stream health check - runs every 3 minutes
    */
   private startStreamHealthCheck(): void {
-    // Clear any existing interval
     if (this.streamHealthInterval) {
       clearInterval(this.streamHealthInterval);
     }
@@ -303,9 +350,7 @@ export class Streamer extends EventEmitter {
     console.log('[streamer] Starting stream health monitor (every 3 min)');
 
     this.streamHealthInterval = setInterval(async () => {
-      if (this.state !== 'streaming' || this.isShuttingDown) {
-        return;
-      }
+      if (this.state !== 'streaming' || this.isShuttingDown) return;
 
       try {
         await this.checkStreamHealth();
@@ -320,35 +365,108 @@ export class Streamer extends EventEmitter {
   private async checkStreamHealth(): Promise<void> {
     console.log('[streamer] Running 3-minute health check...');
 
-    // Check 1: FFmpeg frame progress
+    // Check FFmpeg
     if (this.ffmpegPipeline) {
       const frameCheck = this.ffmpegPipeline.checkFrameProgress();
       console.log(`[streamer] Frame check: +${frameCheck.framesSinceLastCheck} frames, ${frameCheck.secondsSinceLastFrame.toFixed(1)}s since last`);
 
       if (!frameCheck.healthy) {
-        throw new Error(`FFmpeg stalled: ${frameCheck.framesSinceLastCheck} frames in last 3 min, ${frameCheck.secondsSinceLastFrame.toFixed(1)}s since last frame`);
+        throw new Error(`FFmpeg stalled: ${frameCheck.framesSinceLastCheck} frames in last 3 min`);
       }
 
-      // Check RTMP connection status
       if (!this.ffmpegPipeline.isRtmpConnected()) {
-        console.warn('[streamer] RTMP connection status: disconnected (may be normal during startup)');
+        console.warn('[streamer] RTMP status: may be disconnected');
       }
     } else {
       throw new Error('FFmpeg pipeline not running');
     }
 
-    // Check 2: CDP/Chrome page health (already checked every 30s, but verify here too)
+    // Check CDP
     if (this.cdpCapture && !this.cdpCapture.isRunning()) {
       throw new Error('CDP capture not running');
     }
 
-    console.log('[streamer] Health check passed ✓');
+    console.log('[streamer] Health check passed');
   }
 
   private stopStreamHealthCheck(): void {
     if (this.streamHealthInterval) {
       clearInterval(this.streamHealthInterval);
       this.streamHealthInterval = null;
+    }
+  }
+
+  /**
+   * YouTube URL refresh check - runs every 30 minutes
+   * Triggers full restart with fresh URL if expiring soon
+   */
+  private startAudioRefreshCheck(): void {
+    if (this.audioRefreshInterval) {
+      clearInterval(this.audioRefreshInterval);
+    }
+
+    // Only start if using YouTube audio
+    if (this.usingFallbackAudio) {
+      console.log('[streamer] Using fallback audio, skipping YouTube refresh check');
+      return;
+    }
+
+    console.log('[streamer] Starting YouTube URL refresh check (every 30 min)');
+
+    this.audioRefreshInterval = setInterval(async () => {
+      if (this.state !== 'streaming' || this.isShuttingDown || this.usingFallbackAudio) return;
+
+      try {
+        if (isUrlExpiringSoon(Streamer.AUDIO_REFRESH_THRESHOLD_MS)) {
+          console.log('[streamer] YouTube URL expiring soon, triggering restart for fresh URL...');
+          // Clear cache to force fresh fetch
+          clearYouTubeCache();
+          this.lastError = 'Scheduled audio URL refresh';
+          this.attemptRestart();
+        } else {
+          console.log('[streamer] YouTube URL still valid');
+        }
+      } catch (error) {
+        console.error('[streamer] Audio refresh check error:', (error as Error).message);
+      }
+    }, Streamer.AUDIO_REFRESH_CHECK_MS);
+  }
+
+  private stopAudioRefreshCheck(): void {
+    if (this.audioRefreshInterval) {
+      clearInterval(this.audioRefreshInterval);
+      this.audioRefreshInterval = null;
+    }
+  }
+
+  /**
+   * Watchdog timer - catches stalls that other checks miss
+   * Runs every 30 seconds, restarts if no frames for 60 seconds
+   */
+  private startWatchdog(): void {
+    if (this.watchdogInterval) {
+      clearInterval(this.watchdogInterval);
+    }
+
+    console.log('[streamer] Starting watchdog (30s interval, 60s timeout)');
+
+    this.watchdogInterval = setInterval(() => {
+      if (this.state !== 'streaming' || this.isShuttingDown) return;
+
+      const timeSinceLastFrame = Date.now() - this.lastFrameTime;
+
+      if (timeSinceLastFrame > Streamer.WATCHDOG_FRAME_TIMEOUT_MS) {
+        console.error(`[streamer] WATCHDOG: No frames for ${Math.round(timeSinceLastFrame / 1000)}s, forcing restart!`);
+        this.lastError = `Watchdog timeout: no frames for ${Math.round(timeSinceLastFrame / 1000)}s`;
+        this.attemptRestart();
+      }
+    }, Streamer.WATCHDOG_INTERVAL_MS);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogInterval) {
+      clearInterval(this.watchdogInterval);
+      this.watchdogInterval = null;
     }
   }
 
@@ -361,10 +479,7 @@ export class Streamer extends EventEmitter {
   }
 
   getStats(): StreamerStats {
-    // Get frame count from either CDP (window mode) or FFmpeg (display mode)
-    const cdpFrameCount = this.cdpCapture?.getFrameCount() ?? -1;
-    const ffmpegFrameCount = this.ffmpegPipeline?.getFrameCount() ?? 0;
-    const frameCount = cdpFrameCount >= 0 ? cdpFrameCount : ffmpegFrameCount;
+    const frameCount = this.cdpCapture?.getFrameCount() ?? 0;
 
     return {
       state: this.state,
@@ -376,8 +491,9 @@ export class Streamer extends EventEmitter {
         : [],
       lastError: this.lastError,
       currentScene: this.director?.getScene() ?? 'watch',
-      captureMode: this.cdpCapture?.getMode() ?? 'display',
-      windowId: this.cdpCapture?.getWindowId() ?? null,
+      schedule: this.director?.getScheduleInfo() ?? null,
+      audioSource: this.usingFallbackAudio ? 'fallback' : 'youtube',
+      youtubeUrlTtl: getUrlTtl(),
     };
   }
 
@@ -385,64 +501,56 @@ export class Streamer extends EventEmitter {
     return this.state;
   }
 
-  /**
-   * Manually switch to a specific scene (watch or vj)
-   * This is a manual override - the director will continue polling
-   * but won't auto-switch until brain state changes
-   */
   async setScene(scene: 'watch' | 'vj'): Promise<void> {
     if (this.director) {
       await this.director.forceScene(scene);
     } else {
-      throw new Error('Director not available (only available on macOS)');
+      throw new Error('Director not available');
+    }
+  }
+
+  /**
+   * Refresh the page to pick up deployed changes
+   */
+  async refreshPage(): Promise<void> {
+    if (this.cdpCapture) {
+      await this.cdpCapture.refreshPage();
+    } else {
+      throw new Error('CDP capture not available');
     }
   }
 
   /**
    * Hot-swap CDP capture without dropping RTMP connection
-   * FFmpeg continues running and maintains the Twitter broadcast
-   * Only CDP (Chrome) is restarted with new capture mode
    */
   async restartCapture(): Promise<void> {
     if (this.state !== 'streaming') {
       throw new Error('Cannot restart capture: not streaming');
     }
 
-    // Prevent auto-restart during hot-swap
     this.isHotSwapping = true;
 
     try {
-      console.log('[streamer] Hot-swapping CDP capture (RTMP stays connected)...');
+      console.log('[streamer] Hot-swapping CDP capture...');
 
-      // Stop director (scene switching)
       if (this.director) {
         this.director.stop();
         this.director = null;
       }
 
-      // Stop only CDP capture (NOT FFmpeg - RTMP connection stays alive)
       if (this.cdpCapture) {
         await this.cdpCapture.stop();
         this.cdpCapture = null;
       }
 
-      // Brief pause for Chrome cleanup
       await new Promise(r => setTimeout(r, 1000));
 
-      // Determine capture mode (will now use 'window' on macOS)
-      const captureMode: CaptureMode = this.config.captureMode ||
-        (process.platform === 'darwin' ? 'window' : 'display');
-
-      console.log(`[streamer] New capture mode: ${captureMode}`);
-
-      // Create new CDP capture with updated mode
       const captureConfig: CaptureConfig = {
         url: this.config.watchUrl,
         width: this.config.width,
         height: this.config.height,
         fps: this.config.fps,
         quality: this.config.jpegQuality,
-        mode: captureMode,
       };
 
       this.cdpCapture = new CdpCapture(captureConfig, {
@@ -453,9 +561,8 @@ export class Streamer extends EventEmitter {
 
       await this.cdpCapture.start();
 
-      // Restart director on macOS
       const page = this.cdpCapture.getPage();
-      if (page && process.platform === 'darwin') {
+      if (page) {
         console.log('[streamer] Restarting Director');
         this.director = new Director({
           brainUrl: this.config.brainUrl,
@@ -466,8 +573,8 @@ export class Streamer extends EventEmitter {
         this.director.start(page);
       }
 
-      console.log('[streamer] Hot-swap complete! Capture mode:', captureMode);
-      console.log('[streamer] Window ID:', this.cdpCapture.getWindowId() ?? 'N/A');
+      this.lastFrameTime = Date.now();
+      console.log('[streamer] Hot-swap complete!');
     } finally {
       this.isHotSwapping = false;
     }

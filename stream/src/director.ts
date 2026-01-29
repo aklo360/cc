@@ -1,8 +1,11 @@
 /**
- * Stream Director - Orchestrates what the stream shows based on brain state
+ * Stream Director - Time-based scene scheduling
  *
- * - Active cycle: Show /watch page (build logs)
- * - Cooldown: Show /vj page (Three.js branded visuals)
+ * Schedule: 2 hours BUILD (/watch) → 1 hour BREAK (/vj) → repeat
+ *
+ * This creates a 3-hour cycle:
+ * - Hour 0-2: Build mode (showing /watch with build logs)
+ * - Hour 2-3: Break mode (showing /vj visuals)
  */
 
 import { Page } from 'puppeteer-core';
@@ -11,23 +14,15 @@ export interface DirectorConfig {
   brainUrl: string;
   watchUrl: string;
   vjUrl: string;
-  pollInterval: number; // ms between status checks
-}
-
-export interface BrainStatus {
-  brain: string;
-  mode: 'idle' | 'building' | 'resting';
-  cycle: {
-    id: number;
-    status: string;
-    project: string;
-  } | null;
-  memes?: {
-    in_progress: boolean;
-  };
+  pollInterval: number; // ms between time checks
 }
 
 type StreamScene = 'watch' | 'vj';
+
+// Schedule configuration (in minutes)
+const BUILD_DURATION_MINS = 120; // 2 hours
+const BREAK_DURATION_MINS = 60;  // 1 hour
+const CYCLE_DURATION_MINS = BUILD_DURATION_MINS + BREAK_DURATION_MINS; // 3 hours
 
 export class Director {
   private config: DirectorConfig;
@@ -35,22 +30,26 @@ export class Director {
   private currentScene: StreamScene = 'watch';
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private isNavigating = false;
+  private cycleStartTime: number;
 
   constructor(config: DirectorConfig) {
     this.config = config;
+    // Start cycle from current time
+    this.cycleStartTime = Date.now();
   }
 
   /**
-   * Start directing - attach to browser page and begin polling
+   * Start directing - attach to browser page and begin time-based scheduling
    */
   start(page: Page): void {
     this.page = page;
-    console.log('[director] Started - polling brain status');
+    console.log('[director] Started - time-based scheduling');
+    console.log(`[director] Schedule: ${BUILD_DURATION_MINS}min BUILD → ${BREAK_DURATION_MINS}min BREAK → repeat`);
 
     // Initial check
     this.checkAndSwitch();
 
-    // Poll periodically
+    // Check every minute
     this.pollTimer = setInterval(() => {
       this.checkAndSwitch();
     }, this.config.pollInterval);
@@ -76,63 +75,78 @@ export class Director {
   }
 
   /**
-   * Check brain status and switch scenes if needed
+   * Get schedule info for health endpoint
+   */
+  getScheduleInfo(): {
+    currentPhase: 'build' | 'break';
+    minutesIntoPhase: number;
+    minutesRemaining: number;
+    nextSwitch: string;
+  } {
+    const minutesIntoCycle = this.getMinutesIntoCycle();
+
+    if (minutesIntoCycle < BUILD_DURATION_MINS) {
+      // In BUILD phase
+      const minutesRemaining = BUILD_DURATION_MINS - minutesIntoCycle;
+      return {
+        currentPhase: 'build',
+        minutesIntoPhase: minutesIntoCycle,
+        minutesRemaining,
+        nextSwitch: `${minutesRemaining}min until break`,
+      };
+    } else {
+      // In BREAK phase
+      const minutesIntoBreak = minutesIntoCycle - BUILD_DURATION_MINS;
+      const minutesRemaining = BREAK_DURATION_MINS - minutesIntoBreak;
+      return {
+        currentPhase: 'break',
+        minutesIntoPhase: minutesIntoBreak,
+        minutesRemaining,
+        nextSwitch: `${minutesRemaining}min until build`,
+      };
+    }
+  }
+
+  /**
+   * Get minutes into current 3-hour cycle
+   */
+  private getMinutesIntoCycle(): number {
+    const elapsedMs = Date.now() - this.cycleStartTime;
+    const elapsedMins = Math.floor(elapsedMs / (60 * 1000));
+    return elapsedMins % CYCLE_DURATION_MINS;
+  }
+
+  /**
+   * Determine which scene based on time
+   *
+   * 0-120 min: BUILD (/watch)
+   * 120-180 min: BREAK (/vj)
+   */
+  private determineScene(): StreamScene {
+    const minutesIntoCycle = this.getMinutesIntoCycle();
+
+    if (minutesIntoCycle < BUILD_DURATION_MINS) {
+      return 'watch'; // BUILD phase (first 2 hours)
+    } else {
+      return 'vj'; // BREAK phase (third hour)
+    }
+  }
+
+  /**
+   * Check time and switch scenes if needed
    */
   private async checkAndSwitch(): Promise<void> {
     if (this.isNavigating || !this.page) return;
 
-    try {
-      const status = await this.fetchBrainStatus();
-      const targetScene = this.determineScene(status);
+    const targetScene = this.determineScene();
+    const scheduleInfo = this.getScheduleInfo();
 
-      if (targetScene !== this.currentScene) {
-        await this.switchScene(targetScene);
-      }
-    } catch (error) {
-      // Brain might be down - stay on current scene
-      console.error('[director] Failed to check brain status:', error);
+    // Log current phase every check
+    console.log(`[director] Phase: ${scheduleInfo.currentPhase.toUpperCase()} | ${scheduleInfo.nextSwitch}`);
+
+    if (targetScene !== this.currentScene) {
+      await this.switchScene(targetScene);
     }
-  }
-
-  /**
-   * Fetch brain status from API
-   */
-  private async fetchBrainStatus(): Promise<BrainStatus> {
-    const response = await fetch(`${this.config.brainUrl}/status`, {
-      signal: AbortSignal.timeout(5000),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Brain returned ${response.status}`);
-    }
-
-    return response.json();
-  }
-
-  /**
-   * Determine which scene to show based on brain status
-   *
-   * Show /watch when:
-   * - Brain is building (active cycle)
-   * - Brain is generating memes (in_progress)
-   *
-   * Show /vj when:
-   * - Brain is resting (cooldown, no active work)
-   * - Brain is idle
-   */
-  private determineScene(status: BrainStatus): StreamScene {
-    // Show /watch if actively building
-    if (status.mode === 'building') {
-      return 'watch';
-    }
-
-    // Show /watch if generating memes
-    if (status.memes?.in_progress) {
-      return 'watch';
-    }
-
-    // Otherwise show VJ (resting or idle)
-    return 'vj';
   }
 
   /**
@@ -149,8 +163,10 @@ export class Director {
         ? this.config.watchUrl
         : this.config.vjUrl;
 
-      console.log(`[director] Switching: ${previousScene} -> ${scene}`);
-      console.log(`[director] Navigating to: ${url}`);
+      console.log(`[director] ========================================`);
+      console.log(`[director] SWITCHING: ${previousScene.toUpperCase()} -> ${scene.toUpperCase()}`);
+      console.log(`[director] URL: ${url}`);
+      console.log(`[director] ========================================`);
 
       await this.page.goto(url, {
         waitUntil: 'networkidle2',
@@ -164,7 +180,7 @@ export class Director {
       });
 
       this.currentScene = scene;
-      console.log(`[director] Now showing: ${scene}`);
+      console.log(`[director] Now showing: ${scene.toUpperCase()}`);
     } catch (error) {
       console.error(`[director] Failed to switch to ${scene}:`, error);
     } finally {
@@ -176,6 +192,15 @@ export class Director {
    * Force switch to a specific scene (manual override)
    */
   async forceScene(scene: StreamScene): Promise<void> {
+    console.log(`[director] Manual override: forcing ${scene.toUpperCase()}`);
     await this.switchScene(scene);
+  }
+
+  /**
+   * Reset cycle timer (starts fresh 3-hour cycle)
+   */
+  resetCycle(): void {
+    this.cycleStartTime = Date.now();
+    console.log('[director] Cycle reset - starting fresh BUILD phase');
   }
 }

@@ -296,6 +296,142 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // Route: POST /swap/quote - Jupiter API with platform fees
+    // Platform fee: 1% (100 bps) - collected for buyback & burn
+    // Fee goes to Brain wallet ATA
+    if (url.pathname === '/swap/quote' && request.method === 'POST') {
+      try {
+        const body = await request.json() as {
+          inMint?: string;
+          outMint?: string;
+          amountIn?: string;
+          slippageBps?: number;
+          userPublicKey?: string;
+        };
+
+        // Platform fee configuration
+        // Brain wallet: HFss9LWnsmmLqxWHRfQJ7BHKBX8tSzuhw1Qny3QQAb4z
+        // Fee: 1% on ALL swaps (buys and sells)
+        // ATAs for Brain wallet:
+        //   wSOL: 2ULjXwpZgBeh5xaqUs51gcDmcorxRAxsHf8N2iiK7hwv
+        //   $CC:  7zCJPTxdzSPv1pzSThXxyMUQk8vxKyGuBSKpuvRMtEh4
+        const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+        const CC_MINT = 'Hg23qBLJDvhQtGLHMvot7NK54qAhzQFj9BVd5jpABAGS';
+        const FEE_ATA_WSOL = '2ULjXwpZgBeh5xaqUs51gcDmcorxRAxsHf8N2iiK7hwv';
+        const FEE_ATA_CC = '7zCJPTxdzSPv1pzSThXxyMUQk8vxKyGuBSKpuvRMtEh4';
+        const FEE_WALLET = 'HFss9LWnsmmLqxWHRfQJ7BHKBX8tSzuhw1Qny3QQAb4z';
+
+        // Determine fee account based on output token
+        // Fee is taken from OUTPUT token:
+        //   BUY (SOL → CC): fee in CC → FEE_ATA_CC
+        //   SELL (CC → SOL): fee in wSOL → FEE_ATA_WSOL
+        const isOutputSOL = body.outMint === WSOL_MINT;
+        const isOutputCC = body.outMint === CC_MINT;
+        const FEE_ATA = isOutputSOL ? FEE_ATA_WSOL : isOutputCC ? FEE_ATA_CC : null;
+        const PLATFORM_FEE_BPS = FEE_ATA ? 100 : 0; // 1% if we have a fee account
+
+        if (!body.inMint || !body.outMint || !body.amountIn) {
+          return jsonResponse({ error: 'inMint, outMint, and amountIn are required' }, 400);
+        }
+
+        // Step 1: Get quote from Jupiter with platform fee
+        // Using public.jupiterapi.com (free, hosted by QuickNode)
+        const quoteParams = new URLSearchParams({
+          inputMint: body.inMint,
+          outputMint: body.outMint,
+          amount: body.amountIn,
+          slippageBps: String(body.slippageBps || 100),
+          platformFeeBps: String(PLATFORM_FEE_BPS),
+        });
+
+        // Use Jupiter API with API key for better rate limits
+        const JUP_API_KEY = '62502902-5f9d-44ec-9955-4b9dfd24dcb0';
+        const quoteResponse = await fetch(
+          `https://api.jup.ag/swap/v1/quote?${quoteParams}`,
+          { headers: { 'Accept': 'application/json', 'x-api-key': JUP_API_KEY } }
+        );
+
+        if (!quoteResponse.ok) {
+          const text = await quoteResponse.text();
+          console.error('Jupiter quote error:', quoteResponse.status, text);
+          return jsonResponse({ error: `Quote failed: ${quoteResponse.status}`, details: text }, quoteResponse.status);
+        }
+
+        const quoteData = await quoteResponse.json() as {
+          inputMint: string;
+          outputMint: string;
+          inAmount: string;
+          outAmount: string;
+          priceImpactPct: string;
+          routePlan: Array<{ swapInfo: { label: string } }>;
+          contextSlot: number;
+          platformFee?: { amount: string; feeBps: number };
+        };
+
+        // Step 2: Get swap transaction from Jupiter (includes fee instruction)
+        // Note: feeAccount must be the ATA for the output token owned by FEE_WALLET
+        const swapResponse = await fetch('https://api.jup.ag/swap/v1/swap', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'x-api-key': JUP_API_KEY,
+          },
+          body: JSON.stringify({
+            quoteResponse: quoteData,
+            userPublicKey: body.userPublicKey,
+            ...(FEE_ATA && { feeAccount: FEE_ATA }), // Add fee account if available
+            wrapAndUnwrapSol: true, // Auto wrap/unwrap SOL
+            dynamicComputeUnitLimit: true,
+            prioritizationFeeLamports: 1000000, // 0.001 SOL priority fee (increased)
+          }),
+        });
+
+        if (!swapResponse.ok) {
+          const text = await swapResponse.text();
+          console.error('Jupiter swap error:', swapResponse.status, text);
+          return jsonResponse({ error: `Swap build failed: ${swapResponse.status}`, details: text }, swapResponse.status);
+        }
+
+        const swapData = await swapResponse.json() as {
+          swapTransaction: string; // Base64 encoded versioned transaction
+          lastValidBlockHeight: number;
+          prioritizationFeeLamports: number;
+          computeUnitLimit: number;
+          dynamicSlippageReport?: { slippageBps: number };
+        };
+
+        // Build unified response for client
+        const route = quoteData.routePlan?.map(r => r.swapInfo.label).join(' → ') || 'Direct';
+
+        return jsonResponse({
+          // Quote info
+          inputMint: quoteData.inputMint,
+          outputMint: quoteData.outputMint,
+          inAmount: quoteData.inAmount,
+          outAmount: quoteData.outAmount,
+          priceImpactPct: parseFloat(quoteData.priceImpactPct || '0'),
+          route: route,
+          // Transaction (base64 encoded, ready to sign)
+          swapTransaction: swapData.swapTransaction,
+          lastValidBlockHeight: swapData.lastValidBlockHeight,
+          // Platform fee info
+          platformFee: {
+            bps: PLATFORM_FEE_BPS,
+            feeAccount: FEE_WALLET,
+            feeMint: quoteData.outputMint, // Jupiter takes fee from output
+            amount: quoteData.platformFee?.amount || '0',
+          },
+        }, 200);
+      } catch (error) {
+        console.error('Swap quote error:', error);
+        return jsonResponse(
+          { error: error instanceof Error ? error.message : 'Quote failed' },
+          500
+        );
+      }
+    }
+
     // Route: POST / - Original meme generation (for website)
     if (url.pathname === '/' && request.method === 'POST') {
       try {

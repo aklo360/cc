@@ -1,13 +1,16 @@
 /**
- * Browser capture using Puppeteer
- * Supports two modes:
- * 1. Display mode (Linux) - FFmpeg captures via x11grab
- * 2. Window mode (macOS) - CDP screencast captures specific Chrome window
+ * Browser capture using Chrome's native CDP screencast API
+ *
+ * Architecture (Native Mac Mini):
+ * - Launches Chrome with Metal GPU acceleration
+ * - Uses Page.startScreencast CDP API for real-time frame capture
+ * - Injects requestAnimationFrame loop to force continuous repaints
+ * - Outputs JPEG frames to FFmpeg pipeline via callback
+ *
+ * This captures ONLY the Chrome window content, making it safe for
+ * macOS Space switches and background operation.
  */
 import puppeteer from 'puppeteer-core';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-const execAsync = promisify(exec);
 export class CdpCapture {
     config;
     events;
@@ -16,94 +19,50 @@ export class CdpCapture {
     cdpSession = null;
     isCapturing = false;
     healthCheckInterval = null;
-    screencastInterval = null;
-    windowId = null;
+    autoRefreshInterval = null;
     frameCount = 0;
-    static HEALTH_CHECK_INTERVAL_MS = 30000; // Check every 30 seconds
+    emptyPageCount = 0;
+    static HEALTH_CHECK_INTERVAL_MS = 60000; // Check every 60s (was 30s)
+    static DEFAULT_AUTO_REFRESH_MS = 30 * 60 * 1000; // 30 minutes (was 2 min)
+    static MAX_EMPTY_PAGES = 10; // Refresh after 10 consecutive empty checks
     constructor(config, events) {
         this.config = config;
         this.events = events;
-    }
-    /**
-     * Get Chrome window ID using AppleScript (macOS only)
-     * Returns the window ID of the most recently created Chrome window
-     */
-    async getWindowIdMacOS() {
-        if (process.platform !== 'darwin')
-            return null;
-        try {
-            // AppleScript to get the window ID of the frontmost Chrome window
-            const script = `
-        tell application "System Events"
-          tell process "Google Chrome"
-            set frontWindow to front window
-            return id of frontWindow
-          end tell
-        end tell
-      `;
-            const { stdout } = await execAsync(`osascript -e '${script}'`);
-            const windowId = parseInt(stdout.trim(), 10);
-            if (!isNaN(windowId)) {
-                return windowId;
-            }
-        }
-        catch (error) {
-            console.warn('[cdp] Could not get window ID:', error.message);
-        }
-        return null;
-    }
-    /**
-     * Get the Chrome window ID (macOS only)
-     * Call this after start() to get the window ID
-     */
-    getWindowId() {
-        return this.windowId;
-    }
-    /**
-     * Get the capture mode
-     */
-    getMode() {
-        return this.config.mode || 'display';
     }
     async start() {
         if (this.isCapturing) {
             throw new Error('Capture already running');
         }
-        const isMacOS = process.platform === 'darwin';
-        const chromePathMac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-        const chromePathLinux = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
-        console.log(`[cdp] Platform: ${process.platform}, launching Chrome with ${isMacOS ? 'GPU enabled' : 'Xvfb'}`);
-        // Launch browser - GPU enabled on macOS, Xvfb on Linux
+        const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+        console.log('[cdp] Launching Chrome with Metal GPU acceleration');
+        // Launch browser with GPU enabled for WebGL/VJ visuals
         this.browser = await puppeteer.launch({
-            executablePath: isMacOS ? chromePathMac : chromePathLinux,
-            headless: false, // Must be non-headless to render properly
-            ignoreDefaultArgs: ['--enable-automation'], // Hide "controlled by automation" banner
+            executablePath: chromePath,
+            headless: false, // Must be non-headless for proper rendering
+            ignoreDefaultArgs: ['--enable-automation'],
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                // GPU flags - enabled on macOS, disabled on Linux
-                ...(isMacOS ? [
-                    '--enable-gpu',
-                    '--enable-webgl',
-                    '--use-gl=angle',
-                    '--use-angle=metal', // Use Apple Metal for best performance
-                    '--enable-features=Metal',
-                ] : [
-                    '--disable-gpu',
-                    '--disable-software-rasterizer',
-                ]),
+                // Metal GPU acceleration
+                '--enable-gpu',
+                '--enable-webgl',
+                '--use-gl=angle',
+                '--use-angle=metal',
+                '--enable-features=Metal',
+                // Prevent throttling
                 '--disable-background-timer-throttling',
                 '--disable-backgrounding-occluded-windows',
                 '--disable-renderer-backgrounding',
-                '--disable-infobars', // Hide infobars
-                '--autoplay-policy=no-user-gesture-required', // Allow audio autoplay for VJ
+                '--disable-infobars',
+                '--autoplay-policy=no-user-gesture-required',
+                // Window settings
                 `--window-size=${this.config.width},${this.config.height}`,
                 '--window-position=0,0',
                 '--start-fullscreen',
                 '--kiosk',
             ],
-            defaultViewport: null, // Use window size
+            defaultViewport: null,
         });
         // Handle browser disconnect
         this.browser.on('disconnected', () => {
@@ -114,48 +73,37 @@ export class CdpCapture {
         // Create page
         const pages = await this.browser.pages();
         this.page = pages[0] || await this.browser.newPage();
-        // Navigate to the watch page
+        // Navigate to the target URL
         console.log(`[cdp] Navigating to ${this.config.url}`);
         await this.page.goto(this.config.url, {
             waitUntil: 'networkidle2',
-            timeout: 30000,
+            timeout: 60000, // 60s for cold starts after launchd restart
         });
-        // Hide scrollbars and ensure full viewport
+        // Hide scrollbars
         await this.page.evaluate(() => {
             document.body.style.overflow = 'hidden';
             document.documentElement.style.overflow = 'hidden';
         });
         this.isCapturing = true;
-        // Get window ID on macOS (for reference/debugging)
-        if (isMacOS) {
-            // Small delay to let window fully initialize
-            await new Promise(resolve => setTimeout(resolve, 500));
-            this.windowId = await this.getWindowIdMacOS();
-            if (this.windowId) {
-                console.log(`[cdp] Chrome window ID: ${this.windowId}`);
-            }
-        }
-        // Start screencast in window mode
-        const mode = this.config.mode || 'display';
-        if (mode === 'window') {
-            await this.startScreencast();
-            console.log('[cdp] Browser ready in window capture mode (CDP screencast)');
-        }
-        else {
-            console.log('[cdp] Browser ready in display capture mode');
-        }
-        // Start health check interval to detect Chrome crashes
+        // Start CDP screencast
+        await this.startScreencast();
+        console.log('[cdp] Browser ready - CDP screencast active');
+        // Start health check interval
         this.startHealthCheck();
+        // Start auto-refresh interval to pick up deployed changes
+        this.startAutoRefresh();
     }
     /**
-     * Start CDP screencast for window-specific capture
-     * Uses Chrome's native Page.startScreencast API for efficient real-time streaming
-     * This captures only the Chrome window, regardless of macOS Space switches
+     * Start CDP screencast with continuous frame delivery
+     *
+     * Chrome's screencast only sends frames when there are visual changes.
+     * We inject a requestAnimationFrame loop that toggles a tiny pixel's
+     * color every frame, forcing Chrome to continuously repaint.
      */
     async startScreencast() {
         if (!this.page)
             return;
-        // Create CDP session for screencast
+        // Create CDP session
         this.cdpSession = await this.page.createCDPSession();
         // Listen for screencast frames
         this.cdpSession.on('Page.screencastFrame', async (event) => {
@@ -172,22 +120,45 @@ export class CdpCapture {
                 this.events.onFrame(frameBuffer);
             }
             catch (error) {
-                // Ignore errors during page transitions
                 if (this.isCapturing) {
                     console.warn('[cdp] Frame ack error:', error.message);
                 }
             }
         });
-        // Start the screencast with target settings
-        // Chrome will deliver frames as fast as possible up to maxWidth/maxHeight
+        // Inject requestAnimationFrame loop to force continuous repaints
+        // This ensures Chrome always has visual changes to report via screencast
+        await this.page.evaluate(() => {
+            const trigger = document.createElement('div');
+            trigger.id = 'screencast-trigger';
+            trigger.style.cssText = `
+        position: fixed;
+        bottom: 0;
+        right: 0;
+        width: 1px;
+        height: 1px;
+        pointer-events: none;
+        z-index: 999999;
+      `;
+            document.body.appendChild(trigger);
+            let frame = 0;
+            function animate() {
+                frame++;
+                trigger.style.backgroundColor = frame % 2 === 0
+                    ? 'rgba(0,0,0,0.001)'
+                    : 'rgba(0,0,0,0.002)';
+                requestAnimationFrame(animate);
+            }
+            animate();
+        });
+        // Start the screencast
         await this.cdpSession.send('Page.startScreencast', {
             format: 'jpeg',
             quality: this.config.quality,
             maxWidth: this.config.width,
             maxHeight: this.config.height,
-            everyNthFrame: 1, // Capture every frame
+            everyNthFrame: 1,
         });
-        console.log(`[cdp] Native screencast started (${this.config.width}x${this.config.height}, ${this.config.quality}% quality)`);
+        console.log(`[cdp] Screencast started (${this.config.width}x${this.config.height}, ${this.config.quality}% quality)`);
     }
     /**
      * Stop the screencast
@@ -203,16 +174,10 @@ export class CdpCapture {
             this.cdpSession.detach().catch(() => { });
             this.cdpSession = null;
         }
-        // Legacy: clear interval if it exists (shouldn't with new implementation)
-        if (this.screencastInterval) {
-            clearInterval(this.screencastInterval);
-            this.screencastInterval = null;
-        }
     }
     /**
-     * Periodic health check to detect Chrome crashes (Aw, Snap! pages)
-     * Chrome can crash with various error codes (e.g., SIGILL, OOM)
-     * When this happens, we need to trigger a restart
+     * Periodic health check to detect Chrome crashes
+     * IMPORTANT: This should NOT trigger stream restart for transient errors
      */
     startHealthCheck() {
         this.healthCheckInterval = setInterval(async () => {
@@ -220,62 +185,118 @@ export class CdpCapture {
                 await this.checkPageHealth();
             }
             catch (error) {
-                console.error('[cdp] Health check failed:', error.message);
-                this.events.onError(new Error(`Health check failed: ${error.message}`));
+                const msg = error.message;
+                // Don't trigger restart for transient navigation errors
+                if (msg.includes('Execution context was destroyed') ||
+                    msg.includes('Navigating frame was detached') ||
+                    msg.includes('Target closed') ||
+                    msg.includes('Session closed')) {
+                    console.warn('[cdp] Transient health check error (ignoring):', msg);
+                    // Don't call onError - just log and continue
+                    return;
+                }
+                console.error('[cdp] Health check failed:', msg);
+                this.events.onError(new Error(`Health check failed: ${msg}`));
             }
         }, CdpCapture.HEALTH_CHECK_INTERVAL_MS);
     }
     async checkPageHealth() {
-        if (!this.page || !this.isCapturing) {
+        if (!this.page || !this.isCapturing)
             return;
-        }
         try {
-            // Check if page is still connected
             if (this.page.isClosed()) {
                 throw new Error('Page is closed');
             }
-            // Check page title and content for crash indicators
             const healthCheck = await this.page.evaluate(() => {
                 const title = document.title || '';
-                const bodyText = document.body?.innerText || '';
-                // Chrome crash page indicators
                 const crashIndicators = [
                     'Aw, Snap!',
-                    'something went wrong',
                     'ERR_',
                     'This page isn\'t working',
-                    'crashed',
+                    'This site can\'t be reached',
+                    'No internet',
                 ];
-                const isCrashed = crashIndicators.some(indicator => title.toLowerCase().includes(indicator.toLowerCase()) ||
-                    bodyText.toLowerCase().includes(indicator.toLowerCase()));
                 return {
                     title,
-                    isCrashed,
-                    hasContent: bodyText.length > 100,
+                    isCrashed: crashIndicators.some(i => title.includes(i)),
+                    hasContent: (document.body?.innerText?.length || 0) > 100,
+                    url: window.location.href,
                 };
             });
             if (healthCheck.isCrashed) {
-                console.error(`[cdp] Chrome crash detected! Title: "${healthCheck.title}"`);
-                throw new Error('Chrome crashed - page shows error');
+                throw new Error(`Chrome crashed - page shows: "${healthCheck.title}"`);
             }
             if (!healthCheck.hasContent) {
-                console.warn('[cdp] Page appears empty, may be loading or crashed');
+                this.emptyPageCount++;
+                console.warn(`[cdp] Page appears empty, may be loading or crashed (${this.emptyPageCount}/${CdpCapture.MAX_EMPTY_PAGES})`);
+                // After too many empty checks, try a refresh
+                if (this.emptyPageCount >= CdpCapture.MAX_EMPTY_PAGES) {
+                    console.log('[cdp] Too many empty page checks, forcing refresh...');
+                    this.emptyPageCount = 0;
+                    await this.refreshPage();
+                }
+            }
+            else {
+                // Reset counter on healthy page
+                this.emptyPageCount = 0;
             }
         }
         catch (error) {
-            // If evaluate fails, the page is likely crashed or disconnected
             throw error;
+        }
+    }
+    /**
+     * Start auto-refresh interval to pick up deployed changes
+     */
+    startAutoRefresh() {
+        const interval = this.config.autoRefreshMs || CdpCapture.DEFAULT_AUTO_REFRESH_MS;
+        console.log(`[cdp] Auto-refresh enabled every ${interval / 1000}s`);
+        this.autoRefreshInterval = setInterval(async () => {
+            try {
+                await this.refreshPage();
+            }
+            catch (error) {
+                console.error('[cdp] Auto-refresh failed:', error.message);
+            }
+        }, interval);
+    }
+    /**
+     * Refresh the page to pick up deployed changes
+     */
+    async refreshPage() {
+        if (!this.page || !this.isCapturing)
+            return;
+        console.log('[cdp] Refreshing page to pick up changes...');
+        try {
+            // Stop screencast during reload
+            await this.stopScreencast();
+            // Hard reload (bypass cache)
+            await this.page.reload({ waitUntil: 'networkidle2', timeout: 60000 });
+            // Hide scrollbars again
+            await this.page.evaluate(() => {
+                document.body.style.overflow = 'hidden';
+                document.documentElement.style.overflow = 'hidden';
+            });
+            // Restart screencast
+            await this.startScreencast();
+            console.log('[cdp] Page refreshed successfully');
+        }
+        catch (error) {
+            console.error('[cdp] Refresh error:', error.message);
+            // Don't throw - let it continue with the old page
         }
     }
     async stop() {
         console.log('[cdp] Stopping browser...');
         this.isCapturing = false;
-        // Clear health check interval
         if (this.healthCheckInterval) {
             clearInterval(this.healthCheckInterval);
             this.healthCheckInterval = null;
         }
-        // Stop screencast if running
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+            this.autoRefreshInterval = null;
+        }
         await this.stopScreencast();
         if (this.page) {
             await this.page.close().catch(() => { });
@@ -285,17 +306,14 @@ export class CdpCapture {
             await this.browser.close().catch(() => { });
             this.browser = null;
         }
-        this.windowId = null;
         console.log('[cdp] Browser stopped');
     }
     isRunning() {
         return this.isCapturing;
     }
-    // Frame count for window mode, -1 for display mode
     getFrameCount() {
-        return this.config.mode === 'window' ? this.frameCount : -1;
+        return this.frameCount;
     }
-    // Get the page instance for the Director to control
     getPage() {
         return this.page;
     }
