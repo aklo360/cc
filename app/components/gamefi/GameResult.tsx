@@ -106,10 +106,15 @@ export function GameResult({
             </div>
           ) : (
             <div className="space-y-1">
-              <p className="text-text-muted text-sm">Lost</p>
+              <p className="text-text-muted text-sm">Net Loss</p>
               <p className="text-2xl font-bold text-red-400">
-                -{betAmount.toLocaleString()} $CC
+                -{(betAmount - payout).toLocaleString()} $CC
               </p>
+              {payout > 0 && (
+                <p className="text-xs text-text-muted">
+                  Staked {betAmount.toLocaleString()}, got back {payout.toLocaleString()}
+                </p>
+              )}
             </div>
           )}
         </div>

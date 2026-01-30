@@ -74,6 +74,21 @@ import { loadWallet, createBurnWallet, burnWalletExists, getBurnWalletState, loa
 import { executeBuybackAndBurn, shouldRunBuyback, getBuybackStats, processAllSwapFees, getSwapFeeBalances } from './buyback.js';
 import { ensureBurnWalletAta, ensureRewardsWalletAta, getRewardsWalletAddress, ensureBrainWsolAta } from './solana.js';
 import { checkPayoutCircuitBreaker, checkTopUpNeeded, topUpGameWallet, getWalletSystemStatus, getAllLimits, REWARDS_LIMITS, GAME_LIMITS } from './rewards.js';
+import {
+  GACHA_CONFIG,
+  GACHA_DISTRIBUTION,
+  generateGachaCommitment,
+  createGachaCommitment,
+  getGachaCommitment,
+  getPendingGachaCommitment,
+  expireGachaCommitments,
+  markGachaDeposited,
+  computeGachaResults,
+  resolveGachaCommitment,
+  getDailyGachaStats,
+  getDailyGachaLoss,
+  type GachaTier,
+} from './gacha.js';
 import { PublicKey } from '@solana/web3.js';
 import { randomBytes, createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -193,6 +208,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'GET /flip/status/:id': 'Check commitment status',
         'GET /flip/deposit-address': 'Get brain wallet ATA for deposits',
         'GET /flip/stats': 'Get daily flip stats + circuit breaker status',
+        'POST /gacha/commit': 'Request gacha pull (1-10 samples, returns commitment)',
+        'POST /gacha/resolve': 'Submit deposit tx, get tier results',
+        'GET /gacha/stats': 'Get daily gacha stats + circuit breaker status',
         'GET /fees/balances': 'Get accumulated swap terminal fee balances (CC + SOL)',
         'POST /fees/process': 'Process all swap fees (CC direct burn + SOL buyback)',
         'POST /fees/create-wsol-ata': 'Create wSOL ATA for collecting sell fees',
@@ -1147,6 +1165,281 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
+  // ============ GACHA (PROBABILITY ENGINE) ENDPOINTS ============
+
+  /**
+   * POST /gacha/commit - Request gacha pull (Step 1)
+   * Returns commitment hash and deposit address
+   */
+  if (url === '/gacha/commit' && method === 'POST') {
+    try {
+      const body = await new Promise<string>((resolve) => {
+        let data = '';
+        req.on('data', chunk => data += chunk);
+        req.on('end', () => resolve(data));
+      });
+
+      const { wallet, samples } = JSON.parse(body) as {
+        wallet: string;
+        samples: number;
+      };
+
+      // Validate inputs
+      if (!wallet || samples === undefined) {
+        sendJson(res, 400, { error: 'Missing required fields: wallet, samples' });
+        return;
+      }
+
+      if (samples < GACHA_CONFIG.minSamples || samples > GACHA_CONFIG.maxSamples) {
+        sendJson(res, 400, { error: `Samples must be between ${GACHA_CONFIG.minSamples} and ${GACHA_CONFIG.maxSamples}` });
+        return;
+      }
+
+      // Validate wallet address
+      try {
+        new PublicKey(wallet);
+      } catch {
+        sendJson(res, 400, { error: 'Invalid wallet address' });
+        return;
+      }
+
+      // Circuit breaker check
+      const dailyLoss = getDailyGachaLoss();
+      const maxPotentialPayout = samples * GACHA_CONFIG.stakePerSample * 7; // Max is 7x (Legendary)
+      if (dailyLoss + maxPotentialPayout > GACHA_CONFIG.maxDailyLoss) {
+        console.log(`[Gacha/Commit] CIRCUIT BREAKER: Daily loss ${dailyLoss} + potential ${maxPotentialPayout} > limit ${GACHA_CONFIG.maxDailyLoss}`);
+        broadcastLog(`🚨 Gacha circuit breaker triggered`, true, 'system');
+        sendJson(res, 503, {
+          error: 'Gacha temporarily closed - daily loss limit reached',
+          dailyLoss: Math.floor(dailyLoss),
+          maxDailyLoss: GACHA_CONFIG.maxDailyLoss,
+          resetsAt: new Date(new Date().setUTCHours(24, 0, 0, 0)).toISOString(),
+        });
+        return;
+      }
+
+      // Auto-expire old commitments
+      expireGachaCommitments(wallet);
+
+      // Check for existing pending commitment
+      const existingCommitment = getPendingGachaCommitment(wallet);
+      if (existingCommitment) {
+        sendJson(res, 409, {
+          error: 'You already have a pending gacha commitment',
+          commitmentId: existingCommitment.id,
+          expiresAt: existingCommitment.expires_at,
+          expiresInMs: existingCommitment.expires_at - Date.now(),
+        });
+        return;
+      }
+
+      // Get brain wallet ATA for deposit
+      const depositTo = await getBrainWalletAta();
+      if (!depositTo) {
+        sendJson(res, 500, { error: 'Server wallet not configured' });
+        return;
+      }
+
+      const feeRecipient = getBrainWalletSolAddress();
+      if (!feeRecipient) {
+        sendJson(res, 500, { error: 'Server wallet not configured' });
+        return;
+      }
+
+      // Generate commitment
+      const { secret, hash } = generateGachaCommitment();
+      const expiresAt = Date.now() + (GACHA_CONFIG.expirySeconds * 1000);
+      const stakeAmount = samples * GACHA_CONFIG.stakePerSample;
+      const depositAmount = stakeAmount * 1_000_000_000; // 9 decimals
+
+      // Create commitment in database
+      const commitmentId = createGachaCommitment(wallet, samples, secret, hash, expiresAt);
+
+      console.log(`[Gacha/Commit] Created: ${commitmentId.slice(0, 8)}... for ${wallet.slice(0, 8)}... (${samples} samples, ${stakeAmount} $CC)`);
+      broadcastLog(`🎰 Gacha commit: ${wallet.slice(0, 8)}... (${samples} samples)`, true, 'system');
+
+      sendJson(res, 200, {
+        commitmentId,
+        commitment: hash,
+        depositTo,
+        depositAmount,
+        samples,
+        stakeAmount,
+        expiresAt,
+        feeRecipient,
+        platformFeeLamports: GACHA_CONFIG.platformFeeLamports,
+        distribution: GACHA_DISTRIBUTION,
+      });
+    } catch (error) {
+      console.error('[Gacha/Commit] Error:', error);
+      sendJson(res, 500, { error: 'Internal server error' });
+    }
+    return;
+  }
+
+  /**
+   * POST /gacha/resolve - Submit deposit and get results (Step 2)
+   */
+  if (url === '/gacha/resolve' && method === 'POST') {
+    try {
+      const body = await new Promise<string>((resolve) => {
+        let data = '';
+        req.on('data', chunk => data += chunk);
+        req.on('end', () => resolve(data));
+      });
+
+      const { commitmentId, txSignature } = JSON.parse(body) as {
+        commitmentId: string;
+        txSignature: string;
+      };
+
+      if (!commitmentId || !txSignature) {
+        sendJson(res, 400, { error: 'Missing required fields: commitmentId, txSignature' });
+        return;
+      }
+
+      // Get commitment
+      const commitment = getGachaCommitment(commitmentId);
+      if (!commitment) {
+        sendJson(res, 404, { error: 'Commitment not found' });
+        return;
+      }
+
+      if (commitment.status === 'resolved') {
+        sendJson(res, 409, {
+          error: 'Commitment already resolved',
+          results: JSON.parse(commitment.results || '[]'),
+          totalPayout: commitment.total_payout,
+          payoutTx: commitment.payout_tx,
+        });
+        return;
+      }
+
+      if (commitment.status === 'expired' || commitment.expires_at < Date.now()) {
+        sendJson(res, 410, { error: 'Commitment expired' });
+        return;
+      }
+
+      // Check replay attack
+      if (isTxSignatureUsed(txSignature)) {
+        sendJson(res, 409, { error: 'Transaction signature already used' });
+        return;
+      }
+
+      // Verify deposit on-chain
+      const expectedAmount = BigInt(commitment.stake_amount * 1_000_000_000);
+      const connection = getConnection();
+
+      console.log(`[Gacha/Resolve] Verifying deposit: ${txSignature.slice(0, 16)}...`);
+      const verification = await verifyDepositTransaction(
+        connection,
+        txSignature,
+        commitment.wallet,
+        expectedAmount
+      );
+
+      if (!verification.valid) {
+        console.log(`[Gacha/Resolve] Deposit verification failed: ${verification.error}`);
+        sendJson(res, 400, {
+          error: 'Deposit verification failed',
+          details: verification.error,
+        });
+        return;
+      }
+
+      // Mark tx as used
+      markTxSignatureUsed(txSignature, commitmentId);
+      markGachaDeposited(commitmentId, txSignature);
+
+      // Compute results using provably fair method
+      const { tiers, payouts, totalPayout } = computeGachaResults(
+        commitment.secret,
+        txSignature,
+        commitment.sample_count
+      );
+
+      console.log(`[Gacha/Resolve] Results: ${tiers.join(', ')} → ${totalPayout} $CC`);
+      broadcastLog(`🎰 Gacha: ${commitment.wallet.slice(0, 8)}... → ${tiers.filter(t => t !== 'Basic').length} hits, ${totalPayout} $CC`, true, 'system');
+
+      // Send payout if > 0
+      let payoutTx: string | null = null;
+
+      if (totalPayout > 0) {
+        const encryptionKey = process.env.BRAIN_WALLET_KEY;
+        if (encryptionKey) {
+          try {
+            const gameWallet = loadWallet(encryptionKey);
+            const userPubkey = new PublicKey(commitment.wallet);
+
+            console.log(`[Gacha/Resolve] Sending payout: ${totalPayout} $CC to ${commitment.wallet.slice(0, 8)}...`);
+            payoutTx = await transferCC(
+              connection,
+              gameWallet,
+              userPubkey,
+              BigInt(totalPayout * 1_000_000_000)
+            );
+            console.log(`[Gacha/Resolve] Payout sent: ${payoutTx}`);
+
+            // Record payout for stats
+            recordPayout(BigInt(totalPayout * 1_000_000_000));
+          } catch (error) {
+            console.error(`[Gacha/Resolve] Payout failed:`, error);
+            // Continue - we'll mark as resolved but note payout failed
+          }
+        }
+      }
+
+      // Resolve commitment
+      resolveGachaCommitment(commitmentId, tiers, totalPayout, payoutTx);
+
+      sendJson(res, 200, {
+        results: tiers,
+        payouts,
+        totalPayout,
+        stakeAmount: commitment.stake_amount,
+        netProfit: totalPayout - commitment.stake_amount,
+        depositTx: txSignature,
+        payoutTx,
+        serverSecret: commitment.secret,
+        commitment: commitment.commitment_hash,
+      });
+    } catch (error) {
+      console.error('[Gacha/Resolve] Error:', error);
+      sendJson(res, 500, { error: 'Internal server error' });
+    }
+    return;
+  }
+
+  /**
+   * GET /gacha/stats - Get daily gacha statistics
+   */
+  if (url === '/gacha/stats' && method === 'GET') {
+    const stats = getDailyGachaStats();
+    const remainingLoss = GACHA_CONFIG.maxDailyLoss - Math.max(0, stats.totalPaidOut - stats.totalStaked);
+    const isCircuitBreakerActive = remainingLoss <= 0;
+
+    sendJson(res, 200, {
+      today: {
+        samples: stats.totalSamples,
+        staked: stats.totalStaked,
+        paidOut: stats.totalPaidOut,
+        houseProfit: stats.netProfit,
+      },
+      limits: {
+        stakePerSample: GACHA_CONFIG.stakePerSample,
+        maxSamples: GACHA_CONFIG.maxSamples,
+        maxDailyLoss: GACHA_CONFIG.maxDailyLoss,
+        remainingLossCapacity: Math.max(0, Math.floor(remainingLoss)),
+      },
+      distribution: GACHA_DISTRIBUTION,
+      circuitBreaker: {
+        active: isCircuitBreakerActive,
+        resetsAt: new Date(new Date().setUTCHours(24, 0, 0, 0)).toISOString(),
+      },
+    });
+    return;
+  }
+
   // ============ BUYBACK & BURN ENDPOINTS ============
 
   /**
@@ -1839,10 +2132,10 @@ async function handleDailyExperiment(): Promise<void> {
 function setupCronJobs(): void {
   console.log('Setting up cron jobs (Brain 2.0 Crypto Lab)...');
 
-  // Daily Experiment: 9:00 AM UTC - peak dev Twitter hours
+  // Daily Experiment: 21:00 UTC (4 PM EST) - peak US afternoon hours
   // This is the main driver of Brain 2.0 - one high-quality experiment per day
-  cron.schedule('0 9 * * *', handleDailyExperiment);
-  console.log('  ✓ Daily Experiment: 9:00 AM UTC');
+  cron.schedule('0 21 * * *', handleDailyExperiment);
+  console.log('  ✓ Daily Experiment: 21:00 UTC (4 PM EST)');
 
   // Cleanup expired flip commitments every minute
   cron.schedule('* * * * *', () => {

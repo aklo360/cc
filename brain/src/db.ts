@@ -939,15 +939,17 @@ export function resetShippedFeatures(): number {
   // Clear existing features
   db.prepare('DELETE FROM shipped_features').run();
 
-  // The 6 actual features on claudecode.wtf (ordered by shipped date, oldest first)
-  // ccflip is most recent, so it gets the latest timestamp
+  // The 8 actual features on claudecode.wtf (ordered by shipped date, oldest first)
+  // neural is most recent, so it gets the latest timestamp
   const actualFeatures = [
-    { slug: 'meme', name: 'Meme Generator', description: 'AI-powered meme creation with Gemini', daysAgo: 30 },
-    { slug: 'play', name: 'Space Invaders', description: '2D Canvas game with CC mascot shooting aliens', daysAgo: 25 },
-    { slug: 'moon', name: 'StarClaude64', description: '3D endless runner with Three.js, dodge asteroids and collect coins', daysAgo: 20 },
-    { slug: 'watch', name: 'Watch Brain', description: 'Real-time log viewer for the Central Brain', daysAgo: 15 },
-    { slug: 'vj', name: 'VJ Mode', description: 'Live audio-reactive visual generator with Hydra', daysAgo: 10 },
-    { slug: 'ccflip', name: 'CC Flip', description: 'Mainnet coin flip game with 1.96x payout', daysAgo: 0 },
+    { slug: 'meme', name: 'Meme Generator', description: 'AI-powered meme creation with Gemini', daysAgo: 35 },
+    { slug: 'play', name: 'Space Invaders', description: '2D Canvas game with CC mascot shooting aliens', daysAgo: 30 },
+    { slug: 'moon', name: 'StarClaude64', description: '3D endless runner with Three.js, dodge asteroids and collect coins', daysAgo: 25 },
+    { slug: 'watch', name: 'Watch Brain', description: 'Real-time log viewer for the Central Brain', daysAgo: 20 },
+    { slug: 'vj', name: 'VJ Mode', description: 'Live audio-reactive visual generator with Hydra', daysAgo: 15 },
+    { slug: 'ccflip', name: 'CC Flip', description: 'Mainnet coin flip game with provably fair mechanics', daysAgo: 10 },
+    { slug: 'swap', name: 'Trading Terminal', description: 'SOL/$CC swap with Jupiter, 1% fee to buyback & burn', daysAgo: 5 },
+    { slug: 'neural', name: 'Neural Network Genesis', description: 'On-chain gacha game with up to 7x $CC multiplier', daysAgo: 0 },
   ];
 
   const stmt = db.prepare(`

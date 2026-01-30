@@ -9,6 +9,7 @@ import { GameTrailer } from "./compositions/GameTrailer";
 import { GameFiTrailer, GameFiTrailerProps } from "./compositions/GameFiTrailer";
 import { TradingTerminalTrailer, TradingTerminalTrailerProps } from "./compositions/TradingTerminalTrailer";
 import { WatchPageTrailer } from "./compositions/WatchPageTrailer";
+import { NeuralGenesisTrailer, NeuralGenesisTrailerProps } from "./compositions/NeuralGenesisTrailer";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -156,6 +157,31 @@ export const RemotionRoot: React.FC = () => {
         fps={30}
         width={1920}
         height={1080}
+      />
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+       * NEURAL NETWORK GENESIS TRAILER - On-Chain Gacha
+       * ═══════════════════════════════════════════════════════════════════════
+       * Showcases the gacha probability engine with:
+       * - Tier distribution grid (Basic/Advanced/Elite/Legendary)
+       * - Sample size selector (Single 5,000 vs Batch 50,000)
+       * - Evolution animation with progress bar
+       * - Recent samples section with animated entries
+       * - Confetti on Legendary hits
+       */}
+      <Composition
+        id="NeuralGenesisTrailer"
+        component={NeuralGenesisTrailer}
+        durationInFrames={15 * 30} // 15 seconds at 30fps
+        fps={30}
+        width={1920}
+        height={1080}
+        defaultProps={{
+          featureName: "Neural Network Genesis",
+          featureSlug: "neural",
+          // Good variety batch with a Legendary at the end for drama
+          results: ["Basic", "Advanced", "Basic", "Basic", "Elite", "Basic", "Basic", "Advanced", "Basic", "Legendary"],
+        } as NeuralGenesisTrailerProps}
       />
     </>
   );

@@ -223,7 +223,9 @@
       "WebFetch(domain:commons.wikimedia.org)",
       "WebFetch(domain:uxwing.com)",
       "WebFetch(domain:simpleicons.org)",
-      "Bash(ss:*)"
+      "Bash(ss:*)",
+      "Bash(git status:*)",
+      "Bash(TZ=America/New_York date:*)"
     ]
   },
   "enabledMcpjsonServers": [
