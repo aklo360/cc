@@ -46,3 +46,20 @@ video/out/
 video/public/footage/
 stream/cookies.txt
 stream/*.log
+
+# Build artifacts
+**/target/
+**/node_modules/
+*.rlib
+*.rmeta
+
+# Large media (store externally)
+*.mp4
+*.mp3
+*.wav
+*.mov
+
+# Database files
+*.db
+*.db-*
+*.sqlite
